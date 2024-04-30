@@ -1,0 +1,135 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-04-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(emmeans)
+library(ggridges)
+library(gamm4)
+```
+
+
+```{r}
+# Import data
+df <- read_csv("data/export.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+
+# Number day of the year for some model fitting
+df <- df %>%
+  mutate(Day = yday(Date),
+         Month = month(Date))
+
+# Order Subregions from south to north
+df <- df %>%
+  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
+                                              "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
+                                              "Biscayne", "Broward-Miami", "South Palm Beach", 
+                                              "North Palm Beach", "Martin")))
+
+# Create ordinal variable for bleaching severity
+df <- df %>%
+  mutate(Bleaching2 = case_when(is.na(Bleaching) ~ 0,
+                                Bleaching == "P" ~ 1,
+                                Bleaching == "PB" ~ 2,
+                                Bleaching == "BL" ~ 3))
+
+# Subset just 2023 surveys
+df23 <- filter(df, year(Date) == "2023")
+```
+
+```{r}
+# How were 2023 surveys distributed across time and space?
+surveys <- df23 %>%
+  distinct(Subregion, Date, Site)
+
+ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
+  geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
+  theme(legend.position = "none")
+
+# Did bleaching severity change over time?
+## Fit GAMM for overall bleaching level over time within each Subregion
+mod <- gam(Bleaching2 ~ s(Day, by = Subregion), data = df23)
+res <- emmeans(mod, specs = "Day", by = "Subregion", at = list(Day = seq(167, 318, 1)))
+# Plot 
+df23 %>%
+  distinct(Subregion, Day, Date) %>%
+  arrange(Subregion, Date) %>%
+  #group_by(Subregion) %>%
+  #tidyr::expand(Day = seq(min(Day), max(Day), 1)) %>%
+  left_join(as.tibble(res)) %>%
+  mutate(Date = as.Date(Day, origin = as.Date("2024-01-01"))) %>%
+  #filter(Subregion == "Tortugas--Dry Tortugas NP")
+  #filter(Subregion %in% c("Tortugas--Dry Tortugas NP", "Marquesas")) %>%
+  ggplot(aes(x = Date, y = emmean, color = Subregion)) +
+  geom_line() +
+  ylim(0, 3)
+
+## Fit by factor Date
+mod <- lmer(Bleaching2 ~ factor(Date) * Subregion + (1|Species) + (1|Site), data = df23)
+res <- emmeans(mod, specs = "Date", by = "Subregion")
+# Plot
+as.tibble(res) %>%
+  drop_na(emmean) %>%
+  ggplot(aes(x = Date, y = emmean, color = Subregion)) +
+  geom_line() +
+  ylim(0, 3)
+```
+
+    
+```{r}
+# - [ ] Bleaching severity by species (in relation to location and DHW). which species more/less bleached
+
+# Subset mid-August to end of September (stable peak of bleaching to allow comparing across Subregions)
+df23ss <- df23 #%>%
+  #filter(Date >= "2023-08-15" & Date <= "2023-09-30")
+
+# How many sites per Subregion?
+# How are reef Zones diff across Subregions?
+df23ss %>%
+  distinct(Subregion, Site, Zone) %>%
+  group_by(Subregion) %>%
+  ggplot(aes(x = Subregion, fill = Zone)) +
+  geom_bar(position = "stack") +
+  scale_y_continuous(breaks = seq(0, 100, 10))
+  
+
+# Subset just species with over 100 observations in 2023
+abund_spp <- df23ss %>%
+  count(Species) %>%
+  filter(n >= 100) %>%
+  pull(Species)
+
+df23ss <- df23ss %>% filter(Species %in% abund_spp) %>%
+  mutate(Species = droplevels(Species))
+
+# Model bleaching severity by species
+mod <- lmerTest::lmer(Bleaching2 ~ Species * Subregion + (1|Site) + (1|Month), data = df23ss)
+anova(mod)
+
+emm <- emmeans(mod, specs = "Species", by = "Subregion")
+
+as.tibble(emm) %>%
+  ggplot(aes(x = Subregion, y = emmean, color = Species, group = Species)) +
+  geom_point() +
+  geom_line()
+
+
+# Ordinal regression?
+library(ordinal)
+mod <- clmm(as.factor(Bleaching2) ~ Species * Subregion + (1|Site), data = df23ss)
+ukemm <- emmeans(mod, specs = "Species", at = list(Subregion = "Upper Keys"))
+lkemm <- emmeans(mod, specs = "Species", at = list(Subregion = "Lower Keys"))
+```
+
+    - [ ] Variability in bleaching among individuals within a species (where do tol. and sens. individuals cooccur?) which spp have the most variability among individuals?
+    - [ ] Where are heat-tolerant individuals? i.e., most non-bleached individuals rel. to DHW
+    - [ ] Are juveniles doing better (less bleaching) than larger adult colonies for any species?
