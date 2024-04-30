@@ -46,6 +46,7 @@ df <- df %>%
 df23 <- filter(df, year(Date) == "2023")
 ```
 
+
 ```{r}
 # How were 2023 surveys distributed across time and space?
 surveys <- df23 %>%
@@ -88,7 +89,7 @@ as.tibble(res) %>%
 ```{r}
 # - [ ] Bleaching severity by species (in relation to location and DHW). which species more/less bleached
 
-# Subset mid-August to end of September (stable peak of bleaching to allow comparing across Subregions)
+# Subset mid-August to end of September? (stable peak of bleaching to allow comparing across Subregions, e.g. Marquesas was in Oct. only)
 df23ss <- df23 #%>%
   #filter(Date >= "2023-08-15" & Date <= "2023-09-30")
 
@@ -102,13 +103,21 @@ df23ss %>%
   scale_y_continuous(breaks = seq(0, 100, 10))
   
 
-# Subset just species with over 100 observations in 2023
+# Filter 1: Subset just species with over 100 observations in 2023?
 abund_spp <- df23ss %>%
   count(Species) %>%
   filter(n >= 100) %>%
   pull(Species)
 
-df23ss <- df23ss %>% filter(Species %in% abund_spp) %>%
+# Filter 2: Subset just species with >5 observations per Subregion?
+abund_spp2 <- df23ss %>%
+  group_by(Subregion) %>%
+  count(Species) %>%
+  filter(n >= 6)
+
+df23ss <- df23ss %>% 
+  #filter(Species %in% abund_spp) %>%.     # Apply filter 1
+  right_join(abund_spp2) %>%               # Apply filter 2
   mutate(Species = droplevels(Species))
 
 # Model bleaching severity by species
@@ -120,7 +129,8 @@ emm <- emmeans(mod, specs = "Species", by = "Subregion")
 as.tibble(emm) %>%
   ggplot(aes(x = Subregion, y = emmean, color = Species, group = Species)) +
   geom_point() +
-  geom_line()
+  geom_line() +
+  facet_wrap(~Species)
 
 
 # Ordinal regression?
