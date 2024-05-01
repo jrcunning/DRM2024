@@ -26,7 +26,8 @@ df <- read_csv("data/export.csv") %>%
 # Number day of the year for some model fitting
 df <- df %>%
   mutate(Day = yday(Date),
-         Month = month(Date))
+         Week = factor(week(Date)),
+         Month = factor(month(Date)))
 
 # Order Subregions from south to north
 df <- df %>%
@@ -74,13 +75,13 @@ df23 %>%
   geom_line() +
   ylim(0, 3)
 
-## Fit by factor Date
-mod <- lmer(Bleaching2 ~ factor(Date) * Subregion + (1|Species) + (1|Site), data = df23)
-res <- emmeans(mod, specs = "Date", by = "Subregion")
+## Fit by factor Week
+mod <- lmer(Bleaching2 ~ factor(Week) * Subregion + (1|Species) + (1|Site), data = df23)
+res <- emmeans(mod, specs = "Week", by = "Subregion")
 # Plot
 as.tibble(res) %>%
   drop_na(emmean) %>%
-  ggplot(aes(x = Date, y = emmean, color = Subregion)) +
+  ggplot(aes(x = Week, y = emmean, color = Subregion)) +
   geom_line() +
   ylim(0, 3)
 ```
@@ -89,9 +90,13 @@ as.tibble(res) %>%
 ```{r}
 # - [ ] Bleaching severity by species (in relation to location and DHW). which species more/less bleached
 
-# Subset mid-August to end of September? (stable peak of bleaching to allow comparing across Subregions, e.g. Marquesas was in Oct. only)
 df23ss <- df23 #%>%
+  # Subset mid-August to end of September? (stable peak of bleaching to allow comparing across Subregions, e.g. Marquesas was in Oct. only)
   #filter(Date >= "2023-08-15" & Date <= "2023-09-30")
+
+# Filter out dead corals?
+df23ss <- df23ss %>%
+  filter(Old + Recent < 100)
 
 # How many sites per Subregion?
 # How are reef Zones diff across Subregions?
@@ -109,11 +114,11 @@ abund_spp <- df23ss %>%
   filter(n >= 100) %>%
   pull(Species)
 
-# Filter 2: Subset just species with >5 observations per Subregion?
+# Filter 2: Subset just species with >=5 observations per Subregion?
 abund_spp2 <- df23ss %>%
   group_by(Subregion) %>%
   count(Species) %>%
-  filter(n >= 6)
+  filter(n >= 5)
 
 df23ss <- df23ss %>% 
   #filter(Species %in% abund_spp) %>%.     # Apply filter 1
@@ -133,13 +138,69 @@ as.tibble(emm) %>%
   facet_wrap(~Species)
 
 
-# Ordinal regression?
+# Ordinal regression? taking forever, does not finish
 library(ordinal)
-mod <- clmm(as.factor(Bleaching2) ~ Species * Subregion + (1|Site), data = df23ss)
-ukemm <- emmeans(mod, specs = "Species", at = list(Subregion = "Upper Keys"))
-lkemm <- emmeans(mod, specs = "Species", at = list(Subregion = "Lower Keys"))
+mod <- clmm(as.factor(Bleaching2) ~ Species * Subregion + (1|Site) + (1|Month), data = df23ss)
+emm <- emmeans(mod, specs = "Species", by = "Subregion")
 ```
 
-    - [ ] Variability in bleaching among individuals within a species (where do tol. and sens. individuals cooccur?) which spp have the most variability among individuals?
-    - [ ] Where are heat-tolerant individuals? i.e., most non-bleached individuals rel. to DHW
-    - [ ] Are juveniles doing better (less bleaching) than larger adult colonies for any species?
+```{r}
+#     - [ ] Variability in bleaching among individuals within a species (where do tol. and sens. individuals cooccur?) which spp have the most variability among individuals?
+
+test <- df23ss %>%
+  group_by(Site, Species, Subregion, Zone) %>%
+  summarize(n = n(),
+            bleachvar = var(Bleaching2),
+            max = max(Bleaching2)) %>%
+  filter(n >= 10, max == 3, bleachvar > 0)
+
+ggplot(test, aes(x = Species, y = bleachvar)) +
+  geom_violin(scale = "width", draw_quantiles = 0.5) +
+  geom_jitter(aes(color = Subregion), width = 0.2)
+
+hi <- df23ss %>%
+  filter(Site == "Y1431", Species == "SSID")
+```
+
+```{r}
+#  - [ ] Where are heat-tolerant individuals? i.e., most non-bleached individuals rel. to DHW
+```
+
+
+```{r}
+# - [ ] Are juveniles doing better (less bleaching) than larger adult colonies for any species?
+
+# Model bleaching severity by species and size class
+df23ss <- df23ss %>%
+  mutate(sizeclass = case_when(Width <= 8 & (Old + Recent) <= 10 ~ "juv",
+                               TRUE ~ "adult"))
+mod <- lmerTest::lmer(Bleaching2 ~ sizeclass * Species + Subregion + (1|Site) + (1|Month), 
+                      data = filter(df23ss, !Subregion %in% c("Broward-Miami", "South Palm Beach",
+                                                              "North Palm Beach", "Martin")))
+anova(mod)
+
+emm <- emmeans(mod, specs = c("Species", "sizeclass"))
+as.tibble(emm) %>%
+  ggplot(aes(x = sizeclass, y = emmean)) +
+  facet_wrap(~Species, scales = "free") +
+  geom_point() +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL))
+
+stats <- rbind(contrast(emm, "pairwise", by = "Species")) %>%
+  as.tibble() %>%
+  arrange(p.value) %>%
+  print(n = nrow(.))
+
+sigspp <- stats %>%
+  filter(p.value < 0.05)
+
+as.tibble(emm) %>%
+  filter(Species %in% sigspp$Species) %>%
+  ggplot(aes(x = sizeclass, y = emmean)) +
+  facet_wrap(~Species) +
+  geom_point() +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL))
+```
+    
+
+    
