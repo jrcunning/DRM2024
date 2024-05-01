@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "2023 DHW analysis for DRM survey locations"
 output: html_document
 date: "2024-05-01"
 ---
@@ -11,54 +11,18 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(ncdf4) # package for netcdf manipulation
 library(raster) # package for raster manipulation
-library(rgdal) # package for geospatial analysis
-library(tidyverse) # package for plotting
+library(tidyverse)
 ```
 
-DHW data downloaded using:
+DHW data downloaded 5/1/24 using:
 wget -r -l1 -A "ct*" https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily/dhw/2023/
 
-```{r}
-
-##### https://rpubs.com/boyerag/297592
-
-
-nc_data <- nc_open('data/dhw/ct5km_dhw_v3.1_20230812.nc')
-
-
-lon <- ncvar_get(nc_data, "lon")
-lat <- ncvar_get(nc_data, "lat", verbose = F)
-t <- ncvar_get(nc_data, "time")
-
-dhw.array <- ncvar_get(nc_data, "degree_heating_week") # store the data in a 3-dimensional array
-dim(dhw.array)
-
-fillvalue <- ncatt_get(nc_data, "degree_heating_week", "_FillValue")
-fillvalue
-
-nc_close(nc_data) 
-```
-
-```{r}
-dhw.array[dhw.array == fillvalue$value] <- NA
-
-r <- raster(t(dhw.array), xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
-
-plot(r)
-
-toolik_lon <- -80.456487
-toolik_lat <- 24.959612
-toolik_series <- raster::extract(r, SpatialPoints(cbind(toolik_lon,toolik_lat)), method='simple')
-toolik_series
-```
+netcdf tutorial here: https://rpubs.com/boyerag/297592
 
 
 ```{r}
 # Import all NetCDF files for each date from June 1 through December 31, 2023
 nc.files <- list.files("data/dhw", pattern = "*.nc$", full.names = TRUE)
-
-# Subset for testing
-nc.files <- nc.files[94:124]
 
 # Get coordinate box for Florida Reef Tract
 #nc <- nc_open("data/dhw/ct5km_dhw_v3.1_20230901.nc")
@@ -76,23 +40,31 @@ drmsites <- read_csv("data/drm/export.csv") %>%
   mutate(across(where(is.character), as_factor),
          Date = as_date(as.character(Date), format = "%m/%d/%Y")) %>%
   filter(year(Date) == "2023") %>%
-  distinct(Site, Longitude, Latitude)
+  distinct(Site, Subregion, Longitude, Latitude)
 
 # Open all DHW NCDF4 files
-test <- tibble(file = nc.files) %>%
+nc.data <- tibble(file = nc.files) %>%
   mutate(date = map_chr(file, ~str_extract(., "2023...."), format = "%Y%m%d"),
          data = map(file, nc_open),
-          dhw = map(data, ~ncvar_get(., "degree_heating_week", start = c(1930, 1240, 1), count = c(91, 81, 1))),
-            r = map(dhw,  ~raster(t(.), xmn = -83.525, xmx = -78.975, ymn = 23.975, ymx = 28.025,
-                                  crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))),
+      dhw.all = map(data, ~ncvar_get(., "degree_heating_week", start = c(1930, 1240, 1), count = c(91, 81, 1))),
+            r = map(dhw.all, ~raster(t(.), xmn = -83.525, xmx = -78.975, ymn = 23.975, ymx = 28.025,
+                                     crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))),
        coords = list(drmsites),
-         extr = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,2:3]), method = "simple")))
+          dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
 
-out <- test %>% select(date, coords, extr) %>% unnest()
+out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
+  mutate(date = as_date(date, format = "%Y%m%d"))
+```
 
-ggplot(out, aes(x = date, y = extr, color = Site, group = Site)) +
+```{r}
+# Plot DHWs for all sites
+ggplot(out, aes(x = date, y = dhw, color = Subregion, group = Site)) +
   geom_line() +
-  theme(legend.position = "none")
+  scale_x_date(date_breaks = "month", date_labels = "%b")
+```
 
+```{r}
+# Write DHW data to file
+write_csv(out, file = "data/dhw/dhw_processed.csv")
 ```
 

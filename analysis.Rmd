@@ -51,6 +51,15 @@ df <- df %>%
 
 # Subset just 2023 surveys
 df23 <- filter(df, year(Date) == "2023")
+
+# Import 2023 DHW data
+dhw <- read_csv("data/dhw/dhw_processed.csv") %>%
+  mutate(across(where(is.character), as_factor)) %>%
+  rename(Date = date) %>%
+  dplyr::select(Site, Date, dhw)
+
+# Get DHW values for each DRM survey site on date surveyed
+df23 <- left_join(df23, dhw, by = c("Site", "Date"))
 ```
 
 
@@ -146,6 +155,44 @@ library(ordinal)
 mod <- clmm(as.factor(Bleaching2) ~ Species * Subregion + (1|Site) + (1|Month), data = df23ss)
 emm <- emmeans(mod, specs = "Species", by = "Subregion")
 ```
+
+```{r}
+# bleaching analysis with DHW as covariate?
+# Model bleaching severity by species
+mod <- lmerTest::lmer(Bleaching2 ~ Species * dhw + (1|Site), data = df23ss)
+anova(mod)
+
+emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,25,1)))
+
+as.tibble(emm) %>%
+  ggplot(aes(x = dhw, y = emmean, color = Species, group = Species)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~Species) +
+  ylim(0, 4)
+
+# Try binning DHW
+df23ss <- df23ss %>%
+  mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+mod <- lmerTest::lmer(Bleaching2 ~ Species * dhw.bin + (1|Site), data = df23ss)
+anova(mod)
+
+emm <- emmeans(mod, specs = c("Species", "dhw.bin"), at = list(dhw.bin = levels(df23ss$dhw.bin)))
+
+as.tibble(emm) %>%
+  ggplot(aes(x = dhw.bin, y = emmean, color = Species, group = Species)) +
+  geom_point() +
+  geom_line() +
+  #facet_wrap(~Species) +
+  ylim(0, 4)
+
+
+
+# Need to try some binomial modeling with BL as response (1=BL, 0=notBL) to model proportion of colonies bleached at various locations and dhw levels....
+```
+
+
+
 
 ```{r}
 # - [ ] Variability in bleaching among individuals within a species 
