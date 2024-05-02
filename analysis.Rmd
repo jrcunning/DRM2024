@@ -13,9 +13,11 @@ library(lme4)
 library(emmeans)
 library(ggridges)
 library(gamm4)
+library(MASS)
 library(tidyverse)
 ```
 
+# Import data
 
 ```{r}
 # Import data
@@ -36,13 +38,24 @@ df <- df %>%
                                               "Biscayne", "Broward-Miami", "South Palm Beach", 
                                               "North Palm Beach", "Martin")))
 
-# Create ordinal variable for bleaching severity
+# Order Species alphabetically
+df <- df %>%
+  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+
+# Create ordinal variables and factors for bleaching severity
 df <- df %>%
   mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
                                 Bleaching == "P" ~ 1,
                                 Bleaching == "PB" ~ 2,
                                 Bleaching == "BL" ~ 3,
-                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4))
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4),
+         Bleaching3 = factor(case_match(Bleaching2, 
+                                 0 ~ "Healthy",
+                                 1 ~ "Pale",
+                                 2 ~ "Partially Bleached",
+                                 3 ~ "Bleached",
+                                 4 ~ "Dead"),
+                             levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
 
 #### There are 45 corals listed with "TRS" but are blank for "Bleaching"... talk to Jennifer about these?
 #### For now, remove these from analysis
@@ -60,17 +73,19 @@ dhw <- read_csv("data/dhw/dhw_processed.csv") %>%
 
 # Get DHW values for each DRM survey site on date surveyed
 df23 <- left_join(df23, dhw, by = c("Site", "Date"))
+
+# Create DHW bins
+df23 <- df23 %>%
+  mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
 ```
 
+# Survey information
 
 ```{r}
-# How were 2023 surveys distributed across time and space?
-surveys <- df23 %>%
-  distinct(Subregion, Date, Site)
-
-ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
-  geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
-  theme(legend.position = "none")
+# How many total corals surveyed of each species?
+sppcounts <- df23 %>%
+  count(Species) %>%
+  arrange(-n)
 
 # How many sites per Subregion?
 # How are reef Zones diff across Subregions?
@@ -81,7 +96,22 @@ df23 %>%
   geom_bar(position = "stack") +
   scale_y_continuous(breaks = seq(0, 100, 10)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# How were 2023 surveys distributed across time and space?
+surveys <- df23 %>%
+  distinct(Subregion, Date, Site, dhw)
+
+ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
+  geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
+  theme(legend.position = "none")
+
+# How were surveys distributed across DHW accumulation?
+ggplot(surveys, aes(x = dhw, y = Subregion, fill = Subregion)) +
+  geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
+  theme(legend.position = "none")
 ```
+
+# Bleaching
 
 ```{r}
 # Did overall bleaching severity change over time?
@@ -98,12 +128,11 @@ df23 %>%
   ggplot(aes(x = Date, y = emmean, color = Subregion, group = Subregion)) +
   geom_line() +
   ylim(0, 3)
+
 ```
 
-
+# Subset data for bleaching analysis
 ```{r}
-# - [ ] Bleaching severity by species (in relation to location and DHW). which species more/less bleached
-
 df23ss <- df23 #%>%
   # Subset mid-August to end of September? (stable peak of bleaching to allow comparing across Subregions, e.g. Marquesas was in Oct. only)
   #filter(Date >= "2023-08-15" & Date <= "2023-09-30")
@@ -112,56 +141,126 @@ df23ss <- df23 #%>%
 df23ss <- df23ss %>%
   filter(((Old + Recent) < 100 | grepl("TRS", `Other Conditions`)))
 
-# Subset just species with >=5 observations per Subregion
+# Subset just species with >=3 observations per Subregion
 abund_spp2 <- df23ss %>%
   group_by(Subregion) %>%
   count(Species) %>%
-  filter(n >= 5)
+  filter(n >= 3)
 
-df23ss <- df23ss %>% 
+df23ss <- df23ss %>%
   right_join(abund_spp2) %>%               # Apply filter
   mutate(Species = droplevels(Species))
+```
 
-# Model bleaching severity by species and subregion
+# - [ ] Bleaching severity by species (in relation to location and DHW). which species more/less bleached
+```{r}
+# Average bleaching severity level (0-4) of each species in each subregion
 mod <- lmerTest::lmer(Bleaching2 ~ Species * Subregion + (1|Site) + (1|Month), data = df23ss)
 anova(mod)
 
 emm <- emmeans(mod, specs = "Species", by = "Subregion")
 
-as.tibble(emm) %>%
+bleaching_by_region_all <- as.tibble(emm) %>%
   ggplot(aes(x = Subregion, y = emmean, color = Species, group = Species)) +
   geom_point() +
   geom_line() +
-  facet_wrap(~Species)
+  facet_wrap(~Species) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+bleaching_by_region_all %+% filter(as.tibble(emm), Species %in% sppcounts$Species[which(sppcounts$n > 75)])
+```
+
+```{r}
+# Probability of each bleaching level by species as a function of DHW (ordinal regression)
+#https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
 
 
-# Ordinal regression? taking forever, does not finish
-library(ordinal)
-mod <- clmm(as.factor(Bleaching2) ~ Species * Subregion + (1|Site) + (1|Month), data = df23ss)
-emm <- emmeans(mod, specs = "Species", by = "Subregion")
+# Subset corals further for species with enough data to model an interaction effect with Species*dhw
+df23ss2 <- df23ss %>%
+  filter(Species %in% sppcounts$Species[which(sppcounts$n > 75)])
+
+# Probability of each bleaching level by species as a function of DHW
+m <- polr(Bleaching3 ~ Species * dhw, data = df23ss2, Hess = TRUE, model = TRUE)
+
+res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = seq(0, 24, 1)))
+
+bleachcat_by_dhw <- as.tibble(res) %>%
+  ggplot(aes(x = dhw, y = prob, color = Bleaching3)) +
+  geom_line() +
+  facet_wrap(~Species) +
+  xlim(0,24)
+
+##### GOOD
+bleachcat_by_dhw %+% filter(as.tibble(res), Species %in% sppcounts$Species[which(sppcounts$n > 75)])
+#####
+
+thresh <- as.tibble(res) %>%
+  filter(Species %in% sppcounts$Species[which(sppcounts$n > 100)]) %>%
+  filter(Bleaching3 == "Bleached") %>%
+  group_by(Species) %>%
+  summarize(thresh = min(dhw[prob > 0.5])) %>%
+  mutate(Species = fct_reorder(Species, thresh))
+
+##### BETTER
+as.tibble(res) %>%
+  filter(Species %in% sppcounts$Species[which(sppcounts$n > 100)]) %>%
+  mutate(Species = factor(Species, levels = levels(thresh$Species))) %>%
+  ggplot(aes(x = dhw, y = prob, color = Bleaching3)) +
+  geom_line() + 
+  facet_wrap(~Species) +
+  geom_vline(data = thresh, aes(xintercept = thresh), lty = 2, lwd = 0.25)
+#####
+
+## Calculate proportion of colonies fully bleached or Dead at diff. DHW levels
+res2 <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = c(10, 20)))
+
+BlDead <- as.tibble(res2) %>%
+  filter(Species %in% sppcounts$Species[which(sppcounts$n > 75)],
+         Bleaching3 %in% c("Bleached", "Dead")) %>%
+  group_by(Species, dhw) %>%
+  summarize(BlDead = sum(prob))
+
+ranks <- BlDead %>%
+  group_by(Species) %>%
+  summarize(meanBlDead = BlDead[dhw==20]) %>%
+  #filter(dhw == 10) %>%
+  arrange(-meanBlDead) %>%
+  mutate(Species = fct_reorder(Species, -meanBlDead))
+
+BlDead %>%
+  mutate(Species = factor(Species, levels = levels(ranks$Species))) %>%
+  ggplot(aes(x = Species, y = BlDead, color = factor(dhw))) +
+  geom_point() +
+  #geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Show just some spp of interest
+as.tibble(res) %>%
+  filter(Species %in% c("AAGA", "ACER", "CNAT", "DLAB", "DSTO", "OFAV", "MCAV", "SSID")) %>%
+  filter(Bleaching3 == "Bleached") %>%
+  ggplot(aes(x = dhw, y = prob, color = Species)) +
+  geom_line()
+
+# Look at data for individual species
+df23ss2 %>%
+  filter(Species == "ACER") %>%
+  ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
+  geom_bar()
+
+# Where was healthy ACER observed with 8-12 DHW?
+test <- df23ss2 %>%
+  filter(Species == "ACER", Bleaching3 == "Healthy", dhw > 8)
+View(test)
+y1069 <- df23ss2 %>% filter(Site == "Y1069")
+View(y1069)
 ```
 
 ```{r}
 ggplot(df23ss, aes(x = dhw, y = Bleaching2, color = Species)) +
   geom_point(alpha = 0.1) +
   facet_wrap(~Species)
-# bleaching analysis with DHW as covariate?
-# Model bleaching severity by species
-mod <- lmerTest::lmer(Bleaching2 ~ Species * dhw + (1|Site), data = df23ss)
-anova(mod)
 
-emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,25,1)))
-
-as.tibble(emm) %>%
-  ggplot(aes(x = dhw, y = emmean, color = Species, group = Species)) +
-  geom_point() +
-  geom_line() +
-  facet_wrap(~Species) +
-  ylim(0, 4)
-
-# Try binning DHW
-df23ss <- df23ss %>%
-  mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+# Bleaching as a function of DHW bin for each Species
 mod <- lmerTest::lmer(Bleaching2 ~ Species * dhw.bin + (1|Site), data = df23ss)
 anova(mod)
 
@@ -177,28 +276,14 @@ as.tibble(emm) %>%
 
 
 # Need to try some binomial modeling with BL as response (1=BL, 0=notBL) to model proportion of colonies bleached at various locations and dhw levels....
-df23ss <- df23ss %>%
-  mutate(BL = case_when(Bleaching == "BL" ~ 1, TRUE ~ 0))
 
-mod <- glm(BL ~ Species * dhw, data = df23ss, family = "binomial")
-emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,24,1)), type = "response")
+mod <- glm((Bleaching2 >= 3) ~ Species * dhw, data = df23ss, family = "binomial")
+emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,24,1)), mode = "prob", type = "response")
 as.tibble(emm) %>%
-  ggplot(aes(x = dhw, y = prob, color = Species, group = Species)) +
+  filter(Species %in% sppcounts$Species[which(sppcounts$n > 75)]) %>%
+  ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
   geom_line()# +
   #facet_wrap(~Species)
-
-# binomial gam
-mod <- gam(BL ~ s(dhw, by = Species), family = "binomial", 
-           data = filter(df23ss, Species %in% c("MCAV", "SSID")))
-emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,24,1)), type = "response")
-as.tibble(emm) %>%
-  ggplot(aes(x = dhw, y = prob, color = Species, group = Species)) +
-  geom_line()
-
-ggplot(filter(df23ss, Species %in% c("MCAV", "SSID"), !is.na(dhw)),
-       aes(x = dhw.bin, fill = BL==1)) +
-  geom_bar(position = "fill") +
-  facet_wrap(~Species)
 ```
 
 
@@ -235,6 +320,31 @@ filter(df23ss, Species == "SSID") %>%
 
 ```{r}
 #  - [ ] Where are heat-tolerant individuals? i.e., most non-bleached individuals rel. to DHW
+n_distinct(df23ss$Site)
+n_distinct(summ$Site)
+
+summ <- df23ss %>%
+  group_by(Site, Bleaching3, dhw, Depth) %>%
+  count() %>%
+  group_by(Site, dhw, Depth) %>%
+  summarize(hp = (n[Bleaching3 == "Healthy"] + n[Bleaching3 == "Pale"]) / sum(n))
+
+ggplot(summ, aes(x = dhw, y = hp)) +
+  geom_point()
+
+# Model percent of healthy/pale colonies as function of DHW and Depth
+mod <- lm(hp ~ dhw * Depth, data = summ)
+anova(mod)
+summary(mod)
+# Find Sites with biggest positive residuals (more healthy/pale colonies than expected)
+bind_cols(summ, broom::augment(mod)) %>%
+  arrange(-.std.resid)
+# Y1368 and Y2331 have largest positive residual for number of healthy/pale colonies
+# Where are these?
+hi <- df23 %>% filter(Site %in% c("Y1368", "Y3042", "Y3034", "Y1145", "Y1084")) %>%
+  distinct(Site, Latitude, Longitude)
+View(hi)
+# Newfound Harbor is #1. Others are Looe, Molasses, Miami Beach, and FLL... kinda random...
 ```
 
 
