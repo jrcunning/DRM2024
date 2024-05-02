@@ -9,17 +9,17 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-library(tidyverse)
 library(lme4)
 library(emmeans)
 library(ggridges)
 library(gamm4)
+library(tidyverse)
 ```
 
 
 ```{r}
 # Import data
-df <- read_csv("data/export.csv") %>%
+df <- read_csv("data/drm/export.csv") %>%
   mutate(across(where(is.character), as_factor),
          Date = as_date(as.character(Date), format = "%m/%d/%Y"))
 
@@ -72,6 +72,18 @@ ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
   geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
   theme(legend.position = "none")
 
+# How many sites per Subregion?
+# How are reef Zones diff across Subregions?
+df23 %>%
+  distinct(Subregion, Site, Zone) %>%
+  group_by(Subregion) %>%
+  ggplot(aes(x = Subregion, fill = Zone)) +
+  geom_bar(position = "stack") +
+  scale_y_continuous(breaks = seq(0, 100, 10)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
 # Did overall bleaching severity change over time?
 
 ## Fit GAMM for overall bleaching level over time within each Subregion
@@ -86,29 +98,9 @@ df23 %>%
   ggplot(aes(x = Date, y = emmean, color = Subregion, group = Subregion)) +
   geom_line() +
   ylim(0, 3)
-
-## Fit by factor Week
-mod <- lmer(Bleaching2 ~ factor(Week) * Subregion + (1|Species) + (1|Site), data = df23)
-res <- emmeans(mod, specs = "Week", by = "Subregion")
-# Plot
-as.tibble(res) %>%
-  drop_na(emmean) %>%
-  ggplot(aes(x = Week, y = emmean, color = Subregion, group = Subregion)) +
-  geom_line() +
-  ylim(0, 3)
-
-
-# How many sites per Subregion?
-# How are reef Zones diff across Subregions?
-df23ss %>%
-  distinct(Subregion, Site, Zone) %>%
-  group_by(Subregion) %>%
-  ggplot(aes(x = Subregion, fill = Zone)) +
-  geom_bar(position = "stack") +
-  scale_y_continuous(breaks = seq(0, 100, 10))
 ```
 
-    
+
 ```{r}
 # - [ ] Bleaching severity by species (in relation to location and DHW). which species more/less bleached
 
@@ -120,24 +112,17 @@ df23ss <- df23 #%>%
 df23ss <- df23ss %>%
   filter(((Old + Recent) < 100 | grepl("TRS", `Other Conditions`)))
 
-# Filter 1: Subset just species with over 100 observations in 2023?
-abund_spp <- df23ss %>%
-  count(Species) %>%
-  filter(n >= 100) %>%
-  pull(Species)
-
-# Filter 2: Subset just species with >=5 observations per Subregion?
+# Subset just species with >=5 observations per Subregion
 abund_spp2 <- df23ss %>%
   group_by(Subregion) %>%
   count(Species) %>%
   filter(n >= 5)
 
 df23ss <- df23ss %>% 
-  #filter(Species %in% abund_spp) %>%.     # Apply filter 1
-  right_join(abund_spp2) %>%               # Apply filter 2
+  right_join(abund_spp2) %>%               # Apply filter
   mutate(Species = droplevels(Species))
 
-# Model bleaching severity by species
+# Model bleaching severity by species and subregion
 mod <- lmerTest::lmer(Bleaching2 ~ Species * Subregion + (1|Site) + (1|Month), data = df23ss)
 anova(mod)
 
@@ -157,6 +142,9 @@ emm <- emmeans(mod, specs = "Species", by = "Subregion")
 ```
 
 ```{r}
+ggplot(df23ss, aes(x = dhw, y = Bleaching2, color = Species)) +
+  geom_point(alpha = 0.1) +
+  facet_wrap(~Species)
 # bleaching analysis with DHW as covariate?
 # Model bleaching severity by species
 mod <- lmerTest::lmer(Bleaching2 ~ Species * dhw + (1|Site), data = df23ss)
@@ -189,6 +177,28 @@ as.tibble(emm) %>%
 
 
 # Need to try some binomial modeling with BL as response (1=BL, 0=notBL) to model proportion of colonies bleached at various locations and dhw levels....
+df23ss <- df23ss %>%
+  mutate(BL = case_when(Bleaching == "BL" ~ 1, TRUE ~ 0))
+
+mod <- glm(BL ~ Species * dhw, data = df23ss, family = "binomial")
+emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,24,1)), type = "response")
+as.tibble(emm) %>%
+  ggplot(aes(x = dhw, y = prob, color = Species, group = Species)) +
+  geom_line()# +
+  #facet_wrap(~Species)
+
+# binomial gam
+mod <- gam(BL ~ s(dhw, by = Species), family = "binomial", 
+           data = filter(df23ss, Species %in% c("MCAV", "SSID")))
+emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,24,1)), type = "response")
+as.tibble(emm) %>%
+  ggplot(aes(x = dhw, y = prob, color = Species, group = Species)) +
+  geom_line()
+
+ggplot(filter(df23ss, Species %in% c("MCAV", "SSID"), !is.na(dhw)),
+       aes(x = dhw.bin, fill = BL==1)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Species)
 ```
 
 
