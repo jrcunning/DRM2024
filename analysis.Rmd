@@ -345,6 +345,48 @@ hi <- df23 %>% filter(Site %in% c("Y1368", "Y3042", "Y3034", "Y1145", "Y1084")) 
   distinct(Site, Latitude, Longitude)
 View(hi)
 # Newfound Harbor is #1. Others are Looe, Molasses, Miami Beach, and FLL... kinda random...
+
+
+# Need to do this on the colony-level...
+df23ss2 <- df23ss %>% 
+  #filter(Subregion %in% c("Lower Keys", "Upper Keys", "Biscayne")) %>%
+  #filter(Species %in% c("MCAV", "AAGA", "PPOR")) %>%
+  mutate(Site = droplevels(Site)) %>%
+  mutate(BL = Bleaching2 > 2)
+mod <- glmer(BL ~ dhw * Depth + (dhw|Species) + (Depth|Species) + (1|Date), family = "binomial", data = df23ss2,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+
+anova(mod)
+plot(mod)
+test <- tibble(df23ss2, .resid = residuals(mod, type = "response"))
+test2 <- test %>% group_by(Site, Longitude, Latitude) %>%
+  summarize(meanResid = mean(.resid)) %>%
+  arrange(meanResid)
+# negative values indicate less bleaching than predicted based on dhw, depth, and species...
+
+# Plot sites that bleached more/less than expected
+myPlot <- ggplot(test2, aes(x = Longitude, y = Latitude, color = meanResid)) +
+  geom_point(alpha = 0.4) +
+  scale_color_gradient2()
+
+myPlot + xlim(-82, -81) + ylim(24.2, 24.8)
+myPlot + xlim(-81, -80) + ylim(24.5, 25.5)
+myPlot + xlim(-80.3, -80) + ylim(25.5, 27) +
+  geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238))
+
+
+myPlot +
+  geom_hline(yintercept = c(25.7588, 26.0923, 26.54476, 26.77238))
+
+
+
+
+#
+hi <- test %>% filter(Site %in% c("Y3042"))
+View(hi)
+
+hi2 <- df23 %>% filter(Site %in% c("Y3042"))
+View(hi2)
 ```
 
 
