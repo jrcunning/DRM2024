@@ -281,69 +281,9 @@ test <- as.tibble(res) %>%
 
 ggplot(test, aes(x = dhw, y = Species, fill = PBup)) +
   geom_tile() +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0.5)
-
-#####
-
-# Calc DHWs to 50% bleaching for each species
-test <- as.tibble(res) %>%
-  group_by(Species, dhw) %>%
-  summarize(PBorB = prob[Bleaching3 == "Partially Bleached"] + prob[Bleaching3 == "Bleached"]) %>%
-  group_by(Species) %>%
-  summarize(thresh25 = min(dhw[PBorB > 0.25]),
-            thresh50 = min(dhw[PBorB > 0.5])) %>%
-  mutate(Species = fct_reorder(Species, thresh25)) %>%
-  pivot_longer(cols = c(2, 3))
-
-ggplot(test, aes(x = Species, y = value, color = name)) +
-  geom_point()
-
-
-
-#####
-
-## Calculate proportion of colonies fully bleached or Dead at diff. DHW levels
-res2 <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = c(10, 20)))
-
-BlDead <- as.tibble(res2) %>%
-  filter(Species %in% sppcounts$Species[which(sppcounts$n > 75)],
-         Bleaching3 %in% c("Bleached", "Dead")) %>%
-  group_by(Species, dhw) %>%
-  summarize(BlDead = sum(prob))
-
-ranks <- BlDead %>%
-  group_by(Species) %>%
-  summarize(meanBlDead = BlDead[dhw==20]) %>%
-  #filter(dhw == 10) %>%
-  arrange(-meanBlDead) %>%
-  mutate(Species = fct_reorder(Species, -meanBlDead))
-
-BlDead %>%
-  mutate(Species = factor(Species, levels = levels(ranks$Species))) %>%
-  ggplot(aes(x = Species, y = BlDead, color = factor(dhw))) +
-  geom_point() +
-  #geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.1) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Show just some spp of interest
-as.tibble(res) %>%
-  filter(Species %in% c("AAGA", "ACER", "CNAT", "DLAB", "DSTO", "OFAV", "MCAV", "SSID")) %>%
-  filter(Bleaching3 == "Bleached") %>%
-  ggplot(aes(x = dhw, y = prob, color = Species)) +
-  geom_line()
-
-# Look at data for individual species
-df23ss2 %>%
-  filter(Species == "ACER") %>%
-  ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
-  geom_bar()
-
-# Where was healthy ACER observed with 8-12 DHW?
-test <- df23ss2 %>%
-  filter(Species == "ACER", Bleaching3 == "Healthy", dhw > 8)
-View(test)
-y1069 <- df23ss2 %>% filter(Site == "Y1069")
-View(y1069)
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+                       limits = c(0, 1), midpoint = 0.5) +
+  labs(guide = "hi")
 ```
 
 ```{r, eval = F}
