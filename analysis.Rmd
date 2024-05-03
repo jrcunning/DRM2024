@@ -31,19 +31,22 @@ df <- df %>%
          Week = factor(week(Date)),
          Month = factor(month(Date)))
 
+# Subset just 2023 surveys
+df23 <- filter(df, year(Date) == "2023")
+
 # Order Subregions from south to north
-df <- df %>%
+df23 <- df23 %>%
   mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
                                               "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
                                               "Biscayne", "Broward-Miami", "South Palm Beach", 
                                               "North Palm Beach", "Martin")))
 
 # Order Species alphabetically
-df <- df %>%
+df23 <- df23 %>%
   mutate(Species = factor(Species, levels = sort(levels(df$Species))))
 
 # Create ordinal variables and factors for bleaching severity
-df <- df %>%
+df23 <- df23 %>%
   mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
                                 Bleaching == "P" ~ 1,
                                 Bleaching == "PB" ~ 2,
@@ -59,11 +62,13 @@ df <- df %>%
 
 #### There are 45 corals listed with "TRS" but are blank for "Bleaching"... talk to Jennifer about these?
 #### For now, remove these from analysis
-df <- df %>%
+df23 <- df23 %>%
   filter(!is.na(Bleaching2))
 
-# Subset just 2023 surveys
-df23 <- filter(df, year(Date) == "2023")
+### There are corals with Width < 4 ... keep? or errors?
+df23ss3 %>% filter(Width < 4)
+
+
 
 # Import 2023 DHW data
 dhw <- read_csv("data/dhw/dhw_processed.csv") %>%
@@ -403,9 +408,9 @@ y3042 <- df23 %>%
 
 # Model bleaching severity by species and size class
 df23ss3 <- df23ss2 %>%
-  mutate(sizeclass = case_when(Width <= 8 & (Old + Recent) <= 10 ~ "juv",
+  mutate(sizeclass = case_when(Width <= 7 & (Old + Recent) <= 10 ~ "juv",
                                TRUE ~ "adult")) %>%
-  filter(dhw > 8)
+  filter(dhw > 10)
 mod <- glmer(BL ~ sizeclass * Species + (1|Site) + (1|Week), 
              family = "binomial", data = df23ss3, 
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
@@ -433,6 +438,43 @@ as.tibble(emm) %>%
   facet_wrap(~Species, scales ="free") +
   geom_point() +
   geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE))
+
+
+# Size of BL vs UNBL MCAV
+mcav <- df23ss2 %>% filter(Species == "PSTR")
+mod <- glmer(BL ~ log(Width) * dhw + (1|Site), family = "binomial", data = mcav)
+res <- emmeans(mod, specs = c("Width", "dhw"), at = list(Width = seq(min(mcav$Width),max(mcav$Width),2), dhw = 15), type = "response")
+res
+ggplot(as.tibble(res), aes(x = Width, y = prob)) +
+  geom_line(aes(color = dhw, group = dhw)) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.1)
+
+ggplot(mcav, aes(x = BL, y = log(Width))) +
+  geom_violin() +
+  geom_jitter(width = 0.1)
+
+
+ggplot(mcav, aes(x = cut(log(Width), 5), fill = BL)) +
+  geom_bar(position = "fill")
+
+range(mcav$Width)
+
+
+### all species?
+df23ss3 <- filter(df23ss2, Species %in% sppcounts$Species[1:10])
+mod <- glmer(BL ~ Species * Width + dhw + (1|Site), family = "binomial", data = df23ss3,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+anova(mod)
+res <- emmeans(mod, specs = c("Width", "Species", "dhw"), 
+               at = list(Width = seq(4,500,2), dhw = 15), type = "response")
+sizeranges <- df23ss3 %>% group_by(Species) %>% summarize(min = min(Width), max = max(Width))
+sizeranges
+res
+ggplot(as.tibble(res), aes(x = Width, y = prob)) +
+  geom_line(aes(color = Species, group = Species)) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.1)
+
+df23ss3 %>% filter(Width < 4)
 ```
     
 
