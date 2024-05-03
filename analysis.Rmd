@@ -76,22 +76,6 @@ df23 <- df23 %>%
   filter(((Old + Recent) < 100 | grepl("TRS", `Other Conditions`)))
 ```
 
-```{r subset_drm}
-# Create subsets of DRM data for downstream analyses
-### Subset just Subregions in the keys down
-keys <- c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
-          "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP")
-### Subset just abundant species
-sppcounts <- df23 %>%
-  count(Species) %>%
-  arrange(-n)
-abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
-### Create subsets
-df23.keys <- df23 %>% filter(Subregion %in% keys)
-df23.abund <- df23 %>% filter(Species %in% abund.spp)
-df23.keys.abund <- df23 %>% filter(Subregion %in% keys, Species %in% abund.spp)
-```
-
 ### DHW data
 
 ```{r import_dhw}
@@ -107,6 +91,22 @@ df23 <- left_join(df23, dhw, by = c("Site", "Date"))
 # Create binned DHW variable
 df23 <- df23 %>%
   mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+```
+
+```{r subset_drm}
+# Create subsets of DRM data for downstream analyses
+### Subset just Subregions in the keys down
+keys <- c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
+          "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP")
+### Subset just abundant species
+sppcounts <- df23 %>%
+  count(Species) %>%
+  arrange(-n)
+abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
+### Create subsets
+df23.keys <- df23 %>% filter(Subregion %in% keys)
+df23.abund <- df23 %>% filter(Species %in% abund.spp)
+df23.keys.abund <- df23 %>% filter(Subregion %in% keys, Species %in% abund.spp)
 ```
 
 # DRM dataset summary
@@ -238,12 +238,12 @@ ggplot(res, aes(x = Subregion, y = response, color = Species, group = Species)) 
 ```
 
 ### Species differences in bleaching with increasing DHWs
-```{r, eval = F}
+```{r bleaching_by_species}
 # Probability of each bleaching level by species as a function of DHW (ordinal regression)
 #https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
 
 # Fit ordinal regression model for each species as a function of DHW
-m <- polr(Bleaching3 ~ Species * dhw, data = df23.abund, Hess = TRUE, model = TRUE)
+m <- MASS::polr(Bleaching3 ~ Species * dhw, data = df23.abund, Hess = TRUE, model = TRUE)
 ## Does this need random factors? Cannot get clmm to work...
 
 # Get fitted values
@@ -276,7 +276,7 @@ as.tibble(res) %>%
 # Plot heatmap of proportion of colonies partially bleached or worse for each species
 test <- as.tibble(res) %>%
   group_by(Species, dhw) %>%
-  summarize(PBup = sum(prob[Bleaching3 %in% c("Partially Bleached", "Bleached", "Dead")])) %>%
+  summarize(PBup = sum(prob[Bleaching3 %in% c("Bleached", "Dead")])) %>%
   mutate(Species = factor(Species, levels = levels(thresh2$Species)))
 
 ggplot(test, aes(x = dhw, y = Species, fill = PBup)) +
