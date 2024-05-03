@@ -348,16 +348,18 @@ View(hi)
 
 
 # Need to do this on the colony-level...
+######## THIS IS REALLY GOOD VVVVVVVVVV
 df23ss2 <- df23ss %>% 
   #filter(Subregion %in% c("Lower Keys", "Upper Keys", "Biscayne")) %>%
   #filter(Species %in% c("MCAV", "AAGA", "PPOR")) %>%
   mutate(Site = droplevels(Site)) %>%
   mutate(BL = Bleaching2 > 2)
-mod <- glmer(BL ~ dhw * Depth + (dhw|Species) + (Depth|Species) + (1|Date), family = "binomial", data = df23ss2,
+mod <- glmer(BL ~ dhw * Depth + (dhw*Depth|Species) + (1|Week), 
+             family = "binomial", data = df23ss2,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 
 anova(mod)
-plot(mod)
+
 test <- tibble(df23ss2, .resid = residuals(mod, type = "response"))
 test2 <- test %>% group_by(Site, Longitude, Latitude) %>%
   summarize(meanResid = mean(.resid)) %>%
@@ -365,9 +367,11 @@ test2 <- test %>% group_by(Site, Longitude, Latitude) %>%
 # negative values indicate less bleaching than predicted based on dhw, depth, and species...
 
 # Plot sites that bleached more/less than expected
-myPlot <- ggplot(test2, aes(x = Longitude, y = Latitude, color = meanResid)) +
+myPlot <- ggplot(test2, aes(x = Longitude, y = Latitude, color = sign(meanResid) * meanResid^2,
+                            size = meanResid^2)) +
   geom_point(alpha = 0.4) +
   scale_color_gradient2()
+myPlot
 
 myPlot + xlim(-82, -81) + ylim(24.2, 24.8)
 myPlot + xlim(-81, -80) + ylim(24.5, 25.5)
@@ -380,13 +384,43 @@ myPlot +
 
 
 
+#### Plot on map?
+# Download satellite map for Florida
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "large", returnclass = "sf")
+# Plot map
+set.seed(10)
+fig1a <- #ggmap(map_fl, extent = "panel") +
+  ggplot(data = world) +
+  geom_sf(lwd = 0, fill = "gray70") +
+  coord_sf(xlim = c(-83.2, -79.5), ylim = c(23.7, 26.9), expand = FALSE) +
+  scale_fill_manual(values = alpha(c("#F8766D", "#B79F00", "#00BA38", 
+                                     "#00BFC4", "#619CFF", "#F564E3"), 0.7)) +
+  # scale_y_continuous(breaks = c(24, 25, 26), labels = c(24, 25, 26)) +
+  # scale_x_continuous(breaks = c(-82, -81, -80), labels = c(-82, -81, -80)) +
+  theme(legend.position = "none") +
+  theme(text = element_text(size = 10),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA)) +
+  labs(y = "Latitude", x = "Longitude")
+fig1a
 
-#
-hi <- test %>% filter(Site %in% c("Y3042"))
-View(hi)
+hihihi <- fig1a +
+  geom_point(data = test2, aes(x = Longitude, y = Latitude, fill = sign(meanResid) * meanResid^2,
+                            size = meanResid^2), alpha = 0.5, stroke = 0.1, pch = 21) +
+  scale_fill_gradient2(low = "red", mid = NA, high = "blue")
+hihihi 
+hihihi + coord_sf(xlim = c(-82, -80.8), ylim = c(24.4, 24.8))
+hihihi + coord_sf(xlim = c(-81, -80), ylim = c(24.6, 25.5))
+hihihi + coord_sf(xlim = c(-80.2, -80), ylim = c(25.5, 27)) +
+  geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)) +theme(aspect.ratio = 2)
 
-hi2 <- df23 %>% filter(Site %in% c("Y3042"))
-View(hi2)
+# Is molasses an outlier as a site that did much better than expected?
+#Y3042
+y3042 <- df23 %>%
+  filter(Site == "Y3042")
 ```
 
 
