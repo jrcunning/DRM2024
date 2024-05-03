@@ -320,32 +320,6 @@ filter(df23ss, Species == "SSID") %>%
 
 ```{r}
 #  - [ ] Where are heat-tolerant individuals? i.e., most non-bleached individuals rel. to DHW
-n_distinct(df23ss$Site)
-n_distinct(summ$Site)
-
-summ <- df23ss %>%
-  group_by(Site, Bleaching3, dhw, Depth) %>%
-  count() %>%
-  group_by(Site, dhw, Depth) %>%
-  summarize(hp = (n[Bleaching3 == "Healthy"] + n[Bleaching3 == "Pale"]) / sum(n))
-
-ggplot(summ, aes(x = dhw, y = hp)) +
-  geom_point()
-
-# Model percent of healthy/pale colonies as function of DHW and Depth
-mod <- lm(hp ~ dhw * Depth, data = summ)
-anova(mod)
-summary(mod)
-# Find Sites with biggest positive residuals (more healthy/pale colonies than expected)
-bind_cols(summ, broom::augment(mod)) %>%
-  arrange(-.std.resid)
-# Y1368 and Y2331 have largest positive residual for number of healthy/pale colonies
-# Where are these?
-hi <- df23 %>% filter(Site %in% c("Y1368", "Y3042", "Y3034", "Y1145", "Y1084")) %>%
-  distinct(Site, Latitude, Longitude)
-View(hi)
-# Newfound Harbor is #1. Others are Looe, Molasses, Miami Beach, and FLL... kinda random...
-
 
 # Need to do this on the colony-level...
 ######## THIS IS REALLY GOOD VVVVVVVVVV
@@ -354,7 +328,7 @@ df23ss2 <- df23ss %>%
   #filter(Species %in% c("MCAV", "AAGA", "PPOR")) %>%
   mutate(Site = droplevels(Site)) %>%
   mutate(BL = Bleaching2 > 2)
-mod <- glmer(BL ~ dhw * Depth + (dhw*Depth|Species) + (1|Week), 
+mod <- glmer(BL ~ dhw * Depth + (dhw*Depth|Species) + (1|Week), ### what about (1|Site) to control for dhw and depth?
              family = "binomial", data = df23ss2,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 
@@ -428,20 +402,22 @@ y3042 <- df23 %>%
 # - [ ] Are juveniles doing better (less bleaching) than larger adult colonies for any species?
 
 # Model bleaching severity by species and size class
-df23ss <- df23ss %>%
+df23ss3 <- df23ss2 %>%
   mutate(sizeclass = case_when(Width <= 8 & (Old + Recent) <= 10 ~ "juv",
-                               TRUE ~ "adult"))
-mod <- lmerTest::lmer(Bleaching2 ~ sizeclass * Species + Subregion + (1|Site) + (1|Month), 
-                      data = filter(df23ss, !Subregion %in% c("Broward-Miami", "South Palm Beach",
-                                                              "North Palm Beach", "Martin")))
+                               TRUE ~ "adult")) %>%
+  filter(dhw > 8)
+mod <- glmer(BL ~ sizeclass * Species + (1|Site) + (1|Week), 
+             family = "binomial", data = df23ss3, 
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+
 anova(mod)
 
-emm <- emmeans(mod, specs = c("Species", "sizeclass"))
+emm <- emmeans(mod, specs = c("Species", "sizeclass"), type = "response")
 as.tibble(emm) %>%
-  ggplot(aes(x = sizeclass, y = emmean)) +
+  ggplot(aes(x = sizeclass, y = prob)) +
   facet_wrap(~Species, scales = "free") +
   geom_point() +
-  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL))
+  geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE))
 
 stats <- rbind(contrast(emm, "pairwise", by = "Species")) %>%
   as.tibble() %>%
@@ -453,10 +429,10 @@ sigspp <- stats %>%
 
 as.tibble(emm) %>%
   filter(Species %in% sigspp$Species) %>%
-  ggplot(aes(x = sizeclass, y = emmean)) +
-  facet_wrap(~Species) +
+  ggplot(aes(x = sizeclass, y = prob)) +
+  facet_wrap(~Species, scales ="free") +
   geom_point() +
-  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL))
+  geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE))
 ```
     
 
