@@ -1,14 +1,19 @@
 ---
-title: "Untitled"
+title: "Florida's 2023 Coral Bleaching"
+subtitle: "Analysis of bleaching prevalence and patterns based on data from Florida FWC's Disturbance Response Monitoring Program"
+author: "Ross Cunning"
 output: html_document
 date: "2024-04-30"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
 ```
 
 ```{r}
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
 library(lme4)
 library(emmeans)
 library(ggridges)
@@ -107,6 +112,7 @@ abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
 df23.keys <- df23 %>% filter(Subregion %in% keys)
 df23.abund <- df23 %>% filter(Species %in% abund.spp)
 df23.keys.abund <- df23 %>% filter(Subregion %in% keys, Species %in% abund.spp)
+df23.abund.nopfursint <- df23.abund %>% filter(!Species %in% c("PFUR", "SINT"))
 ```
 
 # DRM dataset summary
@@ -147,7 +153,10 @@ df23 %>%
   scale_y_continuous(breaks = seq(0, 100, 10)) +
   labs(x = "", y = "Number of sites surveyed") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
 
+### How surveys were spread over time, and over the heatwave
+```{r survey_distribution}
 # How were 2023 surveys distributed across time and space?
 surveys_by_date <- ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
   geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
@@ -176,13 +185,15 @@ meanDHW <- dhw %>%
 # Plot mean DHW over time for each Subregion
 ggplot(meanDHW, aes(x = Date, y = meanDHW, color = Subregion, group = Subregion)) +
   geom_line() +
+  scale_x_date(breaks = "months", date_labels = "%b") +
   labs(y = "Mean DHW of all sites surveyed in Subregion")
 ```
 
-### Bleaching prevalence by subregion
+### Bleaching prevalence by subregion over time, and overall
 ```{r bleaching_summary}
 # Model probability of all corals being at least Partially bleached by Week and Subregion
 mod <- glm((Bleaching2 > 1) ~ Week:Subregion, family = "binomial", data = df23)
+### Try "Week:Subregion" for estimates only when surveys were conducted, or "Week + Subregion" to estimate across all weeks for each region
 res <- as.tibble(emmeans(mod, specs = c("Week", "Subregion"), type = "response")) %>% 
   drop_na() %>%
   mutate(Date = as.Date("2023-01-01") + ((as.numeric(as.character(Week)) - 1) * 7))
@@ -191,20 +202,35 @@ ggplot(res, aes(x = Date, y = response, color = Subregion, group = Subregion)) +
   geom_line() +
   labs(y = "Percent of surveyed colonies with at least partial bleaching")
 
-# Percent of all corals observed that were partially bleached or worse
-pct_pb <- df23 %>% group_by(Subregion) %>%
-  count(Bleaching2 > 1) %>%
-  summarize(`% of all surveyed colonies with at least partial bleaching` = n[`Bleaching2 > 1`] / sum(n))
-knitr::kable(pct_pb)
+# Overall percent of all corals observed that were partially bleached or worse
+## (Raw data)
+# pct_pb <- df23 %>% group_by(Subregion) %>%
+#   count(Bleaching2 > 1) %>%
+#   summarize(`% of all surveyed colonies with at least partial bleaching` = n[`Bleaching2 > 1`] / sum(n))
+# knitr::kable(pct_pb)
+
+# Overall predicted probability of colonies being PB or worse during week 35 (Sept. 1st)
+### Decide whether Week should be included here.
+mod <- glm((Bleaching2 > 1) ~ Subregion + Week, family = "binomial", data = df23)
+res <- emmeans(mod, specs = "Subregion", at = list(Week = factor(35)), type = "response")
+# Plot
+as.tibble(res) %>%
+  mutate(group = "allcorals") %>%
+  ggplot(aes(x = response, y = Subregion, group = group)) +
+  geom_point() +
+  geom_path() +
+  labs(x = "Proportion of corals bleached") +
+  scale_x_continuous(limits = c(0,1), expand = c(0,0))
 ```
 
-### Bleaching prevalence for all corals with increasing DHWs
+### Levels of bleaching observed for all corals with increasing DHWs
 ```{r bleaching_vs_dhw}
 # Ordinal regression: Probability of each bleaching level with increasing DHW
-m <- polr(Bleaching3 ~ dhw, data = df23, Hess = TRUE, model = TRUE)
+m <- polr(Bleaching3 ~ dhw * Depth, data = df23, Hess = TRUE, model = TRUE)
 
 res <- emmeans(m, specs = c("dhw", "Bleaching3"), 
-               at = list(dhw = seq(0, 22, 1)), 
+               at = list(dhw = seq(0, 22, 1),
+                         Depth = 23), 
                mode = "prob")
 as.tibble(res) %>%
   ggplot(aes(x = dhw, y = prob, color = Bleaching3)) +
@@ -212,7 +238,7 @@ as.tibble(res) %>%
   labs(x = "Degree Heating Weeks", y = "Predicted probability - all corals")
 ```
 
-# Species differences in bleaching
+# Coral species differences in bleaching
 
 ### Bleaching prevalence by species in each subregion
 ```{r bleaching_by_species_and_region}
@@ -223,18 +249,21 @@ df23.abund.ss <- df23.abund %>%
   filter(n >=3) %>%
   left_join(df23.abund)
 # Fit model
-mod <- glmer((Bleaching2 > 1) ~ Subregion * Species + (1|Week), 
-             family = "binomial", data = df23.abund.ss,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-res <- as.tibble(emmeans(mod, specs = c("Species", "Subregion"), type = "response")) %>% drop_na()
+### Debating whether week should be included here or not? has a big effect on overall bleaching levels
+mod <- glm((Bleaching2 > 1) ~ Subregion * Species + Week, 
+             family = "binomial", data = df23.abund.ss)#,
+             #nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+res <- as.tibble(emmeans(mod, specs = c("Species", "Subregion"), 
+                         at = list(Week = factor(35)), type = "response")) %>% drop_na()
 # Plot
-ggplot(res, aes(x = Subregion, y = response, color = Species, group = Species)) +
+ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) +
   geom_point() + 
-  geom_line() +
-  facet_wrap(~Species) +
+  #geom_line() +
+  geom_path() +
+  facet_wrap(~Species, ncol = 7) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none") +
-  labs(x = "", y = "Prevalence of bleaching (PB or worse)")
+  labs(y = "", x = "Proportion of colonies PB or worse")
 ```
 
 ### Species differences in bleaching with increasing DHWs
@@ -249,82 +278,49 @@ m <- MASS::polr(Bleaching3 ~ Species * dhw, data = df23.abund, Hess = TRUE, mode
 # Get fitted values
 res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = seq(0, 23, 1)))
 
-# Get threshold where >50% of colonies are bleached, for each species
+# Get thresholds where >50% of colonies are PB or worse, and B or worse
 thresh <- as.tibble(res) %>%
-  filter(Bleaching3 == "Bleached") %>%
-  group_by(Species) %>%
-  summarize(thresh = min(dhw[prob > 0.5])) %>%
-  mutate(Species = fct_reorder(Species, thresh))
-
-# Get threshold where >50% of colonies are partially bleached, bleached, or dead
-thresh2 <- as.tibble(res) %>%
-  filter(Bleaching3 %in% c("Partially Bleached", "Bleached", "Dead")) %>%
   group_by(Species, dhw) %>%
-  summarize(PBup = sum(prob)) %>%
-  group_by(Species) %>%
-  summarize(thresh = min(dhw[PBup > 0.5])) %>%
-  mutate(Species = fct_reorder(Species, thresh))
+  summarize(PBup = sum(prob[Bleaching3 %in% c("Partially Bleached", "Bleached", "Dead")]),
+             Bup = sum(prob[Bleaching3 %in% c("Bleached", "Dead")]))
 
-# Plot bleaching levels with increasing DHW for each species
+# Rank corals based on PB or B threshold from above
+ranks <- thresh %>%
+  group_by(Species) %>%
+  summarize(thresh0.5 = min(dhw[PBup > 0.5]),
+            thresh0.25 = min(dhw[PBup > 0.25]),
+            thresh0.75 = min(dhw[PBup > 0.75])) %>%
+  mutate(Species = fct_reorder(Species, thresh0.5))
+
+# Plot all bleaching levels as function of DHW for each species
 as.tibble(res) %>%
-  mutate(Species = factor(Species, levels = levels(thresh$Species))) %>%
+  mutate(Species = factor(Species, levels = levels(ranks$Species))) %>%
   ggplot(aes(x = dhw, y = prob, color = Bleaching3)) +
   geom_line() + 
   facet_wrap(~Species) +
-  geom_vline(data = thresh, aes(xintercept = thresh), lty = 2, lwd = 0.25)
+  geom_vline(data = ranks, aes(xintercept = thresh0.5), lty = 2, lwd = 0.25)
 
 # Plot heatmap of proportion of colonies partially bleached or worse for each species
-test <- as.tibble(res) %>%
-  group_by(Species, dhw) %>%
-  summarize(PBup = sum(prob[Bleaching3 %in% c("Bleached", "Dead")])) %>%
-  mutate(Species = factor(Species, levels = levels(thresh2$Species)))
-
-ggplot(test, aes(x = dhw, y = Species, fill = PBup)) +
-  geom_tile() +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+thresh %>%
+  mutate(Species = factor(Species, levels = levels(ranks$Species))) %>%
+  ggplot(aes(x = dhw, y = Species)) +
+  geom_tile(aes(fill = PBup)) +
+  scale_fill_gradient2(low = "#91cf60", mid = "#ffffbf", high = "#fc8d59", 
                        limits = c(0, 1), midpoint = 0.5) +
-  labs(guide = "hi")
+  geom_point(data = ranks, aes(x = thresh0.5), pch = 5) +
+  geom_segment(data = ranks, aes(yend = Species, x = thresh0.5, xend = thresh0.25)) +
+  geom_segment(data = ranks, aes(yend = Species, x = thresh0.5, xend = thresh0.75)) +
+  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse")
 ```
-
-```{r, eval = F}
-ggplot(df23ss, aes(x = dhw, y = Bleaching2, color = Species)) +
-  geom_point(alpha = 0.1) +
-  facet_wrap(~Species)
-
-# Bleaching as a function of DHW bin for each Species
-mod <- lmerTest::lmer(Bleaching2 ~ Species * dhw.bin + (1|Site), data = df23ss)
-anova(mod)
-
-emm <- emmeans(mod, specs = c("Species", "dhw.bin"), at = list(dhw.bin = levels(df23ss$dhw.bin)))
-
-as.tibble(emm) %>%
-  ggplot(aes(x = dhw.bin, y = emmean, color = Species, group = Species)) +
-  geom_point() +
-  geom_line() +
-  #facet_wrap(~Species) +
-  ylim(0, 4)
-
-
-
-# Need to try some binomial modeling with BL as response (1=BL, 0=notBL) to model proportion of colonies bleached at various locations and dhw levels....
-
-mod <- glm((Bleaching2 >= 3) ~ Species * dhw, data = df23ss, family = "binomial")
-emm <- emmeans(mod, specs = c("Species", "dhw"), at = list(dhw = seq(0,24,1)), mode = "prob", type = "response")
-as.tibble(emm) %>%
-  filter(Species %in% sppcounts$Species[which(sppcounts$n > 75)]) %>%
-  ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
-  geom_line()# +
-  #facet_wrap(~Species)
-```
-
 
 
 
 ```{r, eval = F}
 # - [ ] Variability in bleaching among individuals within a species 
 ### which spp have the most variability among individuals?
+## where do tol. and sens. individuals co-occur?
 
-var <- df23ss %>%
+var <- df23.abund %>%
   group_by(Site, Latitude, Longitude, Species, Subregion, Zone) %>%
   summarize(n = n(),
             bleachvar = var(Bleaching2),
@@ -335,97 +331,97 @@ ggplot(var, aes(x = Species, y = bleachvar)) +
   geom_violin(scale = "width", draw_quantiles = 0.5) +
   geom_jitter(aes(color = Subregion), width = 0.2)
 
-## where do tol. and sens. individuals co-occur?
+
 
 var %>% filter(Species == "MCAV") %>%
   ggplot(aes(x = Longitude, y = Latitude)) +
   geom_point(aes(color = bleachvar))
-
-
-#### Barplots of bleaching categories for each species
-filter(df23ss, Species == "SSID") %>%
-  ggplot(aes(x = Week, fill = factor(Bleaching2))) +
-  geom_bar(position = "fill") +
-  facet_grid(Subregion~"")
 ```
 
-```{r, eval = F}
-#  - [ ] Where are heat-tolerant individuals? i.e., most non-bleached individuals rel. to DHW
+# Spatial differences in bleaching
 
-# Need to do this on the colony-level...
-######## THIS IS REALLY GOOD VVVVVVVVVV
-df23ss2 <- df23ss %>% 
-  #filter(Subregion %in% c("Lower Keys", "Upper Keys", "Biscayne")) %>%
-  #filter(Species %in% c("MCAV", "AAGA", "PPOR")) %>%
-  mutate(Site = droplevels(Site)) %>%
-  mutate(BL = Bleaching2 > 2)
-mod <- glmer(BL ~ dhw * Depth + (dhw*Depth|Species) + (1|Week), ### what about (1|Site) to control for dhw and depth?
-             family = "binomial", data = df23ss2,
+### Which sites bleached more or less than predicted based on DHW, depth, and species composition?
+```{r bleach_resid_sites}
+# Model probability of ≥BL as a function of dhw and depth, controlling for species and week surveyed
+mod <- glmer(Bleaching2 > 2 ~ dhw * Depth + (dhw|Species) + (1|Week), 
+             family = "binomial", data = df23.abund,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 
-anova(mod)
-
-test <- tibble(df23ss2, .resid = residuals(mod, type = "response"))
-test2 <- test %>% group_by(Site, Longitude, Latitude) %>%
+# Get site-level mean residuals
+site.resid <- tibble(df23.abund, .resid = residuals(mod, type = "response")) %>% 
+  group_by(Site, Longitude, Latitude) %>%
   summarize(meanResid = mean(.resid)) %>%
   arrange(meanResid)
 # negative values indicate less bleaching than predicted based on dhw, depth, and species...
 
-# Plot sites that bleached more/less than expected
-myPlot <- ggplot(test2, aes(x = Longitude, y = Latitude, color = sign(meanResid) * meanResid^2,
-                            size = meanResid^2)) +
-  geom_point(alpha = 0.4) +
-  scale_color_gradient2()
-myPlot
-
-myPlot + xlim(-82, -81) + ylim(24.2, 24.8)
-myPlot + xlim(-81, -80) + ylim(24.5, 25.5)
-myPlot + xlim(-80.3, -80) + ylim(25.5, 27) +
-  geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238))
-
-
-myPlot +
-  geom_hline(yintercept = c(25.7588, 26.0923, 26.54476, 26.77238))
-
-
-
-#### Plot on map?
+# Plot on map
 # Download satellite map for Florida
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
 world <- ne_countries(scale = "large", returnclass = "sf")
-# Plot map
-set.seed(10)
-fig1a <- #ggmap(map_fl, extent = "panel") +
+# Plot basemap
+basemap <- #ggmap(map_fl, extent = "panel") +
   ggplot(data = world) +
   geom_sf(lwd = 0, fill = "gray70") +
-  coord_sf(xlim = c(-83.2, -79.5), ylim = c(23.7, 26.9), expand = FALSE) +
-  scale_fill_manual(values = alpha(c("#F8766D", "#B79F00", "#00BA38", 
-                                     "#00BFC4", "#619CFF", "#F564E3"), 0.7)) +
-  # scale_y_continuous(breaks = c(24, 25, 26), labels = c(24, 25, 26)) +
-  # scale_x_continuous(breaks = c(-82, -81, -80), labels = c(-82, -81, -80)) +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  geom_point(data = site.resid, aes(x = Longitude, y = Latitude, fill = sign(meanResid) * meanResid^2,
+                            size = meanResid^2), alpha = 0.5, stroke = 0.1, pch = 21) +
+  scale_fill_gradient2(low = "red", mid = NA, high = "blue") +
   theme(legend.position = "none") +
   theme(text = element_text(size = 10),
+        axis.title = element_blank(),
         panel.background = element_blank(),
-        panel.border = element_rect(colour = "black", fill=NA)) +
-  labs(y = "Latitude", x = "Longitude")
-fig1a
+        panel.border = element_rect(colour = "black", fill=NA))
 
-hihihi <- fig1a +
-  geom_point(data = test2, aes(x = Longitude, y = Latitude, fill = sign(meanResid) * meanResid^2,
-                            size = meanResid^2), alpha = 0.5, stroke = 0.1, pch = 21) +
-  scale_fill_gradient2(low = "red", mid = NA, high = "blue")
-hihihi 
-hihihi + coord_sf(xlim = c(-82, -80.8), ylim = c(24.4, 24.8))
-hihihi + coord_sf(xlim = c(-81, -80), ylim = c(24.6, 25.5))
-hihihi + coord_sf(xlim = c(-80.2, -80), ylim = c(25.5, 27)) +
-  geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)) +theme(aspect.ratio = 2)
+# Get subsets of map range for multipanel plot
+flmap <- basemap +
+  geom_rect(aes(xmin = -83, xmax = -82, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.1) +
+  geom_rect(aes(xmin = -82, xmax = -81, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.1) +
+  geom_rect(aes(xmin = -81, xmax = -80, ymin = 24.65, ymax = 25.65), fill = NA, color = "black", lwd = 0.1) +
+  geom_rect(aes(xmin = -80.4, xmax = -79.8, ymin = 25.65, ymax = 26.8), fill = NA, color = "black", lwd = 0.1)
+dtmap <- basemap + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE)
+lkmap <- basemap + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = FALSE)
+ukmap <- basemap + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE)
+semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE)# +
+  #geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)))
 
-# Is molasses an outlier as a site that did much better than expected?
-#Y3042
-y3042 <- df23 %>%
-  filter(Site == "Y3042")
+# Create and save multipanel plot
+maps_multipanel <- gridExtra::grid.arrange(
+  flmap, lkmap, dtmap, ukmap, semap, 
+  layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
+ggsave(filename = "output/maps_multipanel.png", 
+       plot = maps_multipanel, width = 16, height = 4, unit = "in")
+
+# Trying a different
+# maps_multipanel2 <- gridExtra::grid.arrange(
+#   flmap, lkmap, dtmap, ukmap, semap, 
+#   layout_matrix = matrix(c(1,1,2,3,1,1,2,3,5,5,4,4,NA,NA,4,4), nrow=4))
+# ggsave(filename = "output/maps_multipanel2.png", 
+#        plot = maps_multipanel2, width = 12, height = 10, unit = "in")
+```
+![](output/maps_multipanel.png)
+```{r}
+# Try random forests to find outlier sites?
+library(randomForest)
+data <- df23.abund %>%
+  select(Bleaching3, Species, Depth, dhw, Date, Week, Width, Habitat, Zone, Site) %>%
+  droplevels()
+
+set.seed(222)
+ind <- sample(2, nrow(data), replace = TRUE, prob = c(0.7, 0.3))
+train <- as.data.frame(data[ind==1,])
+test <- as.data.frame(data[ind==2,])
+
+rf <- randomForest(Bleaching3~Species+Depth+dhw+Date, data = data, ntree = 10, do.trace = TRUE, proximity=TRUE)
+print(rf)
+
+# p1 <- predict(rf, train)
+# confusionMatrix(p1, train$Bleaching3)
+
+out <- as_tibble(bind_cols(train, pred = rf$predicted))
+out
+
+out %>%
+  filter(pred == "Bleached", Bleaching3 == "Healthy")
+
 ```
 
 
