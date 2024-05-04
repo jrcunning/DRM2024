@@ -324,8 +324,7 @@ var <- df23.abund %>%
   group_by(Site, Latitude, Longitude, Species, Subregion, Zone) %>%
   summarize(n = n(),
             bleachvar = var(Bleaching2),
-            max = max(Bleaching2)) %>%
-  filter(n >= 10, max == 3, bleachvar > 0)
+            max = max(Bleaching2))
 
 ggplot(var, aes(x = Species, y = bleachvar)) +
   geom_violin(scale = "width", draw_quantiles = 0.5) +
@@ -342,17 +341,48 @@ var %>% filter(Species == "MCAV") %>%
 
 ### Which sites bleached more or less than predicted based on DHW, depth, and species composition?
 ```{r bleach_resid_sites}
-# Model probability of ≥BL as a function of dhw and depth, controlling for species and week surveyed
-mod <- glmer(Bleaching2 > 2 ~ dhw * Depth + (dhw|Species) + (1|Week), 
-             family = "binomial", data = df23.abund,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+# Model bleaching outlier locations with group-level data (groups = each species at each site)
+# Following: https://library.virginia.edu/data/articles/understanding-deviance-residuals
+# Get subset of data
+dfdf <- df23 %>%
+  group_by(Species, Site, dhw, Depth, Week, Longitude, Latitude) %>%
+  summarize(BL = sum(Bleaching2 > 2),   # BL is fully bleached or dead
+            NB = sum(Bleaching2 <= 2)) %>% # NB is healthy, pale, or partially bleached
+  ungroup() %>%
+  filter(BL + NB >=3)  # only keep groups (species at sites) with at least 3 individuals observed
 
-# Get site-level mean residuals
-site.resid <- tibble(df23.abund, .resid = residuals(mod, type = "response")) %>% 
+# Fit model
+mod <- glmer(cbind(BL, NB) ~ dhw * Depth + (dhw|Species) + (1|Week), 
+             family = "binomial", data = dfdf,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+#plot(mod, which = 1)
+
+# Get residuals (raw residuals = difference between observed and predicted bleaching probability)
+res <- tibble(dfdf, .resid = residuals(mod, type = "response"))
+
+# Plot residuals for each species at each site
+# ggplot(res, aes(x = Longitude, y = Latitude, color = .resid)) +
+#   geom_point() +
+#   facet_wrap(~Species) +
+#   scale_color_gradient2(low = "red", mid = NA, high = "blue")
+
+# Get mean site residuals across species, 
+# and keep only sites where more than one species occurred (with at least 3 ind. each)
+site.resid <- res %>%
   group_by(Site, Longitude, Latitude) %>%
-  summarize(meanResid = mean(.resid)) %>%
-  arrange(meanResid)
-# negative values indicate less bleaching than predicted based on dhw, depth, and species...
+  filter(n() > 1) %>%
+  summarize(meanResid = mean(.resid)) 
+
+# Plot mean site residuals
+site.resid %>%
+  ggplot(aes(x = Longitude, y = Latitude, color = meanResid)) +
+  geom_point() +
+  scale_color_gradient2(low = "red", mid = NA, high = "blue")#, 
+                        #midpoint = 0, limits = c(-1, 1))
+
+## A site at Molassess is the biggest outlier -- >100 PAST observed and most healthy?! is this legit??
+res %>% filter(Site == "Y3042")
+df23 %>% filter(Site == "Y3042", Species == "PAST") %>% print(n = nrow(.))
 
 # Plot on map
 # Download satellite map for Florida
@@ -380,48 +410,67 @@ flmap <- basemap +
 dtmap <- basemap + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE)
 lkmap <- basemap + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = FALSE)
 ukmap <- basemap + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE)
-semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE)# +
-  #geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)))
+semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE)
 
 # Create and save multipanel plot
-maps_multipanel <- gridExtra::grid.arrange(
+maps_multipanel_grouplevel <- gridExtra::grid.arrange(
   flmap, lkmap, dtmap, ukmap, semap, 
   layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
-ggsave(filename = "output/maps_multipanel.png", 
-       plot = maps_multipanel, width = 16, height = 4, unit = "in")
+ggsave(filename = "output/maps_multipanel_grouplevel.png", 
+       plot = maps_multipanel_grouplevel, width = 16, height = 4, unit = "in")
 
-# Trying a different
+# Trying a different panel arrangement
 # maps_multipanel2 <- gridExtra::grid.arrange(
 #   flmap, lkmap, dtmap, ukmap, semap, 
 #   layout_matrix = matrix(c(1,1,2,3,1,1,2,3,5,5,4,4,NA,NA,4,4), nrow=4))
 # ggsave(filename = "output/maps_multipanel2.png", 
 #        plot = maps_multipanel2, width = 12, height = 10, unit = "in")
 ```
-![](output/maps_multipanel.png)
+![](output/maps_multipanel_grouplevel.png)
 ```{r}
 # Try random forests to find outlier sites?
 library(randomForest)
 data <- df23.abund %>%
-  select(Bleaching3, Species, Depth, dhw, Date, Week, Width, Habitat, Zone, Site) %>%
+  #filter(Species %in% c("CNAT", "DLAB", "MCAV", "OANN", "OFAV", "PAST", "PSTR", "SSID")) %>%
+  mutate(Bleaching4 = factor(case_when(Bleaching3 %in% c("Healthy", "Pale") ~ "Healthy",
+                                Bleaching3 %in% c("Partially Bleached", "Bleached", "Dead") ~ "Bleached"))) %>%
   droplevels()
 
-set.seed(222)
-ind <- sample(2, nrow(data), replace = TRUE, prob = c(0.7, 0.3))
-train <- as.data.frame(data[ind==1,])
-test <- as.data.frame(data[ind==2,])
-
-rf <- randomForest(Bleaching3~Species+Depth+dhw+Date, data = data, ntree = 10, do.trace = TRUE, proximity=TRUE)
+# Run random forest classification with species, depth, and dhw as predictors
+rf <- randomForest(Bleaching4~Species+Depth+dhw, data = data, ntree = 10, do.trace = TRUE, proximity=TRUE)
 print(rf)
+rf$confusion
 
-# p1 <- predict(rf, train)
-# confusionMatrix(p1, train$Bleaching3)
+# Get rf model predictions for Bleaching4
+data <- data %>%
+  mutate(pred = rf$predicted)
 
-out <- as_tibble(bind_cols(train, pred = rf$predicted))
-out
+# How accurate were predictions for each species?
+data %>%
+  drop_na(pred) %>%
+  group_by(Species) %>%
+  count(acc = pred == Bleaching4) %>%
+  ggplot(aes(x = Species, y = n, fill = acc)) +
+  geom_col(position= "fill")
 
-out %>%
-  filter(pred == "Bleached", Bleaching3 == "Healthy")
+data %>%
+  drop_na(pred) %>%
+  ggplot(aes(x = Species, fill = Bleaching4:pred)) +
+  geom_bar(position = "fill")
+  
+  
 
+# Which corals were predicted to be bleached, but were actually healthy?
+outhealthy <- data %>%
+  filter(pred == "Bleached", Bleaching4 == "Healthy") 
+
+ggplot(outhealthy, aes(x = Longitude, y = Latitude)) +
+  geom_point(color = "red", alpha = 0.005, pch = 20)
+
+outhealthy %>%
+  filter(Species == "OFAV") %>%
+  ggplot(aes(x = Longitude, y = Latitude)) +
+  geom_point(aes(color = Species))
 ```
 
 
