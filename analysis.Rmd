@@ -317,31 +317,34 @@ thresh %>%
 
 ### Are juveniles doing better (less bleaching) than larger adult colonies?
 ```{r size_effects}
-# Model bleaching severity by species and size class
-df23.abund.ss2 <- df23.abund %>%
-  mutate(sizeclass = case_when(Width <= 7 & (Old + Recent) <= 10 ~ "juv",
-                               TRUE ~ "adult"))
-
-mod <- glmer((Bleaching2 > 1) ~ Width * Species * dhw + (1|Site) + (1|Week), 
-             family = "binomial", data = df23.abund.ss2, 
+# Model bleaching severity by Width, species, and dhw. 
+# Only include surveys with dhw>10.
+mod <- glmer((Bleaching2 > 1) ~ log(Width) * Species * dhw + (1|Site) + (1|Week), 
+             family = "binomial", data = filter(df23.abund, dhw > 10), 
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+plot(mod, which = 1)
 
-#res <- emmeans(mod, specs = "Width", by = "Species", at = list(dhw = 15))
-res <- emtrends(mod, specs = c("Width", "dhw"), var = "Width", by = "Species", at = list(dhw = c(10, 15, 20)))
-#sig <- as.tibble(rbind(contrast(res, "pairwise"))) %>%
-  #filter(p.value < 0.05)
+res <- emtrends(mod, specs = c("Width", "dhw"), var = "Width", by = "Species", 
+                at = list(dhw = c(10, 15, 20)))
+
 sig <- as.tibble(res) %>%
   filter(asymp.LCL > 0)
 
-# as.tibble(emmeans(mod, specs = "sizeclass", by = "Species", 
-#                   at = list(dhw = 15), type = "response")) %>%
-as.tibble(emmeans(mod, specs = c("Width", "dhw"), by = "Species", at = list(Width = seq(5, 100, 1),
-                                                                  dhw = c(10, 15, 20)), 
-                  type = "response")) %>%
+pred <- as.tibble(emmeans(mod, specs = c("Width", "dhw"), by = "Species", 
+                          at = list(Width = seq(5, 500, 10), dhw = c(10, 15, 20)), 
+                          type = "response")) %>%
   filter(Species %in% sig$Species) %>%
-  #right_join(select(sig, dhw, Species)) %>%
-  #ggplot(aes(x = sizeclass, y = response)) +
-  ggplot(aes(x = Width, y = response, color = factor(dhw), group = dhw)) +
+  left_join(select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
+actual <- filter(df23.abund, dhw > 10) %>%
+  group_by(Species) %>%
+  summarize(min = min(Width), max = max(Width)) %>%
+  mutate(ad = map(max, ~expand_grid(Width = seq(5, ., 10)))) %>%
+  unnest(ad)
+pred2 <- pred %>%
+  semi_join(actual, by = c("Species", "Width"))
+  
+
+ggplot(pred2, aes(x = Width, y = response, color = factor(dhw), group = dhw, linetype = is.na(asymp.LCL.y))) +
   facet_wrap(~Species, scales = "free") +
   geom_line() +
   #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
