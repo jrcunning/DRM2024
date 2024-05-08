@@ -5,7 +5,7 @@ author: "Ross Cunning"
 output: html_document
 date: "2024-04-30"
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -212,6 +212,15 @@ ggplot(res, aes(x = Date, y = response, color = Subregion, group = Subregion)) +
   geom_point() + 
   geom_line() +
   labs(y = "Percent of surveyed colonies with at least partial bleaching")
+
+
+df23 %>%
+  group_by(Site, Subregion) %>%
+  summarize(meandhw = mean(dhw),
+              pctbl = sum(Bleaching2 > 1) / n()) %>%
+  ggplot(aes(x = meandhw, y = pctbl)) +
+  geom_point(aes(color = Subregion)) +
+  geom_smooth(method = "gam")
 ```
 
 Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
@@ -445,27 +454,49 @@ df23ss3 %>% filter(Width < 4)
 # Following: https://library.virginia.edu/data/articles/understanding-deviance-residuals
 # Get subset of data
 dfdf <- df23 %>%
-  group_by(Species, Site, dhw, Depth, Week, Longitude, Latitude) %>%
+  group_by(Species, Site, dhw, Depth, Week, Longitude, Latitude, Subregion) %>%
   summarize(BL = sum(Bleaching2 > 2),   # BL is fully bleached or dead
             NB = sum(Bleaching2 <= 2)) %>% # NB is healthy, pale, or partially bleached
   ungroup() %>%
   filter(BL + NB >=3)  # only keep groups (species at sites) with at least 3 individuals observed
 
+# Is size a factor? if all the corals in Miami-Broward are smaller and thats why they dont bleach as much?
+ggplot(df23.abund, aes(y = Subregion, x = log(Width))) +
+  geom_boxplot() +
+  facet_wrap(~Species)
+mod <- lm(log(Width) ~ Subregion * Species, data = df23.abund)
+anova(mod)
+emmeans(mod, specs = "Subregion", by = "Species")
+# Size might be a factor, e.g. Mcavs in Miami are smaller than Lower Keys
+
+
+
+
 # Fit model
-mod <- glmer(cbind(BL, NB) ~ dhw * Depth + (dhw|Species) + (1|Week), 
+mod <- glmer(cbind(BL, NB) ~ dhw + Depth + (dhw|Species) + (1|Week), 
              family = "binomial", data = dfdf,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 #plot(mod, which = 1)
 
 # Get residuals (raw residuals = difference between observed and predicted bleaching probability)
 res <- tibble(dfdf, .resid = residuals(mod, type = "response"))
+# res$.fitted <- predict(mod, newdata = dfdf, type = "response")
+# res$.pearson <- residuals(mod, type = "pearson")
+# ggplot(res, aes(x = .fitted, y = .pearson, color = Subregion)) +
+#   geom_point()
 
+# res2 <- emmeans(mod, specs = "dhw", at = list(dhw = seq(0,22,2)), type = "response")
+# res2
+# as.tibble(res2) %>%
+#   ggplot(aes(x = dhw, y = prob)) + geom_line()
 # Plot residuals for each species at each site
 ## (Where did each coral species do better or worse than expected?)
 # ggplot(res, aes(x = Longitude, y = Latitude, color = .resid)) +
 #   geom_point() +
 #   facet_wrap(~Species) +
 #   scale_color_gradient2(low = "red", mid = NA, high = "blue")
+
+# miami <- filter(df23, Subregion == "Broward-Miami")
 
 # Get mean site residuals across species, 
 # and keep only sites where more than one species occurred (with at least 3 ind. each)
@@ -520,7 +551,7 @@ ggsave(filename = "output/maps_multipanel_grouplevel.png",
 #        plot = maps_multipanel2, width = 12, height = 10, unit = "in")
 
 # Print whole map
-flmap + theme(legend.position = "right") +
+basemap + theme(legend.position = "right") +
   labs(fill = "Difference from predicted\nbleaching prevalence")
 
 ## A site at Molassess is the biggest outlier -- >100 PAST observed and most healthy?! is this legit??
@@ -528,6 +559,52 @@ flmap + theme(legend.position = "right") +
 # df23 %>% filter(Site == "Y3042", Species == "PAST") %>% print(n = nrow(.))
 
 # Multipanel figure
+
+
+
+
+
+# Back to subject-level data model? so that WIDTH can be included? doesn't seem to change anything...
+# Model probability of ≥BL as a function of dhw and depth, controlling for species and week surveyed
+mod <- glmer(Bleaching2 > 2 ~ dhw * Depth + (dhw|Species) + (1|Week), 
+             family = "binomial", data = df23.abund,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+
+# Get site-level mean residuals
+site.resid <- tibble(df23.abund, .resid = residuals(mod, type = "response")) %>% 
+  group_by(Site, Longitude, Latitude) %>%
+  summarize(meanResid = mean(.resid)) %>%
+  arrange(meanResid)
+# negative values indicate less bleaching than predicted based on dhw, depth, and species...
+
+# Plot on map
+# Download satellite map for Florida
+world <- ne_countries(scale = "large", returnclass = "sf")
+# Plot basemap
+basemap <- #ggmap(map_fl, extent = "panel") +
+  ggplot(data = world) +
+  geom_sf(lwd = 0, fill = "gray70") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  geom_point(data = site.resid, aes(x = Longitude, y = Latitude, fill = sign(meanResid) * meanResid^2,
+                            size = meanResid^2), alpha = 0.5, stroke = 0.1, pch = 21) +
+  scale_fill_gradient2(low = "red", mid = NA, high = "blue") +
+  theme(legend.position = "none") +
+  theme(text = element_text(size = 10),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA))
+
+# Get subsets of map range for multipanel plot
+flmap <- basemap +
+  geom_rect(aes(xmin = -83, xmax = -82, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.1) +
+  geom_rect(aes(xmin = -82, xmax = -81, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.1) +
+  geom_rect(aes(xmin = -81, xmax = -80, ymin = 24.65, ymax = 25.65), fill = NA, color = "black", lwd = 0.1) +
+  geom_rect(aes(xmin = -80.4, xmax = -79.8, ymin = 25.65, ymax = 26.8), fill = NA, color = "black", lwd = 0.1)
+dtmap <- basemap + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE)
+lkmap <- basemap + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = FALSE)
+ukmap <- basemap + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE)
+semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE)# +
+  #geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)))
 ```
 ![](output/maps_multipanel_grouplevel.png)
 
