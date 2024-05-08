@@ -41,6 +41,8 @@ df <- df %>%
 
 # Subset just 2023 surveys
 df23 <- filter(df, year(Date) == "2023")
+# Subset at some earlier date? Later in the season, corals are probably dead and not counted, underestimating bleaching and mortality rates...?
+#df23 <- filter(df23, Date < "2023-09-05")
 
 # Order Subregions from south to north
 df23 <- df23 %>%
@@ -98,7 +100,7 @@ df23 <- df23 %>%
 
 ```{r import_dhw}
 # Import 2023 DHW data
-dhw <- read_csv("data/dhw/dhw_processed.csv") %>%
+dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
@@ -109,6 +111,19 @@ df23 <- left_join(df23, dhw, by = c("Site", "Date"))
 # Create binned DHW variable
 df23 <- df23 %>%
   mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+```
+
+### Other ancillary data
+```{r}
+# Site distances from 65ft isobath
+dist <- read.delim("data/distance_from_65ft_isobath.txt", header = FALSE,
+                    col.names = c("Site", "Latitude", "Longitude", "", "Dist65")) %>%
+  select(Site, Dist65)
+
+df23 <- df23 %>% left_join(dist)
+
+sites <- df23 %>%
+  distinct(Site, Latitude, Longitude, Subregion, Zone, Habitat, dhw, Dist65)
 ```
 
 ```{r subset_drm}
@@ -237,11 +252,12 @@ Bleaching prevalence peaked in late August to early September, with ~70-100% of 
 
 ```{r bleaching_summary_overall_subregion}
 # Mean percent of corals PB or worse and mean DHW at time of survey
+df23 %>% filter(is.na(Bleaching2))
 # Average DHW by region also 
 dhws_bl <- df23 %>%
   group_by(Subregion) %>%
   summarize(meandhw = mean(dhw),
-              pctbl = sum(Bleaching2 > 1) / n()) %>%
+              pctbl = sum(Bleaching2 > 1, na.rm = T) / n()) %>%
   mutate(group = "allcorals")
 
 ggplot(dhws_bl, aes(y = Subregion)) +
@@ -581,6 +597,17 @@ site.resid <- res %>%
   filter(n() > 1) %>%
   summarize(meanResid = mean(.resid)) 
 
+test <- site.resid %>% left_join(sites) %>%
+  filter(Dist65 <10000, Dist65 > 10) %>%
+  filter(Subregion != "Marquesas")
+
+ggplot(test, aes(x = Dist65, y = meanResid)) +
+  geom_point(aes(color = Subregion)) +
+  geom_smooth(method = "lm")
+
+mod <- lm(meanResid ~ Dist65, data = test)
+anova(mod)
+
 # hist(site.resid$meanResid)
 
 # Plot on map
@@ -681,6 +708,14 @@ lkmap <- basemap + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = 
 ukmap <- basemap + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE)
 semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE)# +
   #geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)))
+
+
+
+
+
+
+
+
 ```
 ![](output/maps_multipanel_grouplevel.png)
 
