@@ -416,22 +416,22 @@ The amount of heat stress required to bleach 50% of colonies is lowest for AAGA 
 # Model bleaching severity by Width, species, and dhw. 
 # Only include surveys with dhw>10.
 mod <- glmer((Bleaching2 > 1) ~ log(Width) * Species * dhw + (1|Site) + (1|Week), 
-             family = "binomial", data = filter(df14.abund, dhw > 10), 
+             family = "binomial", data = filter(df14.abund, dhw > 4), 
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 #plot(mod, which = 1)
 
 res <- emtrends(mod, specs = c("Width", "dhw"), var = "Width", by = "Species", 
-                at = list(dhw = 15))
+                at = list(dhw = 6))
 
 sig <- as.tibble(res) %>%
   filter(asymp.LCL > 0)
 
 pred <- as.tibble(emmeans(mod, specs = c("Width", "dhw"), by = "Species", 
-                          at = list(Width = seq(5, 500, 10), dhw = 15), 
+                          at = list(Width = seq(5, 500, 10), dhw = 6), 
                           type = "response")) %>%
   filter(Species %in% sig$Species) %>%
   left_join(select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
-actual <- filter(df14.abund, dhw > 10) %>%
+actual <- filter(df14.abund, dhw > 4) %>%
   group_by(Species) %>%
   summarize(min = min(Width), max = max(Width)) %>%
   mutate(ad = map(max, ~expand_grid(Width = seq(5, ., 10)))) %>%
@@ -449,7 +449,7 @@ ggplot(pred2, aes(x = Width, y = response, color = factor(dhw), group = dhw, lin
 
 
 # Plot actual proportions binned by size class
-filter(df14.abund, dhw > 10) %>%
+filter(df14.abund, dhw > 4) %>%
   filter(Species %in% sig$Species) %>%
   group_by(Species) %>%
   mutate(Width.bin = cut(log(Width), breaks = 5)) %>%
@@ -463,67 +463,6 @@ Colony size is a significant predictor of bleaching for 10 different coral speci
 All significant relationships indicated that small corals are less likely to bleach than larger corals. This could indicate that selection for heat tolerance is taking place in smaller, newer recruits to the population. Alternatively, smaller, younger corals could be more likely to host more thermally tolerant symbionts. In either case, this is potentially evidence for some positive acclimatization and/or adaptation in these populations for greater heat tolerance.
 
 To do: think about why these specific 10 species might be showing that smaller individuals are more heat-tolerant, while other species are not. Any interesting differences in life history or symbiosis ecology between the species that DO or DO NOT show a size effect?
-
-```{r}
-# more size analysis -- do we see size effects within a region?
-# Only include surveys with dhw>10.
-mod <- glm((Bleaching2 > 1) ~ Subregion * Width + dhw, 
-             family = "binomial", data = filter(df14.abund, dhw > 10, Species == "MCAV"))
-plot(mod, which = 1)
-anova(mod)
-res <- broom::augment(mod) %>%
-  bind_cols(filter(df14.abund, dhw > 10, Species == "MCAV"))
-
-emtrends(mod, specs = "Subregion", var = "Width")
-
-df14 %>%
-  filter(Species == "SSID", dhw > 10) %>%
-  mutate(Width.bin = cut(log(Width), breaks = 10)) %>%
-  ggplot(aes(x = Width.bin, fill = Bleaching2 > 2)) +
-  geom_bar(position = "fill") +
-  facet_wrap(~Subregion)
-```
-
-```{r size_sandbox, eval = F}
-# Size of BL vs UNBL MCAV
-mcav <- df14.abund %>% filter(Species == "DLAB")
-mod <- glmer(Bleaching2 > 2 ~ log(Width) * dhw + (1|Site), family = "binomial", data = mcav)
-res <- emmeans(mod, specs = c("Width", "dhw"), at = list(Width = seq(min(mcav$Width),max(mcav$Width),2), dhw = 15), type = "response")
-res
-ggplot(as.tibble(res), aes(x = Width, y = response)) +
-  geom_line(aes(color = dhw, group = dhw)) +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.1)
-
-ggplot(mcav, aes(x = Bleaching2 > 2, y = log(Width))) +
-  geom_violin() +
-  geom_jitter(width = 0.1)
-
-
-ggplot(mcav, aes(x = cut(log(Width), 5), fill = Bleaching2 > 2)) +
-  geom_bar(position = "stack")
-
-hi <- df14 %>% filter(Species == "DLAB", Width < 7)
-
-range(mcav$Width)
-
-
-### all species?
-df14ss3 <- filter(df14ss2, Species %in% sppcounts$Species[1:10])
-mod <- glmer(BL ~ Species * Width + dhw + (1|Site), family = "binomial", data = df14ss3,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-anova(mod)
-res <- emmeans(mod, specs = c("Width", "Species", "dhw"), 
-               at = list(Width = seq(4,500,2), dhw = 15), type = "response")
-sizeranges <- df14ss3 %>% group_by(Species) %>% summarize(min = min(Width), max = max(Width))
-sizeranges
-res
-ggplot(as.tibble(res), aes(x = Width, y = prob)) +
-  geom_line(aes(color = Species, group = Species)) +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.1)
-
-df14ss3 %>% filter(Width < 4)
-```
-    
 
 
 # Mapping bleaching anomalies: exploring deviations from expected severity
@@ -541,12 +480,12 @@ dfdf <- df14 %>%
   filter(BL + NB >=3)  # only keep groups (species at sites) with at least 3 individuals observed
 
 # Is size a factor? if all the corals in Miami-Broward are smaller and thats why they dont bleach as much?
-ggplot(df14.abund, aes(y = Subregion, x = log(Width))) +
-  geom_boxplot() +
-  facet_wrap(~Species)
-mod <- lm(log(Width) ~ Subregion * Species, data = df14.abund)
-anova(mod)
-emmeans(mod, specs = "Subregion", by = "Species")
+# ggplot(df14.abund, aes(y = Subregion, x = log(Width))) +
+#   geom_boxplot() +
+#   facet_wrap(~Species)
+# mod <- lm(log(Width) ~ Subregion * Species, data = df14.abund)
+# anova(mod)
+# emmeans(mod, specs = "Subregion", by = "Species")
 # Size might be a factor, e.g. Mcavs in Miami are smaller than Lower Keys
 
 
@@ -583,18 +522,18 @@ res <- tibble(dfdf, .resid = residuals(mod, type = "response"))
 site.resid <- res %>%
   group_by(Site, Longitude, Latitude) %>%
   filter(n() > 1) %>%
-  summarize(meanResid = mean(.resid)) 
-
-test <- site.resid %>% left_join(sites) %>%
-  filter(Dist65 <10000, Dist65 > 10) %>%
-  filter(Subregion != "Marquesas")
-
-ggplot(test, aes(x = Dist65, y = meanResid)) +
-  geom_point(aes(color = Subregion)) +
-  geom_smooth(method = "lm")
-
-mod <- lm(meanResid ~ Dist65, data = test)
-anova(mod)
+  summarize(meanResid = mean(.resid))
+# 
+# test <- site.resid %>% left_join(sites) %>%
+#   filter(Dist65 <10000, Dist65 > 10) %>%
+#   filter(Subregion != "Marquesas")
+# 
+# ggplot(test, aes(x = Dist65, y = meanResid)) +
+#   geom_point(aes(color = Subregion)) +
+#   geom_smooth(method = "lm")
+# 
+# mod <- lm(meanResid ~ Dist65, data = test)
+# anova(mod)
 
 # hist(site.resid$meanResid)
 
@@ -631,7 +570,7 @@ semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expan
 maps_multipanel_grouplevel <- gridExtra::arrangeGrob(
   flmap, lkmap, dtmap, ukmap, semap, 
   layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
-ggsave(filename = "output/maps_multipanel_grouplevel.png", 
+ggsave(filename = "output/2014_maps_multipanel_grouplevel.png", 
        plot = maps_multipanel_grouplevel, width = 16, height = 4, unit = "in")
 
 # Trying a different panel arrangement
@@ -651,61 +590,8 @@ basemap + theme(legend.position = "right") +
 
 # Multipanel figure
 
-
-
-
-
-# Back to subject-level data model? so that WIDTH can be included? doesn't seem to change anything...
-# Model probability of ≥BL as a function of dhw and depth, controlling for species and week surveyed
-mod <- glmer(Bleaching2 > 2 ~ dhw * Depth + (dhw|Species) + (1|Week), 
-             family = "binomial", data = df14.abund,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-
-# Get site-level mean residuals
-site.resid <- tibble(df14.abund, .resid = residuals(mod, type = "response")) %>% 
-  group_by(Site, Longitude, Latitude) %>%
-  summarize(meanResid = mean(.resid)) %>%
-  arrange(meanResid)
-# negative values indicate less bleaching than predicted based on dhw, depth, and species...
-
-# Plot on map
-# Download satellite map for Florida
-world <- ne_countries(scale = "large", returnclass = "sf")
-# Plot basemap
-basemap <- #ggmap(map_fl, extent = "panel") +
-  ggplot(data = world) +
-  geom_sf(lwd = 0, fill = "gray70") +
-  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
-  geom_point(data = site.resid, aes(x = Longitude, y = Latitude, fill = sign(meanResid) * meanResid^2,
-                            size = meanResid^2), alpha = 0.5, stroke = 0.1, pch = 21) +
-  scale_fill_gradient2(low = "red", mid = NA, high = "blue") +
-  theme(legend.position = "none") +
-  theme(text = element_text(size = 10),
-        axis.title = element_blank(),
-        panel.background = element_blank(),
-        panel.border = element_rect(colour = "black", fill=NA))
-
-# Get subsets of map range for multipanel plot
-flmap <- basemap +
-  geom_rect(aes(xmin = -83, xmax = -82, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.1) +
-  geom_rect(aes(xmin = -82, xmax = -81, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.1) +
-  geom_rect(aes(xmin = -81, xmax = -80, ymin = 24.65, ymax = 25.65), fill = NA, color = "black", lwd = 0.1) +
-  geom_rect(aes(xmin = -80.4, xmax = -79.8, ymin = 25.65, ymax = 26.8), fill = NA, color = "black", lwd = 0.1)
-dtmap <- basemap + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE)
-lkmap <- basemap + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = FALSE)
-ukmap <- basemap + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE)
-semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE)# +
-  #geom_hline(yintercept = c(25.7588, 26.0923, 26.257518, 26.54476, 26.77238)))
-
-
-
-
-
-
-
-
 ```
-![](output/maps_multipanel_grouplevel.png)
+![](output/2014_maps_multipanel_grouplevel.png)
 
 The maps above show the difference in ACTUAL - EXPECTED bleaching prevalence. Expected prevalence was modeled based on DHW, depth, species composition, and week surveyed. Sites with negative values plotted in RED are ones that bleached LESS than expected, while sites with positive values plotted in BLUE are sites that bleached MORE than expected.
 

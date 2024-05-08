@@ -476,7 +476,7 @@ All significant relationships indicated that small corals are less likely to ble
 
 To do: think about why these specific 10 species might be showing that smaller individuals are more heat-tolerant, while other species are not. Any interesting differences in life history or symbiosis ecology between the species that DO or DO NOT show a size effect?
 
-```{r}
+```{r, eval = FALSE}
 # more size analysis -- do we see size effects within a region?
 # Only include surveys with dhw>10.
 mod <- glm((Bleaching2 > 1) ~ Subregion * Width + dhw, 
@@ -553,12 +553,12 @@ dfdf <- df23 %>%
   filter(BL + NB >=3)  # only keep groups (species at sites) with at least 3 individuals observed
 
 # Is size a factor? if all the corals in Miami-Broward are smaller and thats why they dont bleach as much?
-ggplot(df23.abund, aes(y = Subregion, x = log(Width))) +
-  geom_boxplot() +
-  facet_wrap(~Species)
-mod <- lm(log(Width) ~ Subregion * Species, data = df23.abund)
-anova(mod)
-emmeans(mod, specs = "Subregion", by = "Species")
+# ggplot(df23.abund, aes(y = Subregion, x = log(Width))) +
+#   geom_boxplot() +
+#   facet_wrap(~Species)
+# mod <- lm(log(Width) ~ Subregion * Species, data = df23.abund)
+# anova(mod)
+# emmeans(mod, specs = "Subregion", by = "Species")
 # Size might be a factor, e.g. Mcavs in Miami are smaller than Lower Keys
 
 
@@ -597,16 +597,16 @@ site.resid <- res %>%
   filter(n() > 1) %>%
   summarize(meanResid = mean(.resid)) 
 
-test <- site.resid %>% left_join(sites) %>%
-  filter(Dist65 <10000, Dist65 > 10) %>%
-  filter(Subregion != "Marquesas")
-
-ggplot(test, aes(x = Dist65, y = meanResid)) +
-  geom_point(aes(color = Subregion)) +
-  geom_smooth(method = "lm")
-
-mod <- lm(meanResid ~ Dist65, data = test)
-anova(mod)
+# test <- site.resid %>% left_join(sites) %>%
+#   filter(Dist65 <10000, Dist65 > 10) %>%
+#   filter(Subregion != "Marquesas")
+# 
+# ggplot(test, aes(x = Dist65, y = meanResid)) +
+#   geom_point(aes(color = Subregion)) +
+#   geom_smooth(method = "lm")
+# 
+# mod <- lm(meanResid ~ Dist65, data = test)
+# anova(mod)
 
 # hist(site.resid$meanResid)
 
@@ -643,7 +643,7 @@ semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expan
 maps_multipanel_grouplevel <- gridExtra::arrangeGrob(
   flmap, lkmap, dtmap, ukmap, semap, 
   layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
-ggsave(filename = "output/maps_multipanel_grouplevel.png", 
+ggsave(filename = "output/2023_maps_multipanel_grouplevel.png", 
        plot = maps_multipanel_grouplevel, width = 16, height = 4, unit = "in")
 
 # Trying a different panel arrangement
@@ -666,7 +666,9 @@ basemap + theme(legend.position = "right") +
 
 
 
+```
 
+```{r bleach_resid_sites_subjectlevel, eval = F}
 # Back to subject-level data model? so that WIDTH can be included? doesn't seem to change anything...
 # Model probability of ≥BL as a function of dhw and depth, controlling for species and week surveyed
 mod <- glmer(Bleaching2 > 2 ~ dhw * Depth + (dhw|Species) + (1|Week), 
@@ -717,7 +719,7 @@ semap <- basemap + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expan
 
 
 ```
-![](output/maps_multipanel_grouplevel.png)
+![](output/2023_maps_multipanel_grouplevel.png)
 
 The maps above show the difference in ACTUAL - EXPECTED bleaching prevalence. Expected prevalence was modeled based on DHW, depth, species composition, and week surveyed. Sites with negative values plotted in RED are ones that bleached LESS than expected, while sites with positive values plotted in BLUE are sites that bleached MORE than expected.
 
