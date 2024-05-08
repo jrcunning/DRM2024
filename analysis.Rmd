@@ -81,6 +81,10 @@ df23 %>% filter(Width < 4)
 # Filter out dead corals from causes OTHER than bleaching ("TRS") -- why are these in data?
 df23 <- df23 %>%
   filter(((Old + Recent) < 100 | grepl("TRS", `Other Conditions`)))
+
+# Get T3 and T4 data
+
+# Get surveyor information
 ```
 
 ### DHW data
@@ -226,25 +230,51 @@ df23 %>%
 Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
 
 ```{r bleaching_summary_overall_subregion}
-# Overall percent of all corals observed that were partially bleached or worse
-## (Raw data)
-# pct_pb <- df23 %>% group_by(Subregion) %>%
-#   count(Bleaching2 > 1) %>%
-#   summarize(`% of all surveyed colonies with at least partial bleaching` = n[`Bleaching2 > 1`] / sum(n))
-# knitr::kable(pct_pb)
+# Mean percent of corals PB or worse and mean DHW at time of survey
+# Average DHW by region also 
+dhws_bl <- df23 %>%
+  group_by(Subregion) %>%
+  summarize(meandhw = mean(dhw),
+              pctbl = sum(Bleaching2 > 1) / n()) %>%
+  mutate(group = "allcorals")
 
-# Overall predicted probability of colonies being PB or worse during week 35 (Sept. 1st)
+ggplot(dhws_bl, aes(y = Subregion)) +
+  geom_point(aes(x = pctbl)) +
+  geom_path(aes(x = pctbl, group = group)) +
+  geom_point(aes(x = meandhw / 25), color = "red") +
+  geom_path(aes(x = meandhw / 25, group = group), color = "red") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
+                     name = "% corals PB or worse when surveyed",
+                     sec.axis = sec_axis(~.*25, name = "Mean DHWs when surveyed")) +
+  theme(axis.text.x.top = element_text(color = "red"),
+        axis.title.x.top = element_text(color = "red")) +
+  labs(y = "")
+
+# Now do again for DHW and predicted BL at peak = Sept. 1st
+# Predicted probability of colonies being PB or worse during week 35 (Sept. 1st)
+dhw91 <- dhw %>%
+  left_join(distinct(df23, Site, Subregion)) %>%
+  filter(Date == "2023-09-01") %>%
+  group_by(Subregion) %>%
+  summarize(dhw91 = mean(dhw)) %>%
+  mutate(group = "allcorals")
 ### Decide whether Week should be included here.
 mod <- glm((Bleaching2 > 1) ~ Subregion + Week, family = "binomial", data = df23)
 res <- emmeans(mod, specs = "Subregion", at = list(Week = factor(35)), type = "response")
-# Plot
-as.tibble(res) %>%
-  mutate(group = "allcorals") %>%
-  ggplot(aes(x = response, y = Subregion, group = group)) +
-  geom_point() +
-  geom_path() +
-  labs(x = "Proportion of corals bleached") +
-  scale_x_continuous(limits = c(0,1), expand = c(0,0), breaks = seq(0, 1, 0.1))
+as.tibble(res) %>% full_join(dhw91) %>%
+  ggplot(aes(y = Subregion, group = group)) +
+  geom_point(aes(x = response)) +
+  geom_path(aes(x = response)) +
+  geom_point(aes(x = dhw91 / 25), color = "red") +
+  geom_path(aes(x = dhw91 / 25), color = "red") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
+                     name = "Predicted % corals PB or worse on 9/1",
+                     sec.axis = sec_axis(~.*25, name = "Mean DHWs on 9/1")) +
+  theme(axis.text.x.top = element_text(color = "red"),
+        axis.title.x.top = element_text(color = "red")) +
+  labs(y = "")
+
+
 ```
 
 Overall bleaching prevalence (PB or worse) at the peak of the bleaching event was ~25% in Miami and Broward, and just 5-15% moving north. Moving south from Miami, however, there was a very sharp break in bleaching prevalence, shooting up to ~80% in Biscayne. Bleaching prevalence was ~80% throughout the Keys and Marquesas, and ~90% in the Dry Tortugas.
@@ -403,6 +433,26 @@ Colony size is a significant predictor of bleaching for 10 different coral speci
 All significant relationships indicated that small corals are less likely to bleach than larger corals. This could indicate that selection for heat tolerance is taking place in smaller, newer recruits to the population. Alternatively, smaller, younger corals could be more likely to host more thermally tolerant symbionts. In either case, this is potentially evidence for some positive acclimatization and/or adaptation in these populations for greater heat tolerance.
 
 To do: think about why these specific 10 species might be showing that smaller individuals are more heat-tolerant, while other species are not. Any interesting differences in life history or symbiosis ecology between the species that DO or DO NOT show a size effect?
+
+```{r}
+# more size analysis -- do we see size effects within a region?
+# Only include surveys with dhw>10.
+mod <- glm((Bleaching2 > 1) ~ Subregion * Width + dhw, 
+             family = "binomial", data = filter(df23.abund, dhw > 10, Species == "MCAV"))
+plot(mod, which = 1)
+anova(mod)
+res <- broom::augment(mod) %>%
+  bind_cols(filter(df23.abund, dhw > 10, Species == "MCAV"))
+
+emtrends(mod, specs = "Subregion", var = "Width")
+
+df23 %>%
+  filter(Species == "SSID", dhw > 10) %>%
+  mutate(Width.bin = cut(log(Width), breaks = 10)) %>%
+  ggplot(aes(x = Width.bin, fill = Bleaching2 > 2)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Subregion)
+```
 
 ```{r size_sandbox, eval = F}
 # Size of BL vs UNBL MCAV
