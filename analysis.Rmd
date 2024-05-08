@@ -53,6 +53,9 @@ df23 <- df23 %>%
 df23 <- df23 %>%
   mutate(Species = factor(Species, levels = sort(levels(df$Species))))
 
+# There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
+df23[(df23$Old + df23$Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`), "Other Conditions"] <- "TRS"
+
 # Create ordinal variables and factors for bleaching severity
 df23 <- df23 %>%
   mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
@@ -70,21 +73,25 @@ df23 <- df23 %>%
 ```
 
 ```{r qc_drm, include = FALSE}
-#### There are 45 corals listed with "TRS" but are blank for "Bleaching"... talk to Jennifer about these?
-#### For now, remove these from analysis
-df23 <- df23 %>%
-  filter(!is.na(Bleaching2))
-
-### There are 34 corals with Width < 4 ... keep? or errors?
-df23 %>% filter(Width < 4)
-
-# Filter out dead corals from causes OTHER than bleaching ("TRS") -- why are these in data?
-df23 <- df23 %>%
-  filter(((Old + Recent) < 100 | grepl("TRS", `Other Conditions`)))
 
 # Get T3 and T4 data
 
 # Get surveyor information
+
+# Spring 2024 surveys? estimate mortality? recovery? bleaching vs mortality patterns by species? They will probably do another paper based on this so leave it out currently
+
+# COmpare these trends to 2014-2015 bleaching event?
+
+# CLoud cover, rain, etc. could have been different. Miami/Broward had tons of rain in summer23? Torrential rain causing rapid periodic cooling? Upwelling events from Gulf Stream eddies? Look at temp. data
+
+# Super hot and salty water from FLorida Bay pushing out onto the reef? JS: surprised that 7mile bridge did better than expected?! cause would have affected those locations
+
+# Look at TEMPS especially July
+
+# Two papers? Species and geography?
+
+# FOCUS on the effect of depth rather than just remove it
+# Depth did not seem to be a refuge in Tortugas in2023 for some reason - why?
 ```
 
 ### DHW data
@@ -217,14 +224,13 @@ ggplot(res, aes(x = Date, y = response, color = Subregion, group = Subregion)) +
   geom_line() +
   labs(y = "Percent of surveyed colonies with at least partial bleaching")
 
-
-df23 %>%
-  group_by(Site, Subregion) %>%
-  summarize(meandhw = mean(dhw),
-              pctbl = sum(Bleaching2 > 1) / n()) %>%
-  ggplot(aes(x = meandhw, y = pctbl)) +
-  geom_point(aes(color = Subregion)) +
-  geom_smooth(method = "gam")
+# df23 %>%
+#   group_by(Site, Subregion) %>%
+#   summarize(meandhw = mean(dhw),
+#               pctbl = sum(Bleaching2 > 1) / n()) %>%
+#   ggplot(aes(x = meandhw, y = pctbl)) +
+#   geom_point(aes(color = Subregion)) +
+#   geom_smooth(method = "gam")
 ```
 
 Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
@@ -273,8 +279,6 @@ as.tibble(res) %>% full_join(dhw91) %>%
   theme(axis.text.x.top = element_text(color = "red"),
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
-
-
 ```
 
 Overall bleaching prevalence (PB or worse) at the peak of the bleaching event was ~25% in Miami and Broward, and just 5-15% moving north. Moving south from Miami, however, there was a very sharp break in bleaching prevalence, shooting up to ~80% in Biscayne. Bleaching prevalence was ~80% throughout the Keys and Marquesas, and ~90% in the Dry Tortugas.
@@ -332,7 +336,20 @@ ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) 
   facet_wrap(~Species, ncol = 7) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none") +
-  labs(y = "", x = "Proportion of colonies PB or worse")
+  labs(y = "", x = "Predicted % of colonies PB or worse")
+
+# Actual proportions rather than statistically modeled as a doublecheck
+# df23.abund.ss %>%
+#   group_by(Subregion, Species) %>%
+#   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
+#   ggplot(aes(y = Subregion, x = pctbl, color = Species, group = Species)) +
+#   geom_point() + 
+#   #geom_line() +
+#   geom_path() +
+#   facet_wrap(~Species, ncol = 7) +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1),
+#         legend.position = "none") +
+#   labs(y = "", x = "Actual % of colonies PB or worse")
 ```
 
 Different coral species showed different levels of bleaching prevalence across subregions. Some species showed nearly 100% bleaching from Biscayne south (Agaricia, Acropora, Porites spp.), while other species showed a more gradual increasing in bleaching prevalence, from ~50-60% bleaching in Biscayne, to ~75-100% further down in the Keys and into the Tortugas (CNAT, DLAB, MCAV, PSTR, SBOU, SINT, SRAD, SSID).
@@ -400,13 +417,13 @@ mod <- glmer((Bleaching2 > 1) ~ log(Width) * Species * dhw + (1|Site) + (1|Week)
 #plot(mod, which = 1)
 
 res <- emtrends(mod, specs = c("Width", "dhw"), var = "Width", by = "Species", 
-                at = list(dhw = c(5, 10, 15, 20)))
+                at = list(dhw = 15))
 
 sig <- as.tibble(res) %>%
   filter(asymp.LCL > 0)
 
 pred <- as.tibble(emmeans(mod, specs = c("Width", "dhw"), by = "Species", 
-                          at = list(Width = seq(5, 500, 10), dhw = c(5, 10, 15, 20)), 
+                          at = list(Width = seq(5, 500, 10), dhw = 15), 
                           type = "response")) %>%
   filter(Species %in% sig$Species) %>%
   left_join(select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
@@ -426,6 +443,15 @@ ggplot(pred2, aes(x = Width, y = response, color = factor(dhw), group = dhw, lin
   ylim(0, 1) +
   labs(x = "Colony width", y = "Proportion of colonies PB or worse")
 
+
+# Plot actual proportions binned by size class
+filter(df23.abund, dhw > 10) %>%
+  filter(Species %in% sig$Species) %>%
+  group_by(Species) %>%
+  mutate(Width.bin = cut(log(Width), breaks = 5)) %>%
+  ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Species, scales = "free")
 ```
 
 Colony size is a significant predictor of bleaching for 10 different coral species. Solid lines indicate levels of DHW where the size effect is statistically significant, and dashed lines are for DHW levels where the relationship is NOT significant.
