@@ -9,7 +9,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = F)
 ```
 
 ```{r}
@@ -28,10 +28,35 @@ library(tidyverse)
 
 ### DRM data
 ```{r import_drm}
-# Import DRM data
-df <- read_csv("data/drm/export.csv") %>%
+# Import Transect 1 and 2 data
+t1t2 <- readxl::read_xlsx("data/drm/Updated_2023AfterQAQC_RawCoralDataTransect1and2.xlsx",
+                          na = "NULL")
+
+# Import Transect 3 and 4 data
+t3t4 <- readxl::read_xlsx("data/drm/Updated_2023AfterQAQC_RawCoralDataTransects3and4.xlsx")
+
+# Combine
+df <- bind_rows(t1t2, t3t4)
+
+# Recode and rename things
+df <- df %>%
+  mutate(Bleaching = case_match(
+    Bleaching, 
+    "Not Bleached" ~ NA,
+    "Pale" ~ "P",
+    "Partly Bleached" ~ "PB",
+    "Totally Bleached" ~ "BL",
+    )) %>%
+  rename(Old = OldMortality, Recent = RecentMortality,
+         `Other Conditions` = oCondition) %>%
   mutate(across(where(is.character), as_factor),
-         Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+         Date = as_date(as.character(Date), format = "%Y-%m-%d"))
+
+
+# # Import DRM data
+# df <- read_csv("data/drm/export.csv") %>%
+#   mutate(across(where(is.character), as_factor),
+#          Date = as_date(as.character(Date), format = "%m/%d/%Y"))
 
 # Get day of the year number, week, and month for some model fitting
 df <- df %>%
@@ -42,7 +67,8 @@ df <- df %>%
 # Subset just 2023 surveys
 df23 <- filter(df, year(Date) == "2023")
 # Subset at some earlier date? Later in the season, corals are probably dead and not counted, underestimating bleaching and mortality rates...?
-#df23 <- filter(df23, Date < "2023-09-05")
+# df23 <- filter(df23, Date < "2023-10-01")
+
 
 # Order Subregions from south to north
 df23 <- df23 %>%
@@ -56,7 +82,12 @@ df23 <- df23 %>%
   mutate(Species = factor(Species, levels = sort(levels(df$Species))))
 
 # There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
+dead <- df23 %>%
+  filter((Old + Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`))
 df23[(df23$Old + df23$Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`), "Other Conditions"] <- "TRS"
+
+
+
 
 # Create ordinal variables and factors for bleaching severity
 df23 <- df23 %>%
@@ -72,6 +103,12 @@ df23 <- df23 %>%
                                  3 ~ "Bleached",
                                  4 ~ "Dead"),
                              levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
+
+
+# # There are corals with the TRS code that are NOT fully dead, but don't have BL code?
+# df23.abund %>% filter(is.na(Bleaching2))
+
+#### What to do about these?
 ```
 
 ```{r qc_drm, include = FALSE}
@@ -105,12 +142,20 @@ dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
+# Get max DHW experienced in 2023 for each site as of the date surveyed?
+# or something like cumulative DHW? I think there are lots of corals that already bleached and died by September onward that are not getting captured in the surveys...
+  
+
 # Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
 df23 <- left_join(df23, dhw, by = c("Site", "Date"))
 
 # Create binned DHW variable
 df23 <- df23 %>%
   mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+```
+
+```{r}
+save(df23, file = "output/2023.RData")
 ```
 
 ### Other ancillary data
@@ -142,6 +187,8 @@ df23.abund <- df23 %>% filter(Species %in% abund.spp)
 df23.keys.abund <- df23 %>% filter(Subregion %in% keys, Species %in% abund.spp)
 df23.abund.nopfursint <- df23.abund %>% filter(!Species %in% c("PFUR", "SINT"))
 ```
+
+
 
 # DRM dataset summary
 
@@ -217,6 +264,11 @@ ggplot(meanDHW, aes(x = Date, y = meanDHW, color = Subregion, group = Subregion)
   geom_line() +
   scale_x_date(breaks = "months", date_labels = "%b") +
   labs(y = "Mean DHW of all sites surveyed in Subregion")
+
+# Get maxdhw experienced in each Subregion
+maxmeanDHW <- meanDHW %>%
+  group_by(Subregion) %>%
+  summarize(maxmeanDHW = max(meanDHW))
 ```
 
 DHWs in DRTO reached ~15.
@@ -250,9 +302,8 @@ ggplot(res, aes(x = Date, y = response, color = Subregion, group = Subregion)) +
 
 Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
 
-```{r bleaching_summary_overall_subregion}
+```{r bleaching_summary_overall_subregion_old, eval = F}
 # Mean percent of corals PB or worse and mean DHW at time of survey
-df23 %>% filter(is.na(Bleaching2))
 # Average DHW by region also 
 dhws_bl <- df23 %>%
   group_by(Subregion) %>%
@@ -297,6 +348,54 @@ as.tibble(res) %>% full_join(dhw91) %>%
   labs(y = "")
 ```
 
+```{r bleaching_summary_overall_subregion}
+# Count number of bleached and unbleached colonies of each species at each site
+summ <- df23.abund %>%
+  group_by(Site, Species, Subregion, Week) %>%
+  summarize(bl = sum(Bleaching2 > 1, na.rm = T),
+            nb = sum(Bleaching2 <= 1, na.rm = T),
+            dhw = mean(dhw))
+
+# Plot raw proportion of bleached colonies surveyed in each subregion
+summ %>%
+  group_by(Subregion) %>%
+  summarize(pctbl = sum(bl) / (sum(bl) + sum(nb)),
+            dhw = mean(dhw)) %>%
+  mutate(group = "allcorals") %>%
+  ggplot(aes(y = Subregion)) +
+  geom_point(aes(x = pctbl)) +
+  geom_path(aes(x = pctbl, group = group)) +
+  geom_point(aes(x = dhw / 25), color = "red") +
+  geom_path(aes(x = dhw / 25, group = group), color = "red") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
+                     name = "% of all corals PB or worse when surveyed",
+                     sec.axis = sec_axis(~.*25, name = "Mean DHWs when surveyed")) +
+  theme(axis.text.x.top = element_text(color = "red"),
+        axis.title.x.top = element_text(color = "red")) +
+  labs(y = "")
+
+
+# Model proportion of bleached colonies in each subregion, controlling for species and week of survey
+mod <- glmer(cbind(bl, nb) ~ Subregion + (1|Week) + (1|Species), family = "binomial", data = summ)
+res <- emmeans(mod, specs = c("Subregion"), type = "response")
+regional23 <- as.tibble(res) %>% full_join(maxmeanDHW) %>%
+  mutate(group = "allcorals")
+
+ggplot(regional23, aes(y = Subregion)) +
+  geom_point(aes(x = prob)) +
+  geom_path(aes(x = prob, group = group)) +
+  geom_point(aes(x = maxmeanDHW / 25), color = "red") +
+  geom_path(aes(x = maxmeanDHW / 25, group = group), color = "red") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
+                     name = "Predicted % of 'avg coral' PB or worse",
+                     sec.axis = sec_axis(~.*25, name = "Max. Mean DHW")) +
+  theme(axis.text.x.top = element_text(color = "red"),
+        axis.title.x.top = element_text(color = "red")) +
+  labs(y = "")
+
+save(regional23, file = "output/regional23.RData")
+```
+
 Overall bleaching prevalence (PB or worse) at the peak of the bleaching event was ~25% in Miami and Broward, and just 5-15% moving north. Moving south from Miami, however, there was a very sharp break in bleaching prevalence, shooting up to ~80% in Biscayne. Bleaching prevalence was ~80% throughout the Keys and Marquesas, and ~90% in the Dry Tortugas.
 
 The sharp geographic break in bleaching prevalence could be explained by differing levels of DHW in Miami (peak DHW ~10-11) and Biscayne (peak DHW ~13-15). If so, this suggests a threshold with rapid transition to bleaching around 12 DHWs.
@@ -306,7 +405,7 @@ Next, let's look at how bleaching categories changes with increasing DHW.
 ### Levels of bleaching observed with increasing DHWs
 ```{r bleaching_vs_dhw}
 # Ordinal regression: Probability of each bleaching level with increasing DHW
-m <- polr(Bleaching3 ~ dhw * Depth * Species, data = df23.abund, Hess = TRUE, model = TRUE)
+m <- polr(Bleaching3 ~ dhw * EndDepth * Species, data = df23.abund, Hess = TRUE, model = TRUE)
 
 # Model includes Depth and Species, and predicts probability of each bleaching level 
 # for the average coral species at the average depth (we choose 23 ft as median depth of all corals obs.)
