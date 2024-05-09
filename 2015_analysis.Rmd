@@ -9,7 +9,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = F)
 ```
 
 ```{r}
@@ -42,6 +42,10 @@ df <- df %>%
 # Subset just 2015 surveys
 df15 <- filter(df, year(Date) == "2015")
 
+# Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
+df15[df15$Subregion == "Deerfield" & df15$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
+df15[df15$Subregion == "Deerfield" & df15$Latitude < 26.32825, "Subregion"] <- "Broward-Miami"
+
 # Order Subregions from south to north
 df15 <- df15 %>%
   mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
@@ -53,8 +57,14 @@ df15 <- df15 %>%
 df15 <- df15 %>%
   mutate(Species = factor(Species, levels = sort(levels(df$Species))))
 
-# There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
-df15[(df15$Old + df15$Recent) >= 100 & !grepl("TRS", df15$`Other Conditions`), "Other Conditions"] <- "TRS"
+# Are there any dead corals?
+# dead <- df15 %>% filter(Old + Recent >= 100)
+# There are recently dead corals -- but this could have been SCTLD, in Biscayne up to Palm Beach....
+# Assign dead corals NOT in those regions TRS (dead from belaching)
+df15[(df15$Old + df15$Recent) >= 100 & df15$Subregion %in% c("Biscayne", "Broward-Miami", "South Palm Beach"), "Other Conditions"] <- "TRS"
+# Remove other dead corals (disease death?)
+df15 <- df15 %>%
+  filter(((Old + Recent < 100) | !grepl("TRS", `Other Conditions`)))
 
 # Create ordinal variables and factors for bleaching severity
 df15 <- df15 %>%
@@ -72,28 +82,6 @@ df15 <- df15 %>%
                              levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
 ```
 
-```{r qc_drm, include = FALSE}
-
-# Get T3 and T4 data
-
-# Get surveyor information
-
-# Spring 2024 surveys? estimate mortality? recovery? bleaching vs mortality patterns by species? They will probably do another paper based on this so leave it out currently
-
-# COmpare these trends to 2014-2015 bleaching event?
-
-# CLoud cover, rain, etc. could have been different. Miami/Broward had tons of rain in summer23? Torrential rain causing rapid periodic cooling? Upwelling events from Gulf Stream eddies? Look at temp. data
-
-# Super hot and salty water from FLorida Bay pushing out onto the reef? JS: surprised that 7mile bridge did better than expected?! cause would have affected those locations
-
-# Look at TEMPS especially July
-
-# Two papers? Species and geography?
-
-# FOCUS on the effect of depth rather than just remove it
-# Depth did not seem to be a refuge in Tortugas in2023 for some reason - why?
-```
-
 ### DHW data
 
 ```{r import_dhw}
@@ -103,42 +91,22 @@ dhw <- read_csv("data/dhw/2015/2015_dhw_processed.csv") %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
+dhw %>%
+  left_join(distinct(df15, Site, Subregion)) %>%
+  ggplot(aes(x = Date, y = dhw)) +
+  geom_line(aes(group = Site, color = Subregion), alpha = 0.4) +
+  scale_y_continuous(breaks = seq(0,10,1))
+
 # Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
 df15 <- left_join(df15, dhw, by = c("Site", "Date"))
 
 # Create binned DHW variable
 df15 <- df15 %>%
-  mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+  mutate(dhw.bin = cut(dhw, breaks = c(0,2,4,6,8,10)))
 ```
 
-### Other ancillary data
 ```{r}
-# # Site distances from 65ft isobath
-# dist <- read.delim("data/distance_from_65ft_isobath.txt", header = FALSE,
-#                     col.names = c("Site", "Latitude", "Longitude", "", "Dist65")) %>%
-#   select(Site, Dist65)
-# 
-# df15 <- df15 %>% left_join(dist)
-# 
-# sites <- df15 %>%
-#   distinct(Site, Latitude, Longitude, Subregion, Zone, Habitat, dhw, Dist65)
-```
-
-```{r subset_drm}
-# Create subsets of DRM data for downstream analyses
-### Subset just Subregions in the keys down
-keys <- c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
-          "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP")
-### Subset just abundant species
-sppcounts <- df15 %>%
-  count(Species) %>%
-  arrange(-n)
-abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
-### Create subsets
-df15.keys <- df15 %>% filter(Subregion %in% keys)
-df15.abund <- df15 %>% filter(Species %in% abund.spp)
-df15.keys.abund <- df15 %>% filter(Subregion %in% keys, Species %in% abund.spp)
-df15.abund.nopfursint <- df15.abund %>% filter(!Species %in% c("PFUR", "SINT"))
+save(df15, file = "output/2015.RData")
 ```
 
 # DRM dataset summary
@@ -171,14 +139,38 @@ knitr::kable(tibble(`Total number of sites surveyed:` = n_distinct(surveys$Site)
 
 
 # # Number of sites and reef zones surveyed per Subregion
-# df15 %>%
-#   distinct(Subregion, Site, Zone) %>%
-#   group_by(Subregion) %>%
-#   ggplot(aes(x = Subregion, fill = Zone)) +
-#   geom_bar(position = "stack") +
-#   scale_y_continuous(breaks = seq(0, 100, 10)) +
-#   labs(x = "", y = "Number of sites surveyed") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+df15 %>%
+  distinct(Subregion, Site, Zone) %>%
+  group_by(Subregion) %>%
+  ggplot(aes(x = Subregion, fill = Zone)) +
+  geom_bar(position = "stack") +
+  scale_y_continuous(breaks = seq(0, 100, 10)) +
+  labs(x = "", y = "Number of sites surveyed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Only 2 sites in Martin, 2 sites in North Palm Beach, and 4 sites in South Palm Beach.
+# Remove...
+# df15 <- df15 %>% filter(!Subregion %in% c("South Palm Beach", "North Palm Beach", "Martin"))
+# 
+# surveys <- df15 %>%
+#   distinct(Subregion, Date, Site, dhw)
+```
+
+```{r subset_drm}
+# Create subsets of DRM data for downstream analyses
+### Subset just Subregions in the keys down
+keys <- c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
+          "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP")
+### Subset just abundant species
+sppcounts <- df15 %>%
+  count(Species) %>%
+  arrange(-n)
+abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
+### Create subsets
+df15.keys <- df15 %>% filter(Subregion %in% keys)
+df15.abund <- df15 %>% filter(Species %in% abund.spp)
+df15.keys.abund <- df15 %>% filter(Subregion %in% keys, Species %in% abund.spp)
+df15.abund.nopfursint <- df15.abund %>% filter(!Species %in% c("PFUR", "SINT"))
 ```
 
 ### How surveys were spread over time, and over the heatwave
@@ -194,7 +186,8 @@ surveys_by_dhw <- ggplot(surveys, aes(x = dhw, y = Subregion, fill = Subregion))
   geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
   theme(legend.position = "none") +
   theme(axis.text.y = element_blank()) +
-  labs(x = "Degree Heating Weeks", y = "")
+  labs(x = "Degree Heating Weeks", y = "") +
+  xlim(-1, 10)
 
 cowplot::plot_grid(surveys_by_date, surveys_by_dhw, ncol = 2, rel_widths = c(0.62, 0.38))
 ```
@@ -209,20 +202,26 @@ cowplot::plot_grid(surveys_by_date, surveys_by_dhw, ncol = 2, rel_widths = c(0.6
 meanDHW <- dhw %>%
   left_join(distinct(df15, Site, Subregion)) %>%
   group_by(Subregion, Date) %>%
+  drop_na(Subregion) %>%
   summarize(meanDHW = mean(dhw))
 # Plot mean DHW over time for each Subregion
 ggplot(meanDHW, aes(x = Date, y = meanDHW, color = Subregion, group = Subregion)) +
   geom_line() +
   scale_x_date(breaks = "months", date_labels = "%b") +
   labs(y = "Mean DHW of all sites surveyed in Subregion")
+
+# Get maxdhw experienced in each Subregion
+maxmeanDHW <- meanDHW %>%
+  group_by(Subregion) %>%
+  summarize(maxmeanDHW = max(meanDHW))
 ```
 
 DHWs in DRTO reached ~6.
 DHWs in the Lower Keys reach ~8
-DHWs in the Middle Keys reached ~6
+DHWs in the Middle Keys reached ~6.5
 DHWs in the Upper Keys reached ~5.
 DHWs in Biscayne reach 2.5.
-DHWs in Miami and north were <1
+DHWs in Miami and Broward were <1
 
 ### Bleaching prevalence by subregion over time, and overall
 ```{r bleaching_summary_subregion_time}
@@ -231,67 +230,74 @@ mod <- glm((Bleaching2 > 1) ~ Week:Subregion, family = "binomial", data = df15)
 ### Try "Week:Subregion" for estimates only when surveys were conducted, or "Week + Subregion" to estimate across all weeks for each region
 res <- as.tibble(emmeans(mod, specs = c("Week", "Subregion"), type = "response")) %>% 
   drop_na() %>%
-  mutate(Date = as.Date("2023-01-01") + ((as.numeric(as.character(Week)) - 1) * 7))
+  mutate(Date = as.Date("2015-01-01") + ((as.numeric(as.character(Week)) - 1) * 7))
 ggplot(res, aes(x = Date, y = response, color = Subregion, group = Subregion)) +
   geom_point() + 
   geom_line() +
   labs(y = "Percent of surveyed colonies with at least partial bleaching")
 
-# df15 %>%
-#   group_by(Site, Subregion) %>%
-#   summarize(meandhw = mean(dhw),
-#               pctbl = sum(Bleaching2 > 1) / n()) %>%
-#   ggplot(aes(x = meandhw, y = pctbl)) +
-#   geom_point(aes(color = Subregion)) +
-#   geom_smooth(method = "gam")
+blsite <- df15 %>%
+  group_by(Site, Subregion) %>%
+  summarize(meandhw = mean(dhw),
+              pctbl = sum(Bleaching2 > 1) / n())
+
+ggplot(blsite, aes(x = meandhw, y = pctbl)) +
+  geom_point(aes(color = Subregion)) +
+  geom_smooth(method = "gam")
+
+blbrow <- df15 %>%
+  filter(Subregion == "Broward-Miami", Site %in% (filter(blsite, pctbl > 0.75) %>% pull(Site)))
+#. abunch of BL PPOR in Broward with 1-1.5 DHW? sus....
 ```
 
-Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
+
 
 ```{r bleaching_summary_overall_subregion}
-# Mean percent of corals PB or worse and mean DHW at time of survey
-# Average DHW by region also 
-dhws_bl <- df15 %>%
-  group_by(Subregion) %>%
-  summarize(meandhw = mean(dhw),
-              pctbl = sum(Bleaching2 > 1) / n()) %>%
-  mutate(group = "allcorals")
+# Count number of bleached and unbleached colonies of each species at each site
+summ <- df15.abund %>%
+  group_by(Site, Species, Subregion, Week) %>%
+  summarize(bl = sum(Bleaching2 > 1),
+            nb = sum(Bleaching2 <= 1),
+            dhw = mean(dhw))
 
-ggplot(dhws_bl, aes(y = Subregion)) +
+# Plot raw proportion of bleached colonies surveyed in each subregion
+summ %>%
+  group_by(Subregion) %>%
+  summarize(pctbl = sum(bl) / (sum(bl) + sum(nb)),
+            dhw = mean(dhw)) %>%
+  mutate(group = "allcorals") %>%
+  ggplot(aes(y = Subregion)) +
   geom_point(aes(x = pctbl)) +
   geom_path(aes(x = pctbl, group = group)) +
-  geom_point(aes(x = meandhw / 25), color = "red") +
-  geom_path(aes(x = meandhw / 25, group = group), color = "red") +
+  geom_point(aes(x = dhw / 10), color = "red") +
+  geom_path(aes(x = dhw / 10, group = group), color = "red") +
   scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     name = "% corals PB or worse when surveyed",
-                     sec.axis = sec_axis(~.*25, name = "Mean DHWs when surveyed")) +
+                     name = "% of all corals PB or worse when surveyed",
+                     sec.axis = sec_axis(~.*10, name = "Mean DHWs when surveyed")) +
   theme(axis.text.x.top = element_text(color = "red"),
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
 
-# Now do again for DHW and predicted BL at peak = Sept. 1st
-# Predicted probability of colonies being PB or worse during week 35 (Sept. 1st)
-dhw91 <- dhw %>%
-  left_join(distinct(df15, Site, Subregion)) %>%
-  filter(Date == "2015-09-01") %>%
-  group_by(Subregion) %>%
-  summarize(dhw91 = mean(dhw)) %>%
+
+# Model proportion of bleached colonies in each subregion, controlling for species and week of survey
+mod <- glmer(cbind(bl, nb) ~ Subregion + (Subregion|Week) + (1|Species), family = "binomial", data = summ)
+res <- emmeans(mod, specs = c("Subregion"), type = "response")
+regional15 <- as.tibble(res) %>% full_join(maxmeanDHW) %>%
   mutate(group = "allcorals")
-### Decide whether Week should be included here.
-mod <- glm((Bleaching2 > 1) ~ Subregion + Week, family = "binomial", data = df15)
-res <- emmeans(mod, specs = "Subregion", at = list(Week = factor(35)), type = "response")
-as.tibble(res) %>% full_join(dhw91) %>%
-  ggplot(aes(y = Subregion, group = group)) +
-  geom_point(aes(x = response)) +
-  geom_path(aes(x = response)) +
-  geom_point(aes(x = dhw91 / 25), color = "red") +
-  geom_path(aes(x = dhw91 / 25), color = "red") +
+
+ggplot(regional15, aes(y = Subregion)) +
+  geom_point(aes(x = prob)) +
+  geom_path(aes(x = prob, group = group)) +
+  geom_point(aes(x = maxmeanDHW / 10), color = "red") +
+  geom_path(aes(x = maxmeanDHW / 10, group = group), color = "red") +
   scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     name = "Predicted % corals PB or worse on 9/1",
-                     sec.axis = sec_axis(~.*25, name = "Mean DHWs on 9/1")) +
+                     name = "Predicted % of 'avg coral' PB or worse on 9/1",
+                     sec.axis = sec_axis(~.*10, name = "Mean DHWs on 9/1")) +
   theme(axis.text.x.top = element_text(color = "red"),
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
+
+save(regional15, file = "output/regional15.RData")
 ```
 
 
@@ -327,9 +333,10 @@ df15.abund.ss <- df15.abund %>%
   left_join(df15.abund)
 # Fit model
 ### Debating whether week should be included here or not? has a big effect on overall bleaching levels
-mod <- glmer((Bleaching2 > 1) ~ Subregion * Species + (1|Week), 
+mod <- glmer((Bleaching2 > 1) ~ Subregion * Species + (Subregion|Week), 
              family = "binomial", data = df15.abund.ss,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+anova(mod)
 res <- as.tibble(emmeans(mod, specs = c("Species", "Subregion"), 
                          at = list(Week = factor(35)), type = "response")) %>% drop_na()
 # Plot
@@ -347,7 +354,7 @@ ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) 
 #   group_by(Subregion, Species) %>%
 #   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
 #   ggplot(aes(y = Subregion, x = pctbl, color = Species, group = Species)) +
-#   geom_point() + 
+#   geom_point() +
 #   #geom_line() +
 #   geom_path() +
 #   facet_wrap(~Species, ncol = 7) +
@@ -356,19 +363,25 @@ ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) 
 #   labs(y = "", x = "Actual % of colonies PB or worse")
 ```
 
-Different coral species showed different levels of bleaching prevalence across subregions. Some species showed nearly 100% bleaching from Biscayne south (Agaricia, Acropora, Porites spp.), while other species showed a more gradual increasing in bleaching prevalence, from ~50-60% bleaching in Biscayne, to ~75-100% further down in the Keys and into the Tortugas (CNAT, DLAB, MCAV, PSTR, SBOU, SINT, SRAD, SSID).
+
 
 ### Species differences in bleaching with increasing DHWs
 ```{r bleaching_by_species}
+df15.abund %>%
+  ggplot(aes(x = dhw.bin, fill = Bleaching2 > 1)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Species, scales = "free_y")
+
 # Probability of each bleaching level by species as a function of DHW (ordinal regression)
 #https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
 
 # Fit ordinal regression model for each species as a function of DHW
-m <- MASS::polr(Bleaching3 ~ Species * dhw, data = df15.abund, Hess = TRUE, model = TRUE)
+m <- MASS::polr(Bleaching3 ~ Species * dhw, data = df15.abund, Hess = TRUE)
 ## Does this need random factors? Cannot get clmm to work...
 
 # Get fitted values
-res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = seq(0, 10, 1)))
+res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", 
+               at = list(dhw = seq(0, 10, 1)))
 
 # Get thresholds where >50% of colonies are PB or worse, and B or worse
 thresh <- as.tibble(res) %>%
@@ -405,9 +418,6 @@ thresh %>%
   labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse")
 ```
 
-The heatmap above shows the proportion of colonies of each species that are partially bleached or worse at a given DHW. Diamonds indicate the DHW require to bleach 50% of colonies, and the black lines span the range of DHW required to bleach 25% to 75% percent of colonies.  
-
-The amount of heat stress required to bleach 50% of colonies is lowest for AAGA and Orbicellas at 2-3 DHW. PFUR is nearly 100% bleached even at zero DHW, which may be due to it's naturally very pale color causing surveyors to record it as bleached. Other Porties species are 50% bleached at 8-10 DHW. ACER rapidly goes from almost no bleaching to almost 100% bleaching at 11 DHW. Other species increase more gradually in bleaching prevalence, like CNAT, which is 25% bleached at 2 DHW, 50% at 11 DHW, and 75% at 21 DHW. This could suggest more variation in bleaching tolerance for CNAT, potentially because different colonies have different symbiont types, including Durusdinium. Other species that show more gradual increase in prevalence are PSTR, OFAV, and SSID, which are also known to host different symbionts including Durusdinium. DLAB is the most bleaching tolerant -- 50% bleaching does not occur until 23 DHW! It can also host Durusdinium.
 
 # Coral size class differences in bleaching severity
 
@@ -458,11 +468,7 @@ filter(df15.abund, dhw > 4) %>%
   facet_wrap(~Species, scales = "free")
 ```
 
-Colony size is a significant predictor of bleaching for 10 different coral species. Solid lines indicate levels of DHW where the size effect is statistically significant, and dashed lines are for DHW levels where the relationship is NOT significant.
 
-All significant relationships indicated that small corals are less likely to bleach than larger corals. This could indicate that selection for heat tolerance is taking place in smaller, newer recruits to the population. Alternatively, smaller, younger corals could be more likely to host more thermally tolerant symbionts. In either case, this is potentially evidence for some positive acclimatization and/or adaptation in these populations for greater heat tolerance.
-
-To do: think about why these specific 10 species might be showing that smaller individuals are more heat-tolerant, while other species are not. Any interesting differences in life history or symbiosis ecology between the species that DO or DO NOT show a size effect?
 
 
 # Mapping bleaching anomalies: exploring deviations from expected severity
@@ -593,20 +599,7 @@ basemap + theme(legend.position = "right") +
 ```
 ![](output/2015_maps_multipanel_grouplevel.png)
 
-The maps above show the difference in ACTUAL - EXPECTED bleaching prevalence. Expected prevalence was modeled based on DHW, depth, species composition, and week surveyed. Sites with negative values plotted in RED are ones that bleached LESS than expected, while sites with positive values plotted in BLUE are sites that bleached MORE than expected.
 
-Locations that did WORSE than expected: 
-
-* All of the Dry Tortugas (why??).  
-* Newfound Harbor (something about being so far inshore? but Cheeca and other inshore reefs did better...).  
-* Biscayne (why??).  
-
-Locations that did BETTER than expected:  
-
-* Eastern Dry Rocks, Western Sambo off Key West. 
-* Seven mile bridge area -- higher water flow?  
-* Offshore reefs in the upper keys -- higher water flow? (although molassess could be an outlier). 
-* All of urbanized SE Florida -- something about urban influence making these reefs hardier?  
 
 
 ```{r, eval = F}
