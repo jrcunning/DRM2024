@@ -9,7 +9,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = F)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = T)
 ```
 
 ```{r}
@@ -62,7 +62,7 @@ df <- df %>%
 df <- df %>%
   mutate(Day = yday(Date),
          Week = week(Date),
-         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week2 = factor(cut(Week, breaks = seq(1,52,2))),
          Week = factor(Week),
          Month = factor(month(Date)))
 
@@ -190,7 +190,7 @@ df23.keys <- df23 %>% filter(
   Subregion %in% c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
                    "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP"))
 df23.abund <- df23 %>% filter(Species %in% abund.spp)
-df23.keys.abund <- df23 %>% filter(Subregion %in% keys, Species %in% abund.spp)
+df23.keys.abund <- df23.keys %>% filter(Species %in% abund.spp)
 df23.abund.nopfursint <- df23.abund %>% filter(!Species %in% c("PFUR", "SINT"))
 ```
 
@@ -340,28 +340,31 @@ summ %>%
 
 
 # Model proportion of bleached colonies in each subregion, controlling for species and week of survey
-## Use 2-Week periods in model, and predict based on weeks 35-36 (Week2 = "(34,36]" => (August 27-September 9))) = peak of heat stress, before too much mortality
+## Use 2-Week periods in model, and predict based on weeks 34-35 (Week2 = "(33,35]" => (August 20-September 2))) = peak of heat stress, before too much mortality
 mod <- glm(cbind(bl, nb) ~ Subregion + Species + Week2, family = "binomial", data = summ)
-res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(34,36]")), type = "response")
+res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(33,35]")), type = "response")
 # Join predicted bleaching prevalence for Aug27-Sep9 with average DHWs during same dates
-mymeandhw <- dhw %>%
+mymaxdhw <- dhw %>%
   left_join(distinct(df23, Site, Subregion)) %>%
-  filter(Date >= "2023-08-27", Date <= "2023-09-09") %>%
-  group_by(Subregion) %>%
+  filter(Date >= "2023-08-20", Date <= "2023-09-02") %>%
+  group_by(Subregion, Date) %>%
   summarize(meanDHW = mean(dhw)) %>%
+  group_by(Subregion) %>%
+  summarize(maxDHW = max(meanDHW)) %>%
   drop_na()
 
-regional23 <- as.tibble(res) %>% full_join(mymeandhw) %>%
+regional23 <- as.tibble(res) %>% full_join(mymaxdhw) %>%
   mutate(group = "allcorals")
 
 ggplot(regional23, aes(y = Subregion)) +
   geom_point(aes(x = prob)) +
+  geom_errorbar(aes(xmin = asymp.LCL, xmax = asymp.UCL), width = 0) +
   geom_path(aes(x = prob, group = group)) +
-  geom_point(aes(x = meanDHW / 25), color = "red") +
-  geom_path(aes(x = meanDHW / 25, group = group), color = "red") +
+  geom_point(aes(x = maxDHW / 25), color = "red") +
+  geom_path(aes(x = maxDHW / 25, group = group), color = "red") +
   scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     name = "Predicted % of 'avg coral' PB or worse [Aug27-Sep6]",
-                     sec.axis = sec_axis(~.*25, name = "Mean DHW [Aug27-Sep6]")) +
+                     name = "Predicted % of 'avg coral' PB or worse [Aug20-Sep2]",
+                     sec.axis = sec_axis(~.*25, name = "Max DHW [Aug20-Sep2]")) +
   theme(axis.text.x.top = element_text(color = "red"),
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
@@ -378,13 +381,13 @@ Next, let's look at how bleaching categories changes with increasing DHW.
 ### Levels of bleaching observed with increasing DHWs
 ```{r bleaching_vs_dhw}
 # Ordinal regression: Probability of each bleaching level with increasing DHW
-m <- polr(Bleaching3 ~ dhw * EndDepth * Species, data = df23.abund, Hess = TRUE, model = TRUE)
+m <- polr(Bleaching3 ~ dhw * Species + EndDepth + Week2, data = df23.abund, Hess = TRUE, model = TRUE)
 
 # Model includes Depth and Species, and predicts probability of each bleaching level 
 # for the average coral species at the average depth (we choose 23 ft as median depth of all corals obs.)
 res <- emmeans(m, specs = c("dhw", "Bleaching3"), 
                at = list(dhw = seq(0, 22, 1),
-                         Depth = 23), 
+                         Week2 = factor("(33,35]")), 
                mode = "prob")
 as.tibble(res) %>%
   ggplot(aes(x = dhw, y = prob, color = Bleaching3)) +
@@ -397,7 +400,7 @@ as.tibble(res) %>%
 -At 15 DHW: ~20% Healthy, 11% Pale, 16% Partially Bleached, 51% Bleached, 2% Dead.
 -At 20 DHW: ~12% Healthy,  9% Pale, 14% Partially Bleached, 57% Bleached, 8% Dead.
 
-This also shows an inflection point with rapid transition from healthy to bleached corals around 12 DHWs. Corals start dying from thermal stress at 15 DHW.
+This also shows an inflection point with rapid transition from healthy to bleached corals around 10-12 DHWs. Corals start dying from thermal stress at 13-14 DHW.
 
 # Coral species differences in bleaching
 
@@ -405,17 +408,17 @@ This also shows an inflection point with rapid transition from healthy to bleach
 ```{r bleaching_by_species_and_region}
 # Model probability of being at least Partially bleached by Species and Subregion (controlling for Week)
 ### Subset: only include species observed at least 3 times in a Subregion...
-df23.abund.ss <- df23.abund %>%
-  count(Species, Subregion) %>%
-  filter(n >=3) %>%
-  left_join(df23.abund)
+# df23.abund.ss <- df23.abund %>%
+#   count(Species, Subregion) %>%
+#   filter(n >=3) %>%
+#   left_join(df23.abund)
 # Fit model
 ### Debating whether week should be included here or not? has a big effect on overall bleaching levels
-mod <- glm((Bleaching2 > 1) ~ Subregion * Species + Week, 
-             family = "binomial", data = df23.abund.ss)#,
+mod <- glm((Bleaching2 > 1) ~ Subregion * Species + Week2, 
+             family = "binomial", data = df23.abund)#,
              #nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 res <- as.tibble(emmeans(mod, specs = c("Species", "Subregion"), 
-                         at = list(Week = factor(35)), type = "response")) %>% drop_na()
+                         at = list(Week2 = factor("(33,35]")), type = "response")) %>% drop_na()
 # Plot
 ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) +
   geom_point() + 
@@ -427,11 +430,11 @@ ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) 
   labs(y = "", x = "Predicted % of colonies PB or worse")
 
 # Actual proportions rather than statistically modeled as a doublecheck
-# df23.abund.ss %>%
+# df23.abund %>%
 #   group_by(Subregion, Species) %>%
 #   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
 #   ggplot(aes(y = Subregion, x = pctbl, color = Species, group = Species)) +
-#   geom_point() + 
+#   geom_point() +
 #   #geom_line() +
 #   geom_path() +
 #   facet_wrap(~Species, ncol = 7) +
@@ -446,23 +449,13 @@ Different coral species showed different levels of bleaching prevalence across s
 ```{r bleaching_by_species}
 # Probability of each bleaching level by species as a function of DHW (ordinal regression)
 #https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
-# Week effect?
-weeks <- df23.abund %>%
-  group_by(Week) %>%
-  summarize(pctbl = sum(Bleaching2 > 1, na.rm = T) / n())
-ggplot(weeks, aes(x = Week, y = pctbl)) + geom_point()
 
+# Fit ordinal regression model for each species as a function of DHW and 2-week survey window
+m <- MASS::polr(Bleaching3 ~ Species * dhw + Week2, data = df23.abund, Hess = TRUE, model = TRUE)
 
-# Fit ordinal regression model for each species as a function of DHW
-m <- MASS::polr(Bleaching3 ~ Species * dhw + Week, data = df23.abund, Hess = TRUE, model = TRUE)
-## Does this need random factors? Cannot get clmm to work...
-
-# Get fitted values
-# Choosing at which week makes a big difference in overall bleaching rates
-res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = seq(0, 23, 1),
-                                                                                           Week = factor(35)))
-weeks2<-as.tibble(emmeans(m, specs = "Week"))
-ggplot(weeks2, aes(x = Week, y = emmean)) + geom_point()
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", 
+               at = list(dhw = seq(0, 23, 1), Week2 = factor("(33,35]")))
 
 # Get thresholds where >50% of colonies are PB or worse, and B or worse
 thresh <- as.tibble(res) %>%
@@ -506,7 +499,7 @@ The amount of heat stress required to bleach 50% of colonies is lowest for AAGA 
 # Coral size class differences in bleaching severity
 
 ### Are juveniles doing better (less bleaching) than larger adult colonies?
-```{r size_effects}
+```{r size_effects, eval = F}
 # Model bleaching severity by Width, species, and dhw. 
 # Only include surveys with dhw>10.
 mod <- glmer((Bleaching2 > 1) ~ log(Width) * Species * dhw + (1|Site) + (1|Week), 
@@ -623,7 +616,7 @@ df23ss3 %>% filter(Width < 4)
 # Mapping bleaching anomalies: exploring deviations from expected severity
 
 ### Which sites bleached more or less than predicted based on DHW, depth, and species composition?
-```{r bleach_resid_sites}
+```{r bleach_resid_sites, eval = F}
 # Model bleaching outlier locations with group-level data (groups = each species at each site)
 # Following: https://library.virginia.edu/data/articles/understanding-deviance-residuals
 # Get subset of data
