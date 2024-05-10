@@ -499,57 +499,78 @@ The amount of heat stress required to bleach 50% of colonies is lowest for AAGA 
 # Coral size class differences in bleaching severity
 
 ### Are juveniles doing better (less bleaching) than larger adult colonies?
-```{r size_effects, eval = F}
+```{r size_effects, eval = T}
 # Model bleaching severity by Width, species, and dhw. 
-# Only include surveys with dhw>10.
-mod <- glmer((Bleaching2 > 1) ~ log(Width) * Species * dhw + (1|Site) + (1|Week), 
-             family = "binomial", data = filter(df23.abund, dhw > 10), 
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+# There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
+df23.abund <- df23.abund %>%
+  mutate(Width2 = case_when(Width >= 4 ~ Width,
+                            Width < 4 ~ 4))
+
+# Fit model
+mod <- glm(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2, family = "binomial", data = df23.abund)
 #plot(mod, which = 1)
 
-res <- emtrends(mod, specs = c("Width", "dhw"), var = "Width", by = "Species", 
+# Test if significant effect of width for each species
+res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2",
                 at = list(dhw = 15))
+# Get significant species
+sig <- as.tibble(summary(res, infer = TRUE)) %>%
+  filter(p.value < 0.05)
 
-sig <- as.tibble(res) %>%
-  filter(asymp.LCL > 0)
-
-pred <- as.tibble(emmeans(mod, specs = c("Width", "dhw"), by = "Species", 
-                          at = list(Width = seq(5, 500, 10), dhw = 15), 
-                          type = "response")) %>%
+# Get fitted values for bleaching probability as a function of size for significant species
+pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
+                          at = list(Width2 = seq(4,500,5), dhw = 15), 
+                          type = "response", rg.limit = 20000)) %>%
   filter(Species %in% sig$Species) %>%
   left_join(select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
-actual <- filter(df23.abund, dhw > 10) %>%
+# Get actual observed size ranges for these species
+actual <- filter(df23.abund) %>%
+  drop_na(Species) %>%
   group_by(Species) %>%
-  summarize(min = min(Width), max = max(Width)) %>%
-  mutate(ad = map(max, ~expand_grid(Width = seq(5, ., 10)))) %>%
+  summarize(min = min(Width2, na.rm = T), max = max(Width2, na.rm = T)) %>%
+  mutate(ad = map(max, ~expand_grid(Width2 = seq(4, ., 5)))) %>%
   unnest(ad)
 pred2 <- pred %>%
-  semi_join(actual, by = c("Species", "Width"))
+  semi_join(actual, by = c("Species", "Width2"))
   
-
-ggplot(pred2, aes(x = Width, y = response, color = factor(dhw), group = dhw, linetype = is.na(asymp.LCL.y))) +
+# Plot fitted probabilities within the range of observed Widths for each significant species
+ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, linetype = is.na(asymp.LCL.y))) +
   facet_wrap(~Species, scales = "free") +
   geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.2, lwd = 0) +
   #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
   ylim(0, 1) +
-  labs(x = "Colony width", y = "Proportion of colonies PB or worse")
+  labs(x = "Colony width", y = "Proportion of colonies PB or worse") +
+  theme(legend.position = "none")
 
 
-# Plot actual proportions binned by size class
-filter(df23.abund, dhw > 10) %>%
-  filter(Species %in% sig$Species) %>%
-  group_by(Species) %>%
-  mutate(Width.bin = cut(log(Width), breaks = 5)) %>%
-  ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
-  geom_bar(position = "fill") +
-  facet_wrap(~Species, scales = "free")
+# Plot actual proportions binned by size class a confirmation
+# filter(df23.abund) %>%
+#   filter(Species %in% sig$Species) %>%
+#   group_by(Species) %>%
+#   mutate(Width.bin = cut(log(Width), breaks = 5)) %>%
+#   ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
+#   geom_bar(position = "fill") +
+#   facet_wrap(~Species, scales = "free")
 ```
 
-Colony size is a significant predictor of bleaching for 10 different coral species. Solid lines indicate levels of DHW where the size effect is statistically significant, and dashed lines are for DHW levels where the relationship is NOT significant.
+Colony size is a significant predictor of bleaching for 11 different coral species. Solid lines indicate levels of DHW where the size effect is statistically significant, and dashed lines are for DHW levels where the relationship is NOT significant.
 
 All significant relationships indicated that small corals are less likely to bleach than larger corals. This could indicate that selection for heat tolerance is taking place in smaller, newer recruits to the population. Alternatively, smaller, younger corals could be more likely to host more thermally tolerant symbionts. In either case, this is potentially evidence for some positive acclimatization and/or adaptation in these populations for greater heat tolerance.
 
 To do: think about why these specific 10 species might be showing that smaller individuals are more heat-tolerant, while other species are not. Any interesting differences in life history or symbiosis ecology between the species that DO or DO NOT show a size effect?
+
+```{r, eval = F}
+# sanity check on dlab size effect
+# dlab <- df23.abund %>%
+#   filter(Species == "DLAB")
+# 
+# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
+#   geom_bar(position = "stack") +
+#   facet_wrap(~Subregion)
+```
+
+
 
 ```{r, eval = FALSE}
 # more size analysis -- do we see size effects within a region?
