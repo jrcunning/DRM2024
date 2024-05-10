@@ -61,7 +61,9 @@ df <- df %>%
 # Get day of the year number, week, and month for some model fitting
 df <- df %>%
   mutate(Day = yday(Date),
-         Week = factor(week(Date)),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week = factor(Week),
          Month = factor(month(Date)))
 
 # Subset just 2023 surveys
@@ -81,11 +83,14 @@ df23 <- df23 %>%
 df23 <- df23 %>%
   mutate(Species = factor(Species, levels = sort(levels(df$Species))))
 
-# There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
-# dead <- df23 %>%
-#   filter((Old + Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`))
-# df23[(df23$Old + df23$Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`), "Other Conditions"] <- "TRS"
-
+# Dead corals
+dead <- df23 %>%
+  filter((Old + Recent) >= 100)
+## 324 of the dead corals do have TRS code, 24 do not -- assume these ARE also dead from thermal stress and add TRS code
+# table(grepl("TRS", dead$`Other Conditions`))
+df23 <- df23 %>%
+  mutate(`Other Conditions` = case_when((Old + Recent >= 100) ~ "TRS",
+                                        TRUE ~ `Other Conditions`))
 
 
 
@@ -106,9 +111,10 @@ df23 <- df23 %>%
 
 
 # # There are corals with the TRS code that are NOT fully dead, but don't have BL code?
-# df23.abund %>% filter(is.na(Bleaching2))
-
-#### What to do about these?
+test <- df23 %>% filter(is.na(Bleaching2))
+#### What to do about these? # For now, filter out...
+df23 <- df23 %>%
+  filter(!is.na(Bleaching2))
 ```
 
 ```{r qc_drm, include = FALSE}
@@ -173,16 +179,16 @@ sites <- df23 %>%
 
 ```{r subset_drm}
 # Create subsets of DRM data for downstream analyses
-### Subset just Subregions in the keys down
-keys <- c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
-          "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP")
 ### Subset just abundant species
 sppcounts <- df23 %>%
   count(Species) %>%
   arrange(-n)
 abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
+
 ### Create subsets
-df23.keys <- df23 %>% filter(Subregion %in% keys)
+df23.keys <- df23 %>% filter(
+  Subregion %in% c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
+                   "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP"))
 df23.abund <- df23 %>% filter(Species %in% abund.spp)
 df23.keys.abund <- df23 %>% filter(Subregion %in% keys, Species %in% abund.spp)
 df23.abund.nopfursint <- df23.abund %>% filter(!Species %in% c("PFUR", "SINT"))
@@ -195,10 +201,6 @@ df23.abund.nopfursint <- df23.abund %>% filter(!Species %in% c("PFUR", "SINT"))
 ### Number of corals surveyed
 ```{r drm_summary_corals}
 # Total number of colonies of each species surveyed
-sppcounts <- df23 %>%
-  count(Species) %>%
-  arrange(-n) 
-
 knitr::kable(tibble(`Total number of corals surveyed:` = sum(sppcounts$n)), align = 'l')
 
 # Print table by species (split into multiple tables for display purposes)
@@ -216,21 +218,13 @@ knitr::kable(list(sppcounts[1:10, 1:2],
 surveys <- df23 %>%
   distinct(Subregion, Date, Site, dhw)
 
-knitr::kable(tibble(`Total number of sites surveyed:` = n_distinct(surveys$Site)), align = 'l')
-
-
-# # Number of sites and reef zones surveyed per Subregion
-# df23 %>%
-#   distinct(Subregion, Site, Zone) %>%
-#   group_by(Subregion) %>%
-#   ggplot(aes(x = Subregion, fill = Zone)) +
-#   geom_bar(position = "stack") +
-#   scale_y_continuous(breaks = seq(0, 100, 10)) +
-#   labs(x = "", y = "Number of sites surveyed") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+surveys %>%
+  count(Subregion) %>%
+  janitor::adorn_totals() %>%
+  knitr::kable(align = 'l')
 ```
 
-### How surveys were spread over time, and over the heatwave
+### How surveys were spread over subregions, over time, and over the heatwave
 ```{r survey_distribution}
 # How were 2023 surveys distributed across time and space?
 surveys_by_date <- ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
@@ -254,18 +248,25 @@ Surveys took place mostly in August and September, coinciding with the peak of t
 
 ### DHWs by subregion
 ```{r dhw_summary}
-# Calculate mean DHW for all survey sites in each Subregion, by date
+# Plot DHWs for each individual site, colored by Subregion
+alldhwplot <- dhw %>%
+  left_join(distinct(df23, Site, Subregion)) %>%
+  ggplot(aes(x = Date, y = dhw, color = Subregion, group = Site)) +
+  geom_line(alpha = 0.1) +
+  scale_y_continuous(breaks = seq(0, 23, 1)) +
+  scale_x_date(breaks = "months", date_labels = "%b")
+
+# Calculate mean DHW for all survey sites in each Subregion
 meanDHW <- dhw %>%
   left_join(distinct(df23, Site, Subregion)) %>%
   group_by(Subregion, Date) %>%
   summarize(meanDHW = mean(dhw))
-# Plot mean DHW over time for each Subregion
-ggplot(meanDHW, aes(x = Date, y = meanDHW, color = Subregion, group = Subregion)) +
-  geom_line() +
-  scale_x_date(breaks = "months", date_labels = "%b") +
-  labs(y = "Mean DHW of all sites surveyed in Subregion")
 
-# Get maxdhw experienced in each Subregion
+# Add mean DHW for each Subregion's sites to plot
+alldhwplot +
+  geom_line(data = meanDHW, aes(y = meanDHW, group = Subregion), lwd = 1)
+
+# Get maximum mean DHW for each Subregion
 maxmeanDHW <- meanDHW %>%
   group_by(Subregion) %>%
   summarize(maxmeanDHW = max(meanDHW))
@@ -280,78 +281,41 @@ DHWs in Martin County reached ~3.
 
 ### Bleaching prevalence by subregion over time, and overall
 ```{r bleaching_summary_subregion_time}
-# Model probability of all corals being at least Partially bleached by Week and Subregion
-mod <- glm((Bleaching2 > 1) ~ Week:Subregion, family = "binomial", data = df23)
-### Try "Week:Subregion" for estimates only when surveys were conducted, or "Week + Subregion" to estimate across all weeks for each region
-res <- as.tibble(emmeans(mod, specs = c("Week", "Subregion"), type = "response")) %>% 
-  drop_na() %>%
-  mutate(Date = as.Date("2023-01-01") + ((as.numeric(as.character(Week)) - 1) * 7))
-ggplot(res, aes(x = Date, y = response, color = Subregion, group = Subregion)) +
+# Percent of surveyed colonies with at least partial bleaching by Subregion and Week
+df23 %>%
+  group_by(Week, Subregion) %>%
+  summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
+  ggplot(aes(x = Week, y = pctbl, group = Subregion, color = Subregion)) +
   geom_point() + 
   geom_line() +
   labs(y = "Percent of surveyed colonies with at least partial bleaching")
 
-# df23 %>%
-#   group_by(Site, Subregion) %>%
-#   summarize(meandhw = mean(dhw),
-#               pctbl = sum(Bleaching2 > 1) / n()) %>%
-#   ggplot(aes(x = meandhw, y = pctbl)) +
-#   geom_point(aes(color = Subregion)) +
-#   geom_smooth(method = "gam")
+# Percent of surveyed colonies with at least partial bleaching by Subregion and 2-Week periods
+df23 %>%
+  group_by(Week2, Subregion) %>%
+  summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
+  ggplot(aes(x = Week2, y = pctbl, group = Subregion, color = Subregion)) +
+  geom_point() + 
+  geom_line() +
+  labs(y = "Percent of surveyed colonies with at least partial bleaching")
+
+# Percent bleaching at all sites as function of DHW
+df23 %>%
+  group_by(Site, Subregion) %>%
+  summarize(meandhw = mean(dhw),
+              pctbl = sum(Bleaching2 > 1) / n()) %>%
+  ggplot(aes(x = meandhw, y = pctbl)) +
+  geom_point(aes(color = Subregion)) +
+  geom_smooth(method = "gam") +
+  labs(x = "DHW at time of survey", y = "Percent of surveyed colonies with at least partial bleaching")
 ```
 
 Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
 
-```{r bleaching_summary_overall_subregion_old, eval = F}
-# Mean percent of corals PB or worse and mean DHW at time of survey
-# Average DHW by region also 
-dhws_bl <- df23 %>%
-  group_by(Subregion) %>%
-  summarize(meandhw = mean(dhw),
-              pctbl = sum(Bleaching2 > 1, na.rm = T) / n()) %>%
-  mutate(group = "allcorals")
-
-ggplot(dhws_bl, aes(y = Subregion)) +
-  geom_point(aes(x = pctbl)) +
-  geom_path(aes(x = pctbl, group = group)) +
-  geom_point(aes(x = meandhw / 25), color = "red") +
-  geom_path(aes(x = meandhw / 25, group = group), color = "red") +
-  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     name = "% corals PB or worse when surveyed",
-                     sec.axis = sec_axis(~.*25, name = "Mean DHWs when surveyed")) +
-  theme(axis.text.x.top = element_text(color = "red"),
-        axis.title.x.top = element_text(color = "red")) +
-  labs(y = "")
-
-# Now do again for DHW and predicted BL at peak = Sept. 1st
-# Predicted probability of colonies being PB or worse during week 35 (Sept. 1st)
-dhw91 <- dhw %>%
-  left_join(distinct(df23, Site, Subregion)) %>%
-  filter(Date == "2023-09-01") %>%
-  group_by(Subregion) %>%
-  summarize(dhw91 = mean(dhw)) %>%
-  mutate(group = "allcorals")
-### Decide whether Week should be included here.
-mod <- glm((Bleaching2 > 1) ~ Subregion + Week, family = "binomial", data = df23)
-res <- emmeans(mod, specs = "Subregion", at = list(Week = factor(35)), type = "response")
-as.tibble(res) %>% full_join(dhw91) %>%
-  ggplot(aes(y = Subregion, group = group)) +
-  geom_point(aes(x = response)) +
-  geom_path(aes(x = response)) +
-  geom_point(aes(x = dhw91 / 25), color = "red") +
-  geom_path(aes(x = dhw91 / 25), color = "red") +
-  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     name = "Predicted % corals PB or worse on 9/1",
-                     sec.axis = sec_axis(~.*25, name = "Mean DHWs on 9/1")) +
-  theme(axis.text.x.top = element_text(color = "red"),
-        axis.title.x.top = element_text(color = "red")) +
-  labs(y = "")
-```
-
 ```{r bleaching_summary_overall_subregion}
 # Count number of bleached and unbleached colonies of each species at each site
 summ <- df23.abund %>%
-  group_by(Site, Species, Subregion, Week) %>%
+  group_by(Site, Species, Subregion, Week, Week2) %>%
   summarize(bl = sum(Bleaching2 > 1, na.rm = T),
             nb = sum(Bleaching2 <= 1, na.rm = T),
             dhw = mean(dhw))
@@ -376,19 +340,28 @@ summ %>%
 
 
 # Model proportion of bleached colonies in each subregion, controlling for species and week of survey
-mod <- glmer(cbind(bl, nb) ~ Subregion + (1|Week) + (1|Species), family = "binomial", data = summ)
-res <- emmeans(mod, specs = c("Subregion"), type = "response")
-regional23 <- as.tibble(res) %>% full_join(maxmeanDHW) %>%
+## Use 2-Week periods in model, and predict based on weeks 35-36 (Week2 = "(34,36]" => (August 27-September 9))) = peak of heat stress, before too much mortality
+mod <- glm(cbind(bl, nb) ~ Subregion + Species + Week2, family = "binomial", data = summ)
+res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(34,36]")), type = "response")
+# Join predicted bleaching prevalence for Aug27-Sep9 with average DHWs during same dates
+mymeandhw <- dhw %>%
+  left_join(distinct(df23, Site, Subregion)) %>%
+  filter(Date >= "2023-08-27", Date <= "2023-09-09") %>%
+  group_by(Subregion) %>%
+  summarize(meanDHW = mean(dhw)) %>%
+  drop_na()
+
+regional23 <- as.tibble(res) %>% full_join(mymeandhw) %>%
   mutate(group = "allcorals")
 
 ggplot(regional23, aes(y = Subregion)) +
   geom_point(aes(x = prob)) +
   geom_path(aes(x = prob, group = group)) +
-  geom_point(aes(x = maxmeanDHW / 25), color = "red") +
-  geom_path(aes(x = maxmeanDHW / 25, group = group), color = "red") +
+  geom_point(aes(x = meanDHW / 25), color = "red") +
+  geom_path(aes(x = meanDHW / 25, group = group), color = "red") +
   scale_x_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     name = "Predicted % of 'avg coral' PB or worse",
-                     sec.axis = sec_axis(~.*25, name = "Max. Mean DHW")) +
+                     name = "Predicted % of 'avg coral' PB or worse [Aug27-Sep6]",
+                     sec.axis = sec_axis(~.*25, name = "Mean DHW [Aug27-Sep6]")) +
   theme(axis.text.x.top = element_text(color = "red"),
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
