@@ -82,9 +82,9 @@ df23 <- df23 %>%
   mutate(Species = factor(Species, levels = sort(levels(df$Species))))
 
 # There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
-dead <- df23 %>%
-  filter((Old + Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`))
-df23[(df23$Old + df23$Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`), "Other Conditions"] <- "TRS"
+# dead <- df23 %>%
+#   filter((Old + Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`))
+# df23[(df23$Old + df23$Recent) >= 100 & !grepl("TRS", df23$`Other Conditions`), "Other Conditions"] <- "TRS"
 
 
 
@@ -473,13 +473,23 @@ Different coral species showed different levels of bleaching prevalence across s
 ```{r bleaching_by_species}
 # Probability of each bleaching level by species as a function of DHW (ordinal regression)
 #https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
+# Week effect?
+weeks <- df23.abund %>%
+  group_by(Week) %>%
+  summarize(pctbl = sum(Bleaching2 > 1, na.rm = T) / n())
+ggplot(weeks, aes(x = Week, y = pctbl)) + geom_point()
+
 
 # Fit ordinal regression model for each species as a function of DHW
-m <- MASS::polr(Bleaching3 ~ Species * dhw, data = df23.abund, Hess = TRUE, model = TRUE)
+m <- MASS::polr(Bleaching3 ~ Species * dhw + Week, data = df23.abund, Hess = TRUE, model = TRUE)
 ## Does this need random factors? Cannot get clmm to work...
 
 # Get fitted values
-res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = seq(0, 23, 1)))
+# Choosing at which week makes a big difference in overall bleaching rates
+res <- emmeans(m, specs = c("dhw", "Bleaching3"), by = "Species", mode = "prob", at = list(dhw = seq(0, 23, 1),
+                                                                                           Week = factor(35)))
+weeks2<-as.tibble(emmeans(m, specs = "Week"))
+ggplot(weeks2, aes(x = Week, y = emmean)) + geom_point()
 
 # Get thresholds where >50% of colonies are PB or worse, and B or worse
 thresh <- as.tibble(res) %>%
