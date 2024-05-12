@@ -115,6 +115,10 @@ test <- df23 %>% filter(is.na(Bleaching2))
 #### What to do about these? # For now, filter out...
 df23 <- df23 %>%
   filter(!is.na(Bleaching2))
+
+## A site at Molassess is the biggest outlier -- >100 PAST observed and most healthy?! is this legit??
+# res %>% filter(Site == "Y3042")
+# df23 %>% filter(Site == "Y3042", Species == "PAST") %>% print(n = nrow(.))
 ```
 
 ```{r qc_drm, include = FALSE}
@@ -266,10 +270,10 @@ meanDHW <- dhw %>%
 alldhwplot +
   geom_line(data = meanDHW, aes(y = meanDHW, group = Subregion), lwd = 1)
 
-# Get maximum mean DHW for each Subregion
-maxmeanDHW <- meanDHW %>%
-  group_by(Subregion) %>%
-  summarize(maxmeanDHW = max(meanDHW))
+# # Get maximum mean DHW for each Subregion
+# maxmeanDHW <- meanDHW %>%
+#   group_by(Subregion) %>%
+#   summarize(maxmeanDHW = max(meanDHW))
 ```
 
 DHWs in DRTO reached ~15.
@@ -281,15 +285,6 @@ DHWs in Martin County reached ~3.
 
 ### Bleaching prevalence by subregion over time, and overall
 ```{r bleaching_summary_subregion_time}
-# Percent of surveyed colonies with at least partial bleaching by Subregion and Week
-df23 %>%
-  group_by(Week, Subregion) %>%
-  summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
-  ggplot(aes(x = Week, y = pctbl, group = Subregion, color = Subregion)) +
-  geom_point() + 
-  geom_line() +
-  labs(y = "Percent of surveyed colonies with at least partial bleaching")
-
 # Percent of surveyed colonies with at least partial bleaching by Subregion and 2-Week periods
 df23 %>%
   group_by(Week2, Subregion) %>%
@@ -343,7 +338,7 @@ summ %>%
 ## Use 2-Week periods in model, and predict based on weeks 34-35 (Week2 = "(33,35]" => (August 20-September 2))) = peak of heat stress, before too much mortality
 mod <- glm(cbind(bl, nb) ~ Subregion + Species + Week2, family = "binomial", data = summ)
 res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(33,35]")), type = "response")
-# Join predicted bleaching prevalence for Aug27-Sep9 with average DHWs during same dates
+# Join predicted bleaching prevalence for Aug20-Sep2 with average DHWs during same dates
 mymaxdhw <- dhw %>%
   left_join(distinct(df23, Site, Subregion)) %>%
   filter(Date >= "2023-08-20", Date <= "2023-09-02") %>%
@@ -369,6 +364,11 @@ ggplot(regional23, aes(y = Subregion)) +
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
 
+regional23 %>% left_join(mymaxdhw) %>%
+  pivot_longer(cols = c(prob, maxDHW))
+ggplot(regional23, aes(y = Subregion)) +
+  
+
 save(regional23, file = "output/regional23.RData")
 ```
 
@@ -387,7 +387,8 @@ m <- polr(Bleaching3 ~ dhw * Species + EndDepth + Week2, data = df23.abund, Hess
 # for the average coral species at the average depth (we choose 23 ft as median depth of all corals obs.)
 res <- emmeans(m, specs = c("dhw", "Bleaching3"), 
                at = list(dhw = seq(0, 22, 1),
-                         Week2 = factor("(33,35]")), 
+                         Week2 = factor("(33,35]"),
+                         EndDepth = 23), 
                mode = "prob")
 as.tibble(res) %>%
   ggplot(aes(x = dhw, y = prob, color = Bleaching3)) +
@@ -415,10 +416,10 @@ This also shows an inflection point with rapid transition from healthy to bleach
 # Fit model
 ### Debating whether week should be included here or not? has a big effect on overall bleaching levels
 mod <- glm((Bleaching2 > 1) ~ Subregion * Species + Week2, 
-             family = "binomial", data = df23.abund)#,
-             #nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+             family = "binomial", data = df23.abund)
 res <- as.tibble(emmeans(mod, specs = c("Species", "Subregion"), 
-                         at = list(Week2 = factor("(33,35]")), type = "response")) %>% drop_na()
+                         at = list(Week2 = factor("(33,35]")), 
+                         type = "response")) %>% drop_na()
 # Plot
 ggplot(res, aes(y = Subregion, x = response, color = Species, group = Species)) +
   geom_point() + 
@@ -535,7 +536,7 @@ pred2 <- pred %>%
   
 # Plot fitted probabilities within the range of observed Widths for each significant species
 ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, linetype = is.na(asymp.LCL.y))) +
-  facet_wrap(~Species, scales = "free") +
+  facet_wrap(~Species, scales = "free_x") +
   geom_line() +
   geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.2, lwd = 0) +
   #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
@@ -543,7 +544,7 @@ ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, li
   labs(x = "Colony width", y = "Proportion of colonies PB or worse") +
   theme(legend.position = "none")
 
-
+# Sanity checks for size effects
 # Plot actual proportions binned by size class a confirmation
 # filter(df23.abund) %>%
 #   filter(Species %in% sig$Species) %>%
@@ -552,6 +553,22 @@ ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, li
 #   ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
 #   geom_bar(position = "fill") +
 #   facet_wrap(~Species, scales = "free")
+
+# sanity check on dlab size effect
+# dlab <- df23.abund %>%
+#   filter(Species == "DLAB")
+# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
+#   geom_bar(position = "stack") +
+#   facet_wrap(~Subregion)
+
+# filter(df23.abund) %>%
+#   filter(Species %in% sig$Species) %>%
+#   ggplot(aes(x = Bleaching2 > 1, y = Width2)) +
+#   geom_jitter(width = 0.1, alpha = 0.1) +
+#   geom_violin(draw_quantiles = 0.5, alpha = 0.5) +
+#   facet_wrap(~Species, scales = "free_y") +
+#   #scale_y_continuous(trans = "log10") +
+#   coord_trans(y = "log2")
 ```
 
 Colony size is a significant predictor of bleaching for 11 different coral species. Solid lines indicate levels of DHW where the size effect is statistically significant, and dashed lines are for DHW levels where the relationship is NOT significant.
@@ -560,92 +577,20 @@ All significant relationships indicated that small corals are less likely to ble
 
 To do: think about why these specific 10 species might be showing that smaller individuals are more heat-tolerant, while other species are not. Any interesting differences in life history or symbiosis ecology between the species that DO or DO NOT show a size effect?
 
-```{r, eval = F}
-# sanity check on dlab size effect
-# dlab <- df23.abund %>%
-#   filter(Species == "DLAB")
-# 
-# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
-#   geom_bar(position = "stack") +
-#   facet_wrap(~Subregion)
-```
-
-
-
-```{r, eval = FALSE}
-# more size analysis -- do we see size effects within a region?
-# Only include surveys with dhw>10.
-mod <- glm((Bleaching2 > 1) ~ Subregion * Width + dhw, 
-             family = "binomial", data = filter(df23.abund, dhw > 10, Species == "MCAV"))
-plot(mod, which = 1)
-anova(mod)
-res <- broom::augment(mod) %>%
-  bind_cols(filter(df23.abund, dhw > 10, Species == "MCAV"))
-
-emtrends(mod, specs = "Subregion", var = "Width")
-
-df23 %>%
-  filter(Species == "SSID", dhw > 10) %>%
-  mutate(Width.bin = cut(log(Width), breaks = 10)) %>%
-  ggplot(aes(x = Width.bin, fill = Bleaching2 > 2)) +
-  geom_bar(position = "fill") +
-  facet_wrap(~Subregion)
-```
-
-```{r size_sandbox, eval = F}
-# Size of BL vs UNBL MCAV
-mcav <- df23.abund %>% filter(Species == "DLAB")
-mod <- glmer(Bleaching2 > 2 ~ log(Width) * dhw + (1|Site), family = "binomial", data = mcav)
-res <- emmeans(mod, specs = c("Width", "dhw"), at = list(Width = seq(min(mcav$Width),max(mcav$Width),2), dhw = 15), type = "response")
-res
-ggplot(as.tibble(res), aes(x = Width, y = response)) +
-  geom_line(aes(color = dhw, group = dhw)) +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.1)
-
-ggplot(mcav, aes(x = Bleaching2 > 2, y = log(Width))) +
-  geom_violin() +
-  geom_jitter(width = 0.1)
-
-
-ggplot(mcav, aes(x = cut(log(Width), 5), fill = Bleaching2 > 2)) +
-  geom_bar(position = "stack")
-
-hi <- df23 %>% filter(Species == "DLAB", Width < 7)
-
-range(mcav$Width)
-
-
-### all species?
-df23ss3 <- filter(df23ss2, Species %in% sppcounts$Species[1:10])
-mod <- glmer(BL ~ Species * Width + dhw + (1|Site), family = "binomial", data = df23ss3,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-anova(mod)
-res <- emmeans(mod, specs = c("Width", "Species", "dhw"), 
-               at = list(Width = seq(4,500,2), dhw = 15), type = "response")
-sizeranges <- df23ss3 %>% group_by(Species) %>% summarize(min = min(Width), max = max(Width))
-sizeranges
-res
-ggplot(as.tibble(res), aes(x = Width, y = prob)) +
-  geom_line(aes(color = Species, group = Species)) +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.1)
-
-df23ss3 %>% filter(Width < 4)
-```
-    
-
 
 # Mapping bleaching anomalies: exploring deviations from expected severity
 
 ### Which sites bleached more or less than predicted based on DHW, depth, and species composition?
-```{r bleach_resid_sites, eval = F}
+```{r bleach_resid_sites_grouplevel}
 # Model bleaching outlier locations with group-level data (groups = each species at each site)
 # Following: https://library.virginia.edu/data/articles/understanding-deviance-residuals
 # Get subset of data
 dfdf <- df23 %>%
-  group_by(Species, Site, dhw, Depth, Week, Longitude, Latitude, Subregion) %>%
+  group_by(Species, Site, dhw, EndDepth, Week2, Longitude, Latitude, Subregion) %>%
   summarize(BL = sum(Bleaching2 > 2),   # BL is fully bleached or dead
             NB = sum(Bleaching2 <= 2)) %>% # NB is healthy, pale, or partially bleached
   ungroup() %>%
+  drop_na(Species) %>%   # why are there 3 rows with no Species?
   filter(BL + NB >=3)  # only keep groups (species at sites) with at least 3 individuals observed
 
 # Is size a factor? if all the corals in Miami-Broward are smaller and thats why they dont bleach as much?
@@ -661,28 +606,34 @@ dfdf <- df23 %>%
 
 
 # Fit model
-mod <- glmer(cbind(BL, NB) ~ dhw + Depth + (dhw|Species) + (1|Week), 
-             family = "binomial", data = dfdf,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-#plot(mod, which = 1)
+# GLMER
+# mod <- glmer(cbind(BL, NB) ~ dhw + EndDepth + (dhw|Species) + (1|Week2),
+#              family = "binomial", data = dfdf,
+#              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+#GLM
+mod <- glm(cbind(BL, NB) ~ Species * dhw + EndDepth + Week2, family = "binomial", data = dfdf)
+# Really no difference between these two models...
 
 # Get residuals (raw residuals = difference between observed and predicted bleaching probability)
 res <- tibble(dfdf, .resid = residuals(mod, type = "response"))
+
+# hist(res$.resid)
 # res$.fitted <- predict(mod, newdata = dfdf, type = "response")
 # res$.pearson <- residuals(mod, type = "pearson")
 # ggplot(res, aes(x = .fitted, y = .pearson, color = Subregion)) +
 #   geom_point()
 
-# res2 <- emmeans(mod, specs = "dhw", at = list(dhw = seq(0,22,2)), type = "response")
-# res2
-# as.tibble(res2) %>%
-#   ggplot(aes(x = dhw, y = prob)) + geom_line()
+
+
 # Plot residuals for each species at each site
 ## (Where did each coral species do better or worse than expected?)
-# ggplot(res, aes(x = Longitude, y = Latitude, color = .resid)) +
-#   geom_point() +
-#   facet_wrap(~Species) +
-#   scale_color_gradient2(low = "red", mid = NA, high = "blue")
+res %>%
+  group_by(Species) %>%
+  filter(n() > 20) %>%
+  ggplot(aes(x = Longitude, y = Latitude, color = .resid)) +
+  geom_point() +
+  facet_wrap(~Species) +
+  scale_color_gradient2(low = "red", mid = NA, high = "blue")
 
 # miami <- filter(df23, Subregion == "Broward-Miami")
 
@@ -886,27 +837,4 @@ outhealthy %>%
 ```
 
 
-  
 
-```{r, eval = F}
-# - [ ] Variability in bleaching among individuals within a species 
-### which spp have the most variability among individuals?
-## where do tol. and sens. individuals co-occur?
-
-var <- df23.abund %>%
-  group_by(Site, Latitude, Longitude, Species, Subregion, Zone) %>%
-  summarize(n = n(),
-            bleachvar = var(Bleaching2),
-            max = max(Bleaching2))
-
-ggplot(var, aes(x = Species, y = bleachvar)) +
-  geom_violin(scale = "width", draw_quantiles = 0.5) +
-  geom_jitter(aes(color = Subregion), width = 0.2)
-
-
-
-var %>% filter(Species == "MCAV") %>%
-  ggplot(aes(x = Longitude, y = Latitude)) +
-  geom_point(aes(color = bleachvar))
-```
-  
