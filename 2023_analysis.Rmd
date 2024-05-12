@@ -403,6 +403,24 @@ as.tibble(res) %>%
 
 This also shows an inflection point with rapid transition from healthy to bleached corals around 10-12 DHWs. Corals start dying from thermal stress at 13-14 DHW.
 
+```{r}
+# Just probability of PB or greater
+m <- glm(Bleaching2 > 1 ~ Species * dhw + EndDepth + Week2, family = "binomial", data = df23.abund)
+
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("dhw"), rg.limit = 20000, type = "response",
+               at = list(Week2 = factor("(33,35]"), Depth = 23, dhw = seq(0, 20, 0.1)))
+
+as.tibble(res) %>%
+  ggplot(aes(x = dhw, y = response)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3)
+
+bleachprob23 <- as.tibble(res)
+saveRDS(bleachprob23, file = "output/bleachprob23.rds")
+```
+
+
 # Coral species differences in bleaching
 
 ### Bleaching prevalence by species in each subregion
@@ -496,6 +514,46 @@ thresh %>%
 The heatmap above shows the proportion of colonies of each species that are partially bleached or worse at a given DHW. Diamonds indicate the DHW require to bleach 50% of colonies, and the black lines span the range of DHW required to bleach 25% to 75% percent of colonies.  
 
 The amount of heat stress required to bleach 50% of colonies is lowest for AAGA and Orbicellas at 2-3 DHW. PFUR is nearly 100% bleached even at zero DHW, which may be due to it's naturally very pale color causing surveyors to record it as bleached. Other Porties species are 50% bleached at 8-10 DHW. ACER rapidly goes from almost no bleaching to almost 100% bleaching at 11 DHW. Other species increase more gradually in bleaching prevalence, like CNAT, which is 25% bleached at 2 DHW, 50% at 11 DHW, and 75% at 21 DHW. This could suggest more variation in bleaching tolerance for CNAT, potentially because different colonies have different symbiont types, including Durusdinium. Other species that show more gradual increase in prevalence are PSTR, OFAV, and SSID, which are also known to host different symbionts including Durusdinium. DLAB is the most bleaching tolerant -- 50% bleaching does not occur until 23 DHW! It can also host Durusdinium.
+
+```{r}
+# Species-specific bleaching susceptibility w/increasing DHW
+## Plot raw data/bleaching categoties by binned.dhw
+ggplot(df23.abund, aes(x = cut(dhw, 10), fill = Bleaching3)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Species, scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+## Include only species with ≥3 individuals in ≥70% of dhw bins
+incl_spp <- df23.abund %>%
+  count(Species, cut(dhw, 10)) %>%
+  group_by(Species) %>%
+  filter((sum(n >= 3) >= 5)) %>%
+  distinct(Species)
+
+df23.abund.ss <- filter(df23.abund, Species %in% incl_spp$Species)
+
+# Fit regression for PB or worse
+m <- glm(Bleaching2 > 1 ~ Species * dhw + Week2, family = "binomial", data = df23.abund.ss)
+summary(m)
+
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
+               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 20, 0.1)))
+emt <- emtrends(m, specs = "Species", var = "dhw")
+sig <- summary(emt, infer = TRUE) %>%
+  filter(p.value < 0.05)
+
+
+as.tibble(res) %>%
+  filter(Species %in% sig$Species) %>%
+  ggplot(aes(x = dhw, y = response)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
+  facet_wrap(~Species)
+
+sppbleachprob23 <- as.tibble(res)
+saveRDS(sppbleachprob23, file = "output/sppbleachprob23.rds")
+```
 
 # Coral size class differences in bleaching severity
 

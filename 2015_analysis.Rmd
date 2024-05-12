@@ -283,10 +283,10 @@ mymaxdhw <- dhw %>%
   summarize(maxDHW = max(meanDHW)) %>%
   drop_na()
 
-regional14 <- as.tibble(res) %>% full_join(mymaxdhw) %>%
+regional15 <- as.tibble(res) %>% full_join(mymaxdhw) %>%
   mutate(group = "allcorals")
 
-ggplot(regional14, aes(y = Subregion)) +
+ggplot(regional15, aes(y = Subregion)) +
   geom_point(aes(x = prob)) +
   geom_errorbar(aes(xmin = asymp.LCL, xmax = asymp.UCL), width = 0) +
   geom_path(aes(x = prob, group = group)) +
@@ -300,7 +300,7 @@ ggplot(regional14, aes(y = Subregion)) +
   labs(y = "")
   
 
-save(regional14, file = "output/regional14.RData")
+save(regional15, file = "output/regional15.RData")
 ```
 
 
@@ -323,7 +323,22 @@ as.tibble(res) %>%
   labs(x = "Degree Heating Weeks", y = "Predicted probability")
 ```
 
+```{r}
+# Just probability of PB or greater
+m <- glm(Bleaching2 > 1 ~ Species * dhw + Depth + Week2, family = "binomial", data = df15.abund)
 
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("dhw"), rg.limit = 20000, type = "response",
+               at = list(Week2 = factor("(36,38]"), Depth = 23, dhw = seq(0, 10, 0.1)))
+
+as.tibble(res) %>%
+  ggplot(aes(x = dhw, y = response)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3)
+
+bleachprob15 <- as.tibble(res)
+saveRDS(bleachprob15, file = "output/bleachprob15.rds")
+```
 
 # Coral species differences in bleaching
 
@@ -448,6 +463,9 @@ as.tibble(res) %>%
   geom_line() +
   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
   facet_wrap(~Species)
+
+sppbleachprob15 <- as.tibble(res)
+saveRDS(sppbleachprob15, file = "output/sppbleachprob15.rds")
 ```
 
 
