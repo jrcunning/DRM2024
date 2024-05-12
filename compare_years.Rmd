@@ -1,0 +1,169 @@
+---
+title: "Cross-year comparisons"
+author: "R. Cunning"
+date: "2024-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# Overall pct. bleaching vs. dhw by Subregion for each year
+## Subregion averages
+load(file = "output/regional23.RData")
+load(file = "output/regional14.RData")
+load(file = "output/regional15.RData")
+
+df <- bind_rows(`2014` = regional14, `2015` = regional15, `2023` = regional23, .id = "year")
+
+ggplot(df, aes(x = maxDHW, y = prob)) +
+  geom_point(aes(color = Subregion, shape = year), size = 3) +
+  geom_smooth(aes(group = year), method = "loess", span = 1.1, se = FALSE)
+```
+
+```{r}
+# Bleaching vs. dhw for all corals by year
+bleachprob14 <- readRDS(file = "output/bleachprob14.rds")
+bleachprob15 <- readRDS(file = "output/bleachprob15.rds")
+bleachprob23 <- readRDS(file = "output/bleachprob23.rds")
+
+bleachprob <- bind_rows(`2014` = bleachprob14,
+                        `2015` = bleachprob15,
+                        `2023` = bleachprob23,
+                        .id = "year")
+
+ggplot(bleachprob, aes(x = dhw, y = response, color = year, group = year)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
+  scale_y_continuous(limits = c(0, 1))
+```
+
+
+```{r}
+# Bleaching vs. dhw by species for each year
+sppbleachprob14 <- readRDS(file = "output/sppbleachprob14.rds")
+sppbleachprob15 <- readRDS(file = "output/sppbleachprob15.rds")
+sppbleachprob23 <- readRDS(file = "output/sppbleachprob23.rds")
+
+sppbleachprob <- bind_rows(`2014` = sppbleachprob14,
+                           `2015` = sppbleachprob15,
+                           `2023` = sppbleachprob23,
+                           .id = "year")
+
+ggplot(sppbleachprob, aes(x = dhw, y = response, color = year, group = year)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
+  facet_wrap(~Species) +
+  scale_y_continuous(limits = c(0, 1))
+```
+
+```{r}
+# Maps of site performance for each year
+```
+
+```{r}
+load("output/2014.RData")
+load("output/2015.RData")
+load("output/2023.RData")
+df23 <- df23 %>% rename(Depth = EndDepth)
+all <- bind_rows(
+  `2014` = df14,
+  `2015` = df15,
+  `2023` = df23,
+  .id = "year"
+)
+all.ss <- all %>%
+  group_by(Species, year) %>%
+  filter(n() > 30)
+
+# Fit regression for PB or worse
+m <- glm(Bleaching2 > 1 ~ year * Species * dhw, family = "binomial", data = all.ss)
+
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("Species", "dhw", "year"), rg.limit = 20000, type = "response",
+               at = list(dhw = seq(0, 20, 2)))
+emt <- emtrends(m, specs = "Species", var = "dhw")
+sig <- summary(emt, infer = TRUE) %>%
+  filter(p.value < 0.05)
+
+
+as.tibble(res) %>%
+  #filter(Species %in% sig$Species) %>%
+  ggplot(aes(x = dhw, y = response, color = year, group = year)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
+  facet_wrap(~Species)
+```
+
+```{r, eval = F}
+# Try random forests to find outlier sites or individuals?
+load("output/2014.RData")
+load("output/2015.RData")
+load("output/2023.RData")
+df23 <- df23 %>% rename(Depth = EndDepth)
+all <- bind_rows(
+  `2014` = df14,
+  `2015` = df15,
+  `2023` = df23,
+  .id = "year"
+)
+library(randomForest)
+data <- all %>%
+  filter(Species %in% c("CNAT", "DLAB", "MCAV", "OANN", "OFAV", "PAST", "PSTR", "SSID")) %>%
+  mutate(Bleaching4 = factor(case_when(Bleaching3 %in% c("Healthy", "Pale") ~ "Healthy",
+                                Bleaching3 %in% c("Partially Bleached", "Bleached", "Dead") ~ "Bleached"))) %>%
+  droplevels() %>%
+  drop_na(year, Species, Depth, dhw) %>%
+  group_by(Species) %>%
+  filter(n() > 500) %>%
+  droplevels()
+
+# Run random forest classification with species, depth, and dhw as predictors
+rf <- randomForest(Bleaching4~year+Species+Depth+dhw+Width, 
+                   data = data, ntree = 5, do.trace = TRUE, proximity=TRUE)
+print(rf)
+rf$confusion
+
+str(rf)
+
+# Get rf model predictions for Bleaching4
+data <- data %>%
+  mutate(pred = rf$predicted)
+
+# How accurate were predictions for each species?
+data %>%
+  drop_na(pred) %>%
+  group_by(Species) %>%
+  count(acc = pred == Bleaching4) %>%
+  ggplot(aes(x = Species, y = n, fill = acc)) +
+  geom_col(position= "fill")
+
+# Can you get confidence?
+str(rf)
+score(rf)
+
+data %>%
+  drop_na(pred) %>%
+  ggplot(aes(x = Species, fill = Bleaching4:pred)) +
+  geom_bar(position = "fill")
+  
+  
+
+# Which corals were predicted to be bleached, but were actually healthy?
+outhealthy <- data %>%
+  filter(pred == "Bleached", Bleaching4 == "Healthy") 
+
+ggplot(outhealthy, aes(x = Longitude, y = Latitude)) +
+  geom_point(color = "red", alpha = 0.005, pch = 20)
+
+outhealthy %>%
+  filter(Species == "OFAV") %>%
+  ggplot(aes(x = Longitude, y = Latitude)) +
+  geom_point(aes(color = Species))
+```
