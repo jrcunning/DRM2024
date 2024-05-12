@@ -468,6 +468,41 @@ sppbleachprob15 <- as.tibble(res)
 saveRDS(sppbleachprob15, file = "output/sppbleachprob15.rds")
 ```
 
+```{r BINS}
+# Species-specific bleaching susceptibility w/increasing DHW
+## Plot raw data/bleaching categoties by binned.dhw
+ggplot(df15.abund, aes(x = cut(dhw, breaks = seq(0,9,3)), fill = Bleaching3)) +
+  geom_bar(position = "fill") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
+  facet_wrap(~Species, scales = "free_y")
+
+## Include only species with ≥3 individuals in ≥70% of dhw bins
+incl_spp <- df15.abund %>%
+  count(Species, cut(dhw, breaks = seq(0,9,3))) %>%
+  group_by(Species) %>%
+  filter((sum(n >= 3) >= 2)) %>%
+  distinct(Species)
+
+df15.abund.ss <- filter(df15.abund, Species %in% incl_spp$Species) %>%
+  mutate(dhw.bin = cut(dhw, breaks = seq(0,9,3)))
+
+# Fit regression for PB or worse
+m <- glm(Bleaching2 > 1 ~ Species * dhw.bin + Week2, family = "binomial", data = df15.abund.ss)
+
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("Species", "dhw.bin"), rg.limit = 20000, type = "response",
+               at = list(Week2 = factor("(36,38]")))
+
+as.tibble(res) %>%
+  filter(Species %in% sig$Species) %>%
+  ggplot(aes(x = dhw.bin, y = response)) +
+  geom_point() +
+  facet_wrap(~Species)
+
+sppbleachprob15 <- as.tibble(res)
+saveRDS(sppbleachprob15, file = "output/sppbleachprob15.rds")
+```
+
 
 # Coral size class differences in bleaching severity
 
