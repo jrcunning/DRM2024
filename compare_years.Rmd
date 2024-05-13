@@ -11,10 +11,11 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(emmeans)
 ```
 
-```{r}
-# Overall pct. bleaching vs. dhw by Subregion for each year
+```{r regional_bleaching_vs_dhw_by_year}
+# Overall pct. bleaching vs. dhw (all corals) by Subregion for each year
 ## Subregion averages
 load(file = "output/regional23.RData")
 load(file = "output/regional14.RData")
@@ -27,8 +28,8 @@ ggplot(df, aes(x = maxDHW, y = prob)) +
   geom_smooth(aes(group = year), method = "loess", span = 1.1, se = FALSE)
 ```
 
-```{r}
-# Bleaching vs. dhw for all corals by year
+```{r }
+# Overall Bleaching vs. dhw (all corals) by year
 bleachprob14 <- readRDS(file = "output/bleachprob14.rds")
 bleachprob15 <- readRDS(file = "output/bleachprob15.rds")
 bleachprob23 <- readRDS(file = "output/bleachprob23.rds")
@@ -42,11 +43,14 @@ ggplot(bleachprob, aes(x = dhw, y = response, color = year, group = year)) +
   geom_line() +
   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
   scale_y_continuous(limits = c(0, 1))
+
+# This is more or less the same thing as the breakdown by region above, but I think the regional one is more interesting
 ```
 
 
 ```{r}
-# Bleaching vs. dhw by species for each year
+# Bleaching vs. dhw for each coral species by year -- binned dhw
+# Data are from modeling data for each year separately, using the Week2 period at the peak of each year's bleaching
 sppbleachprob14 <- readRDS(file = "output/sppbleachprob14.rds")
 sppbleachprob15 <- readRDS(file = "output/sppbleachprob15.rds")
 sppbleachprob23 <- readRDS(file = "output/sppbleachprob23.rds")
@@ -56,7 +60,9 @@ sppbleachprob <- bind_rows(`2014` = sppbleachprob14,
                            `2023` = sppbleachprob23,
                            .id = "year")
 
-ggplot(sppbleachprob, aes(x = dhw.bin, y = response, color = year, group = year)) +
+sppbleachprob %>%
+  #filter(Species %in% c("ACER", "CNAT", "DLAB", "MCAV", "OFAV", "PPOR")) %>%
+  ggplot(aes(x = dhw.bin, y = response, color = year, group = year)) +
   geom_point() +
   geom_line() +
   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
@@ -64,68 +70,103 @@ ggplot(sppbleachprob, aes(x = dhw.bin, y = response, color = year, group = year)
   scale_y_continuous(limits = c(0, 1))
 ```
 
-```{r}
-# Maps of site performance for each year
-```
 
 ```{r}
 # Load all data from 2014, 2015, and 2023
 # Try to fit a singular model for bleaching susceptibility by Species, DHW.bin, and year, to look at how bleaching susceptibility differs by year
 
-
-
 load("output/2014.RData")
 load("output/2015.RData")
 load("output/2023.RData")
 df23 <- df23 %>% rename(Depth = EndDepth)
-all <- bind_rows(
+all0 <- bind_rows(
   `2014` = df14,
   `2015` = df15,
   `2023` = df23,
   .id = "year"
-)
+) %>%
+  mutate(dhw.bin = cut(dhw, breaks = seq(0, 21, 3)))
 
-# Consider lumping Agaricia spp., Mycetophyllia spp., Oculina spp., Solenastrea spp.
-all <- all %>%
-  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AHUM", "ALAM") ~ "AGAR",
-                             Species %in% c("MALI", "MLAM", "MYCE") ~ "MYCE",
+# Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
+all0 <- all0 %>%
+  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
+                             Species %in% c("MALI", "MLAM", "MYCE") ~ "MYCE",  #, "MFER"
+                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
                              Species %in% c("OCUL", "ODIF") ~ "OCUL",
-                             Species %in% c("PFUR", "PDIV", "PORI") ~ "PORI",
                              Species %in% c("SHYA", "SBOU") ~ "SOLE",
+                             #Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
                              TRUE ~ Species)) %>%
   drop_na(Species)
 
-# Keep only those observed at least 10 times per year
-spps <- all %>%
-  count(Species, year) %>%
-  group_by(Species) %>%
-  summarize(minn = min(n)) %>%
-  filter(minn >= 10)
-all <- all %>%
-  filter(Species %in% spps$Species)
+# Keep only those species observed at least 10 times per year
+# Filter1 -- working well but too strict?
+# spps <- all0 %>%
+#   count(Species, year) %>%
+#   group_by(Species) %>%
+#   summarize(minn = min(n), nyear = n()) %>%
+#   filter(minn >= 10)
+# allf <- all0 %>%
+#   filter(Species %in% spps$Species)
+# Try alternate filter -- bad results
+# allf <- all0 %>%
+#   group_by(Species, year) %>%
+#   filter(n() >= 10) %>%         # Species must have been counted at least 10 times within a year
+#   group_by(Species) %>%
+#   filter(n_distinct(year) == 3) %>%     # Species must have been counted (at least 10 times) in at least 2 years
+#   ungroup()
+# Try another alternate filter using dhw.bins
+allf <- all0 %>%
+  group_by(Species, year, dhw.bin) %>%
+  filter(n() > 3)
 
-# Add new dhw.bin
-all <- all %>%
-  mutate(dhw.bin = cut(dhw, breaks = seq(0, 21, 3)))
  
+## Group-level instead of subject-level model -- is identical, and fits faster
+allg <- allf %>%
+  group_by(year, Week2, Site, dhw.bin, Species) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1)) %>%
+  ungroup()
 
 # Fit regression for PB or worse
-#library(speedglm)
-m <- glm(Bleaching2 > 1 ~ year * Species * dhw.bin, family = binomial(), data = all)
+m <- glm(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2, family = "binomial", data = allg)
+# Get fitted values across dhw
+res <- emmeans(m, specs = c("Species", "dhw.bin", "year", "Week2"), rg.limit = 20000, type = "response")
 
-# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
-res <- emmeans(m, specs = c("Species", "dhw.bin", "year"), rg.limit = 20000, type = "response")
-
-as.tibble(res) %>%
-  ggplot(aes(x = dhw.bin, y = response, color = year, group = year)) +
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+res2 <- subset(res,
+  (year == "2014" & Week2 == "(36,38]") |
+  (year == "2015" & Week2 == "(36,38]") |
+  (year == "2023" & Week2 == "(33,35]")
+)
+# Plot
+allplots <- as.tibble(res2) %>%
+  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
   geom_point() +
   geom_line() +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
-  facet_wrap(~Species)
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.1) +
+  facet_wrap(~Species) +
+  ylim(0,1)
+allplots
+
+# For some reason the output is better when MFOR and SCUB are present in the data? Not sure why.
+# MYCE (aggregated) was coming out as significant before but now it's not. something about adding MFER to the aggregation?
+### Yes, it's MFER... when included with MYCE, MYCE has no sig diffs, but quite sig without the added MFER? MFER is all bleached, and all 
+
+# Statistically compare years for each Species and dhw.bin level (only look at 3-6 and 6-9 dhw, where we have data from all years)
+res3 <- subset(res2, dhw.bin %in% c("(3,6]", "(6,9]"))
+out <- rbind(pairs(res3, specs = "year", by = c("Species", "dhw.bin")), adjust = "fdr")
+hi <- as.tibble(out) %>%
+  filter(p.value < 0.05)
+
+sig <- as.tibble(res2) %>%
+  filter(Species %in% hi$Species)
+
+allplots %+% sig 
 
 
-## SImple proportions?
-all %>%
+
+## Simple proportions as a santiy check
+all0 %>%
   drop_na(dhw.bin) %>%
   group_by(year, Species, dhw.bin) %>%
   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
@@ -133,7 +174,21 @@ all %>%
   geom_point() +
   geom_line() +
   facet_wrap(~Species)
+
+# MYCE sanity check
+all0 %>% filter(Species == "MYCE") %>%
+  ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
+  geom_bar(position = "stack") +
+  facet_wrap(~year)
 ```
+
+
+
+```{r}
+# Maps of site performance for each year
+```
+
+
 
 ```{r, eval = F}
 # Try random forests to find outlier sites or individuals?
