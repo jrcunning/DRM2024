@@ -48,27 +48,7 @@ ggplot(bleachprob, aes(x = dhw, y = response, color = year, group = year)) +
 ```
 
 
-```{r}
-# Bleaching vs. dhw for each coral species by year -- binned dhw
-# Data are from modeling data for each year separately, using the Week2 period at the peak of each year's bleaching
-sppbleachprob14 <- readRDS(file = "output/sppbleachprob14.rds")
-sppbleachprob15 <- readRDS(file = "output/sppbleachprob15.rds")
-sppbleachprob23 <- readRDS(file = "output/sppbleachprob23.rds")
 
-sppbleachprob <- bind_rows(`2014` = sppbleachprob14,
-                           `2015` = sppbleachprob15,
-                           `2023` = sppbleachprob23,
-                           .id = "year")
-
-sppbleachprob %>%
-  #filter(Species %in% c("ACER", "CNAT", "DLAB", "MCAV", "OFAV", "PPOR")) %>%
-  ggplot(aes(x = dhw.bin, y = response, color = year, group = year)) +
-  geom_point() +
-  geom_line() +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.3) +
-  facet_wrap(~Species) +
-  scale_y_continuous(limits = c(0, 1))
-```
 
 
 ```{r}
@@ -78,7 +58,7 @@ sppbleachprob %>%
 load("output/2014.RData")
 load("output/2015.RData")
 load("output/2023.RData")
-df23 <- df23 %>% rename(Depth = EndDepth)
+df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
 all0 <- bind_rows(
   `2014` = df14,
   `2015` = df15,
@@ -119,7 +99,6 @@ allf <- all0 %>%
   group_by(Species, year, dhw.bin) %>%
   filter(n() > 3)
 
- 
 ## Group-level instead of subject-level model -- is identical, and fits faster
 allg <- allf %>%
   group_by(year, Week2, Site, dhw.bin, Species) %>%
@@ -128,9 +107,9 @@ allg <- allf %>%
   ungroup()
 
 # Fit regression for PB or worse
-m <- glm(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2, family = "binomial", data = allg)
+bleach.m <- glm(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2, family = "binomial", data = allg)
 # Get fitted values across dhw
-res <- emmeans(m, specs = c("Species", "dhw.bin", "year", "Week2"), rg.limit = 20000, type = "response")
+res <- emmeans(bleach.m, specs = c("Species", "dhw.bin", "year", "Week2"), rg.limit = 20000, type = "response")
 
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 res2 <- subset(res,
@@ -138,12 +117,14 @@ res2 <- subset(res,
   (year == "2015" & Week2 == "(36,38]") |
   (year == "2023" & Week2 == "(33,35]")
 )
+mybleach <- as.tibble(res2)
 # Plot
 allplots <- as.tibble(res2) %>%
   ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-  geom_point() +
-  geom_line() +
-  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.1) +
+  geom_point(position = position_dodge(width = 0.25), size = 0.5) +
+  geom_line(position = position_dodge(width = 0.25)) +
+  geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE), width = 0.1,
+                position = position_dodge(width = 0.25)) +
   facet_wrap(~Species) +
   ylim(0,1)
 allplots
@@ -161,26 +142,103 @@ hi <- as.tibble(out) %>%
 sig <- as.tibble(res2) %>%
   filter(Species %in% hi$Species)
 
+# Plot just species with sig diffs btw years
 allplots %+% sig 
 
 
-
-## Simple proportions as a santiy check
-all0 %>%
-  drop_na(dhw.bin) %>%
-  group_by(year, Species, dhw.bin) %>%
-  summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
-  ggplot(aes(x = dhw.bin, y = pctbl, color = year, group = year)) +
-  geom_point() +
-  geom_line() +
-  facet_wrap(~Species)
-
-# MYCE sanity check
-all0 %>% filter(Species == "MYCE") %>%
-  ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
-  geom_bar(position = "stack") +
-  facet_wrap(~year)
+# Sanity checks
+# ## Simple proportions as a santiy check
+# all0 %>%
+#   drop_na(dhw.bin) %>%
+#   group_by(year, Species, dhw.bin) %>%
+#   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
+#   ggplot(aes(x = dhw.bin, y = pctbl, color = year, group = year)) +
+#   geom_point() +
+#   geom_line() +
+#   facet_wrap(~Species)
+# 
+# # MYCE sanity check
+# all0 %>% filter(Species == "MYCE") %>%
+#   ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
+#   geom_bar(position = "stack") +
+#   facet_wrap(~year)
 ```
+
+
+```{r}
+# Look at changes in avg coral density --- correlate w/changes in bleaching?
+# Need zero-inflated Poisson regression?
+dens <- all0 %>%
+  ungroup() %>%
+  # Count number of colonies of each species per transect
+  count(year, Species, Site, Transect) %>%
+  # Add zeros for all species not counted on a transect
+  complete(Species, nesting(year, Site, Transect), fill = list(n = 0)) %>%
+  # Filter transect 3 and 4 data -- only select species recorded 
+  filter(Transect %in% c(1, 2) |
+         Transect %in% c(3, 4) & Species %in% c("CNAT", "DSTO", "DLAB", "MMEA", "MANG",
+                                                "MALI", "MFER", "MLAM", "PCLI", "PSTR"))
+  
+ggplot(dens, aes(x = n)) +
+  geom_histogram() +
+  facet_wrap(~Species, scales = "free")
+
+# library(pscl)
+# m1 <- zeroinfl(n ~ Species + year | persons, data = zinb)
+
+mod_1 <- glm(n ~ Species * year, data = dens, family = "poisson") 
+plot(mod_1, which = 1)
+
+res <- emmeans(mod_1, specs = c("Species", "year"), type = "response")
+
+as.tibble(res) %>%
+  ggplot(aes(x = year, y = rate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
+  geom_line() +
+  facet_wrap(~Species, scales = "free_y")
+
+mydens <- as.tibble(res)
+```
+
+```{r}
+# Get bleaching at 6-9 DHW
+mybleach69 <- filter(mybleach, dhw.bin == "(6,9]")
+myfun <- full_join(mydens, mybleach69, by = c("Species", "year"))
+
+# any sig change over years in bleaching at 6-9dhw?
+res3 <- subset(res2, dhw.bin %in% c("(6,9]"))
+out <- rbind(pairs(res3, specs = "year", by = c("Species"), adjust = "fdr"))
+sigbleach <- as.tibble(out) %>% filter(p.value < 0.05)
+
+# any sig change over years in density?
+outt <- rbind(pairs(res, specs = "year", by = "Species", adjust = "fdr"))
+sigdens <- as.tibble(outt) %>% filter(p.value < 0.05)
+
+# Plot species that had sig change in bleach OR sig change in dens
+myfun %>%
+  filter(Species %in% sigbleach$Species | Species %in% sigdens$Species) %>%
+  ggplot(aes(x = rate, y = prob)) +
+  geom_point(aes(shape = year, color = year), size = 3) +
+  geom_errorbar(aes(xmin = rate - SE.x, xmax = rate + SE.x)) +
+  geom_errorbar(aes(ymin = prob - SE.y, ymax = prob + SE.y)) +
+  geom_path(arrow = arrow(length = unit(1, "mm"))) +
+  #geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~Species, scales = "free_x") +
+  ylim(0, 1)
+```
+
+
+```{r, eval = F}
+# Trying to get overall bleaching (avg across species) but emmeans are nonEst
+m <- glm(cbind(BL, NB) ~ year * dhw.bin * Species, family = "binomial", data = allg)
+res <- emmeans(m, specs = c("dhw.bin", "year"), type = "response", rg.limit = 15000)
+as.tibble(res) %>%
+  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
+  geom_point() +
+  geom_line()
+```
+
 
 
 
@@ -255,4 +313,27 @@ outhealthy %>%
   filter(Species == "OFAV") %>%
   ggplot(aes(x = Longitude, y = Latitude)) +
   geom_point(aes(color = Species))
+```
+
+```{r, eval = FALSE}
+# Bleaching vs. dhw for each coral species by year -- binned dhw
+# Data are from modeling data for each year separately, using the Week2 period at the peak of each year's bleaching
+# Results are nearly (completely?) identical to a singular model fit with year and year:Week2... so use that because it also allows posthoc testing 
+sppbleachprob14 <- readRDS(file = "output/sppbleachprob14.rds")
+sppbleachprob15 <- readRDS(file = "output/sppbleachprob15.rds")
+sppbleachprob23 <- readRDS(file = "output/sppbleachprob23.rds")
+
+sppbleachprob <- bind_rows(`2014` = sppbleachprob14,
+                           `2015` = sppbleachprob15,
+                           `2023` = sppbleachprob23,
+                           .id = "year")
+
+sppbleachprob %>%
+  ggplot(aes(x = dhw.bin, y = response, color = year, group = year)) +
+  geom_point(position = position_dodge(width = 0.25), size = 0.5) +
+  geom_line(position = position_dodge(width = 0.25)) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE), width = 0.1,
+                position = position_dodge(width = 0.25)) +
+  facet_wrap(~Species) +
+  ylim(0,1)
 ```
