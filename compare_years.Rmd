@@ -10,10 +10,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-library(tidyverse)
+library(lme4)
 library(emmeans)
+library(tidyverse)
 ```
 
+# Import all data (2014, 2015, 2023)
 ```{r}
 # Load all data from 2014, 2015, and 2023
 # QC'd by year
@@ -61,12 +63,189 @@ allf <- all0 %>%
   group_by(Species, year, dhw.bin) %>%
   filter(n() > 3)
 
-## Group-level instead of subject-level model -- fits faster
+## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
 allg <- allf %>%
   group_by(year, Week2, Subregion, Site, dhw.bin, Species) %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
+```
+
+# Overall bleaching severity by DHWs across years
+
+```{r bleaching_by_dhw.bin_across_years}
+# Will it work if species is a random factor instead of fixed? YES!!!
+m <- glmer(cbind(BL, NB) ~ year * dhw.bin + (dhw.bin+year|Species), 
+           family = "binomial", data = allg)
+res <- emmeans(m, specs = c("dhw.bin", "year"), type = "response", rg.limit = 15000)
+as.tibble(res) %>%
+  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
+  geom_point() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.2) +
+  geom_line()
+
+### NEW: try with Week2 to be able to adjust for that
+# dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year * Week2 + (dhw.bin+year|Species),
+#                        family = "binomial", data = allg)
+## ^^ above model formulation has nonEst for 2023 0-3 and 6-9 DHW. Why?
+# dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (1|Species),
+#                        family = "binomial", data = allg)
+###^^ This model works
+dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species),  
+                     family = "binomial", data = allg, verbose = TRUE,
+                     nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+#^^^ but is this one ^^ better? ???: YES
+##change dhw.bin+year to dhw.bin*year in random slopes???: doesn't change much, takes longer to fit
+dhw.bin.res <- emmeans(dhw.bin.mod, specs = c("dhw.bin", "year", "Week2"), 
+                       rg.limit = 20000, type = "response")
+# THIS IS IT ^^^
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+dhw.bin.res2 <- subset(dhw.bin.res,
+  (year == "2014" & Week2 == "(36,38]") |
+  (year == "2015" & Week2 == "(36,38]") |
+  (year == "2023" & Week2 == "(33,35]")
+)
+as.tibble(dhw.bin.res2) %>%
+  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
+  geom_point() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.2) +
+  geom_line() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
+  theme(legend.position = c(0.8, 0.25)) +
+  labs(x = "DHWs", y = "Probability of bleaching")
+# THIS IS IT ^^^
+
+```
+
+# Species-specific bleaching severity by DHWs across years
+
+```{r SPECIES_diffs_by_dhwbin_by_year}
+# Fit a singular model for bleaching susceptibility by Species, DHW.bin, and year, to look at how bleaching susceptibility differs by year
+
+# Fit regression for PB or worse
+dhw.bin.sp.mod <- glm(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2, family = "binomial", data = allg)
+# Get fitted values across dhw
+dhw.bin.sp.res <- emmeans(dhw.bin.sp.mod, specs = c("Species", "dhw.bin", "year", "Week2"), 
+               rg.limit = 20000, type = "response")
+
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+dhw.bin.sp.res2 <- subset(dhw.bin.sp.res,
+  (year == "2014" & Week2 == "(36,38]") |
+  (year == "2015" & Week2 == "(36,38]") |
+  (year == "2023" & Week2 == "(33,35]")
+)
+mybleach <- as.tibble(dhw.bin.sp.res2)
+# Plot
+allplots <- as.tibble(dhw.bin.sp.res2) %>%
+  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
+  geom_point(position = position_dodge(width = 0.25), size = 0.5) +
+  geom_line(position = position_dodge(width = 0.25)) +
+  geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE), width = 0.1,
+                position = position_dodge(width = 0.25)) +
+  facet_wrap(~Species) +
+  ylim(0,1)
+allplots
+
+# For some reason the output is better when MFOR and SCUB are present in the data? Not sure why.
+# MYCE (aggregated) was coming out as significant before but now it's not. something about adding MFER to the aggregation?
+### Yes, it's MFER... when included with MYCE, MYCE has no sig diffs, but quite sig without the added MFER? MFER is all bleached, and all 
+
+# Statistically compare years for each Species and dhw.bin level (only look at 3-6 and 6-9 dhw, where we have data from all years)
+dhw.bin.sp.res3 <- subset(dhw.bin.sp.res2, dhw.bin %in% c("(3,6]", "(6,9]"))
+dhw.bin.sp.tests <- rbind(pairs(dhw.bin.sp.res3, specs = "year", by = c("Species", "dhw.bin")), adjust = "fdr")
+dhw.bin.sp.sig <- as.tibble(dhw.bin.sp.tests) %>%
+  filter(p.value < 0.05)
+
+dhw.bin.sp.sigres <- as.tibble(dhw.bin.sp.res2) %>%
+  filter(Species %in% dhw.bin.sp.sig$Species)
+
+# Plot just species with sig diffs btw years
+allplots %+% dhw.bin.sp.sigres
+
+
+# Sanity checks
+# ## Simple proportions as a santiy check
+# all0 %>%
+#   drop_na(dhw.bin) %>%
+#   group_by(year, Species, dhw.bin) %>%
+#   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
+#   ggplot(aes(x = dhw.bin, y = pctbl, color = year, group = year)) +
+#   geom_point() +
+#   geom_line() +
+#   facet_wrap(~Species)
+# 
+# # MYCE sanity check
+# all0 %>% filter(Species == "MYCE") %>%
+#   ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
+#   geom_bar(position = "stack") +
+#   facet_wrap(~year)
+```
+
+
+```{r}
+# Look at changes in avg coral density --- correlate w/changes in bleaching?
+# Need zero-inflated Poisson regression?
+dens <- all0 %>%
+  ungroup() %>%
+  # Count number of colonies of each species per transect
+  count(year, Species, Site, Transect, Subregion) %>%
+  # Add zeros for all species not counted on a transect
+  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
+  # Filter transect 3 and 4 data -- only select species recorded 
+  filter(Transect %in% c(1, 2) |
+         Transect %in% c(3, 4) & Species %in% c("CNAT", "DSTO", "DLAB", "MMEA", "MANG",
+                                                "MALI", "MFER", "MLAM", "PCLI", "PSTR")) %>%
+  # SUBSET FOR FASTER MODELING
+  group_by(Species, year) %>%
+  filter(sum(n>0) > 10)
+  
+# ggplot(dens, aes(x = n)) +
+#   geom_histogram() +
+#   facet_wrap(~Species, scales = "free")
+
+# library(pscl)
+# m1 <- zeroinfl(n ~ Species + year | persons, data = zinb)
+
+mod_1 <- glmer(n ~ Species * year + (Species|Subregion), data = dens, family = "poisson",
+               verbose = TRUE, nAGQ=0, control=glmerControl(optCtrl=list(maxfun=100))) 
+anova(mod_1)
+
+res <- emmeans(mod_1, specs = c("Species", "year"), type = "response")
+
+as.tibble(res) %>%
+  ggplot(aes(x = year, y = rate)) +
+  geom_point() + #aes(color = Subregion)
+  geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
+  geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
+  facet_wrap(~Species, scales = "free_y")
+
+mydens <- as.tibble(res)
+```
+
+```{r}
+# Get bleaching at 6-9 DHW
+mybleach69 <- filter(mybleach, dhw.bin == "(6,9]")
+myfun <- full_join(mydens, mybleach69, by = c("Species", "year"))
+
+# any sig change over years in bleaching at 6-9dhw?
+res3 <- subset(res2, dhw.bin %in% c("(6,9]"))
+out <- rbind(pairs(res3, specs = "year", by = c("Species"), adjust = "fdr"))
+sigbleach <- as.tibble(out) %>% filter(p.value < 0.05)
+
+# any sig change over years in density?
+outt <- rbind(pairs(res, specs = "year", by = "Species", adjust = "fdr"))
+sigdens <- as.tibble(outt) %>% filter(p.value < 0.05)
+
+# Plot species that had sig change in bleach OR sig change in dens
+myfun %>%
+  filter(Species %in% dhw.bin.sp.sig$Species) %>% # # | Species %in% sigdens$Species) %>%
+  ggplot(aes(x = rate, y = prob)) +
+  geom_point(aes(shape = year, color = year), size = 3) +
+  geom_errorbar(aes(xmin = rate - SE.x, xmax = rate + SE.x)) +
+  geom_errorbar(aes(ymin = prob - SE.y, ymax = prob + SE.y)) +
+  geom_path(arrow = arrow(length = unit(1, "mm"))) +
+  #geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~Species, scales = "free")
 ```
 
 # Bleaching by subregion across years
@@ -104,179 +283,11 @@ as.tibble(subregion.res2) %>%
   ggplot(aes(x = maxDHW, y = prob.y, shape = year, group = year, color = Subregion)) +
   geom_point(aes(color = Subregion, shape = year), size = 3) +
   geom_smooth(aes(group = year), method = "loess", span = 1.1, se = FALSE)
+
+# This is good, but probably makes more sense to look at bleaching as a function of DHW across years. This is of more general interest than "Subregions"...
 ```
 
-This is good, but probably makes more sense to look at bleaching as a function of DHW across years. This is of more general interest than "Subregions"...
-
-# Bleaching by dhw across years
-
-```{r bleaching_by_dhw.bin_across_years}
-# Will it work if species is a random factor instead of fixed? YES!!!
-library(lme4)
-m <- glmer(cbind(BL, NB) ~ year * dhw.bin + (dhw.bin+year|Species), 
-           family = "binomial", data = allg)
-res <- emmeans(m, specs = c("dhw.bin", "year"), type = "response", rg.limit = 15000)
-as.tibble(res) %>%
-  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-  geom_point() +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.2) +
-  geom_line()
-
-### NEW: try with Week2 to be able to adjust for that
-# dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year * Week2 + (dhw.bin+year|Species),
-#                        family = "binomial", data = allg)
-## ^^ above model formulation has nonEst for 2023 0-3 and 6-9 DHW. Why?
-# dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (1|Species),
-#                        family = "binomial", data = allg)
-###^^ This model works
-dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species),
-                       family = "binomial", data = allg)
-#^^^ but is this one ^^ better? ???: YES
-dhw.bin.res <- emmeans(dhw.bin.mod, specs = c("dhw.bin", "year", "Week2"), 
-                       rg.limit = 20000, type = "response")
-# THIS IS IT ^^^
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-dhw.bin.res2 <- subset(dhw.bin.res,
-  (year == "2014" & Week2 == "(36,38]") |
-  (year == "2015" & Week2 == "(36,38]") |
-  (year == "2023" & Week2 == "(33,35]")
-)
-as.tibble(dhw.bin.res2) %>%
-  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-  geom_point() +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.2) +
-  geom_line()
-# THIS IS IT ^^^
-
-```
-
-
-
-```{r SPECIES_diffs_by_dhw_by_year}
-# Fit a singular model for bleaching susceptibility by Species, DHW.bin, and year, to look at how bleaching susceptibility differs by year
-
-# Fit regression for PB or worse
-bleach.m <- glm(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2, family = "binomial", data = allg)
-# Get fitted values across dhw
-res <- emmeans(bleach.m, specs = c("Species", "dhw.bin", "year", "Week2"), rg.limit = 20000, type = "response")
-
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-res2 <- subset(res,
-  (year == "2014" & Week2 == "(36,38]") |
-  (year == "2015" & Week2 == "(36,38]") |
-  (year == "2023" & Week2 == "(33,35]")
-)
-mybleach <- as.tibble(res2)
-# Plot
-allplots <- as.tibble(res2) %>%
-  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-  geom_point(position = position_dodge(width = 0.25), size = 0.5) +
-  geom_line(position = position_dodge(width = 0.25)) +
-  geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE), width = 0.1,
-                position = position_dodge(width = 0.25)) +
-  facet_wrap(~Species) +
-  ylim(0,1)
-allplots
-
-# For some reason the output is better when MFOR and SCUB are present in the data? Not sure why.
-# MYCE (aggregated) was coming out as significant before but now it's not. something about adding MFER to the aggregation?
-### Yes, it's MFER... when included with MYCE, MYCE has no sig diffs, but quite sig without the added MFER? MFER is all bleached, and all 
-
-# Statistically compare years for each Species and dhw.bin level (only look at 3-6 and 6-9 dhw, where we have data from all years)
-res3 <- subset(res2, dhw.bin %in% c("(3,6]", "(6,9]"))
-out <- rbind(pairs(res3, specs = "year", by = c("Species", "dhw.bin")), adjust = "fdr")
-hi <- as.tibble(out) %>%
-  filter(p.value < 0.05)
-
-sig <- as.tibble(res2) %>%
-  filter(Species %in% hi$Species)
-
-# Plot just species with sig diffs btw years
-allplots %+% sig 
-
-
-# Sanity checks
-# ## Simple proportions as a santiy check
-# all0 %>%
-#   drop_na(dhw.bin) %>%
-#   group_by(year, Species, dhw.bin) %>%
-#   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
-#   ggplot(aes(x = dhw.bin, y = pctbl, color = year, group = year)) +
-#   geom_point() +
-#   geom_line() +
-#   facet_wrap(~Species)
-# 
-# # MYCE sanity check
-# all0 %>% filter(Species == "MYCE") %>%
-#   ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
-#   geom_bar(position = "stack") +
-#   facet_wrap(~year)
-```
-
-
-```{r}
-# Look at changes in avg coral density --- correlate w/changes in bleaching?
-# Need zero-inflated Poisson regression?
-dens <- all0 %>%
-  ungroup() %>%
-  # Count number of colonies of each species per transect
-  count(year, Species, Site, Transect, Subregion) %>%
-  # Add zeros for all species not counted on a transect
-  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
-  # Filter transect 3 and 4 data -- only select species recorded 
-  filter(Transect %in% c(1, 2) |
-         Transect %in% c(3, 4) & Species %in% c("CNAT", "DSTO", "DLAB", "MMEA", "MANG",
-                                                "MALI", "MFER", "MLAM", "PCLI", "PSTR"))
-  
-ggplot(dens, aes(x = n)) +
-  geom_histogram() +
-  facet_wrap(~Species, scales = "free")
-
-# library(pscl)
-# m1 <- zeroinfl(n ~ Species + year | persons, data = zinb)
-
-mod_1 <- glm(n ~ Species * year * Subregion, data = dens, family = "poisson") 
-anova(mod_1)
-
-res <- emmeans(mod_1, specs = c("Species", "year", "Subregion"), type = "response")
-
-as.tibble(res) %>%
-  ggplot(aes(x = year, y = rate)) +
-  geom_point(aes(color = Subregion)) +
-  #geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
-  geom_line(aes(group = Subregion, color = Subregion)) +
-  facet_wrap(~Species, scales = "free_y")
-
-mydens <- as.tibble(res)
-```
-
-```{r}
-# Get bleaching at 6-9 DHW
-mybleach69 <- filter(mybleach, dhw.bin == "(6,9]")
-myfun <- full_join(mydens, mybleach69, by = c("Species", "year"))
-
-# any sig change over years in bleaching at 6-9dhw?
-res3 <- subset(res2, dhw.bin %in% c("(6,9]"))
-out <- rbind(pairs(res3, specs = "year", by = c("Species"), adjust = "fdr"))
-sigbleach <- as.tibble(out) %>% filter(p.value < 0.05)
-
-# any sig change over years in density?
-outt <- rbind(pairs(res, specs = "year", by = "Species", adjust = "fdr"))
-sigdens <- as.tibble(outt) %>% filter(p.value < 0.05)
-
-# Plot species that had sig change in bleach OR sig change in dens
-myfun %>%
-  filter(Species %in% sigbleach$Species | Species %in% sigdens$Species) %>%
-  ggplot(aes(x = rate, y = prob)) +
-  geom_point(aes(shape = year, color = year), size = 3) +
-  geom_errorbar(aes(xmin = rate - SE.x, xmax = rate + SE.x)) +
-  geom_errorbar(aes(ymin = prob - SE.y, ymax = prob + SE.y)) +
-  geom_path(arrow = arrow(length = unit(1, "mm"))) +
-  #geom_smooth(method = "lm", se = FALSE) +
-  facet_wrap(~Species, scales = "free_x") +
-  ylim(0, 1)
-```
-
+# Old code....
 
 ```{r, eval = F}
 # Trying to get overall bleaching (avg across species) but emmeans are nonEst
