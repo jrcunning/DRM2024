@@ -63,10 +63,10 @@ df15 <- df15 %>%
 # dead <- df15 %>% filter(Old + Recent >= 100)
 # There are recently dead corals -- but this could have been SCTLD, in Biscayne up to Palm Beach....
 # Assign dead corals NOT in those regions TRS (dead from bleaching)
-df15[(df15$Old + df15$Recent) >= 100 & df15$Subregion %in% c("Biscayne", "Broward-Miami", "South Palm Beach"), "Other Conditions"] <- "TRS"
+df15[(df15$Old + df15$Recent) >= 100 & !df15$Subregion %in% c("Biscayne", "Broward-Miami", "South Palm Beach"), "Other Conditions"] <- "TRS"
 # Remove other dead corals (disease death?)
 df15 <- df15 %>%
-  filter(((Old + Recent < 100) | !grepl("TRS", `Other Conditions`)))
+  filter(((Old + Recent < 100) | grepl("TRS", `Other Conditions`)))
 
 # Create ordinal variables and factors for bleaching severity
 df15 <- df15 %>%

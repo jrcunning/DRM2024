@@ -62,7 +62,10 @@ df14 <- df14 %>%
 # Are there any dead corals?
 # dead <- df14 %>% filter(Old + Recent >= 100)
 # There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
-df14[(df14$Old + df14$Recent) >= 100 & !grepl("TRS", df14$`Other Conditions`), "Other Conditions"] <- "TRS"
+df14[df14$Recent == 100 & !grepl("TRS", df14$`Other Conditions`), "Other Conditions"] <- "TRS"
+# Remove other completely dead corals (Old Mort)
+df14 <- df14 %>%
+  filter(!((Old + Recent) >= 100 & !grepl("TRS", `Other Conditions`)))
 
 # Create ordinal variables and factors for bleaching severity
 df14 <- df14 %>%
@@ -78,6 +81,9 @@ df14 <- df14 %>%
                                  3 ~ "Bleached",
                                  4 ~ "Dead"),
                              levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
+
+dead <- df14 %>%
+  filter(Bleaching3 == "Dead")
 ```
 
 ### DHW data
