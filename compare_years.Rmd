@@ -10,9 +10,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+library(sf)
+library(sp)
+library(gstat)
 library(lme4)
 library(emmeans)
 library(tidyverse)
+library(terra)
+library(tidyterra)
 # Download satellite map for Florida
 world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
 ```
@@ -73,7 +78,7 @@ allg <- allf %>%
   ungroup()
 ```
 
-# Overall bleaching severity in 2023
+# Map overall bleaching severity in 2023
 ```{r}
 # Get percent of colonies surveyed that were bleached at each site 
 pctbl23 <- df23 %>%
@@ -91,12 +96,6 @@ mod <- glm(cbind(BL, NB) ~ Subregion + Week2, family = "binomial", data = pctbl2
 ## Get these Subregion probabilities at this time on the log-odds scale (NOT type = 'response')
 res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(33,35]")))
 
-logit2prob <- function(logit){
-  odds <- exp(logit)
-  prob <- odds / (1 + odds)
-  return(prob)
-}
-
 # Get residuals for each Site at the time it was surveyed (e.g., difference from Subregion mean at time surveyed)...
 # ...and then add these residuals to the Subregion's predicted bleaching probability for Weeks 34-35 (peak of bleaching)
 # ...to get predicted bleaching severity at that site, if it had been surveyed at peak of bleaching
@@ -110,69 +109,179 @@ pctbl23.adj <- pctbl23 %>%
          ## Function to convert logit to probability
          adjprob = exp(adj) / (1 + exp(adj)))
 
-# Plot on map
-(myplot <- ggplot(data = pctbl23.adj) +
-  geom_sf(data = world, lwd = 0, fill = "gray70") +
-  geom_sf(data = my_hull) +
-  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
-  geom_point(aes(x = Longitude, y = Latitude, fill = adjprob), 
-             alpha = 0.6, stroke = 0.05, pch = 21, height = 0.1, width = 0.1) +
-  
-  # scale_fill_gradient2(high = "red", mid = NA, low = "blue", midpoint = 0.5,
-  #                      limits = c(0, 1)) +
-  scale_fill_distiller(palette = "Spectral", limits = c(0, 1)) +
-  #theme(legend.position = "none") +
-  theme(text = element_text(size = 10),
-        axis.title = element_blank(),
-        panel.background = element_rect(fill = "white"),
-        panel.border = element_rect(colour = "black", fill=NA),
-        panel.grid = element_blank()))
-
-# Change order of points to deal with overplotting
-### Less bleaching plotted on top
-myplot %+% arrange(pctbl23.adj, -adjprob)
-### More bleaching plotted on top
-myplot %+% arrange(pctbl23.adj, adjprob)
-
-# Interpolate surface?
+# Interpolate percent bleaching for whole reef tract
 # https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
 
-# create raster object that is just the reef area?
+# Create SpatialPointsDataFrame of survey sites
 sites23 <- pctbl23.adj %>%
   distinct(Site, Longitude, Latitude, adjprob)
-library(sf)
+spdat <- sp::SpatialPointsDataFrame(
+    coords=sites23[,c('Longitude','Latitude')], 
+    data=sites23[,c('Site', 'adjprob')], 
+    proj4string = CRS("+init=epsg:4326")
+)
+
+# Create empty raster to hold interpolated values
+samplegrid <- raster::raster(spdat, res = c(0.005, 0.005))
+raster::crs(samplegrid) <- raster::crs(spdat) <- sp::CRS("+init=epsg:4326")
+# Run interpolation
+idw.model <- gstat(formula=spdat$adjprob~1, locations=spdat)
+idw.spp <- raster::interpolate(samplegrid, idw.model)
+
+# Clip interpolated raster to just area of hull/polygon surrounding the reef tract
+# Create hull/polygon surrounding surveyed sites
 pts1 <- st_as_sf(x = sites23, coords = c('Longitude', 'Latitude'))
-my_hull <- st_convex_hull(st_union(pts1))
-my_hull <- st_concave_hull(st_union(pts1), ratio = 0.1)
+my_hull <- st_concave_hull(st_union(pts1), ratio = 0.09)
+my_hull <- st_buffer(my_hull, dist = 0.015)
 my_hull <- my_hull %>% st_set_crs(4326)
-plot(my_hull)
-my_buff <- st_buffer(st_union(pts1), 0.05)
-plot(my_buff)
-my_buff <- my_buff %>% st_set_crs(4326)
+idw.spp.reef <- raster::mask(idw.spp, (as_Spatial(my_hull)))
 
+# Convert clipped interpolation to spatraster for plotting
+x <- rast(idw.spp.reef)
 
-library(gstat)
-g = gstat(formula = adjprob ~ 1, data = sites23)
-z = predict(g, my_hull)
+# PLOT
+# Create base map
+basemap <- ggplot() +
+  # Plot interpolated raster
+  #geom_spatraster(data = x) +
+  # Plot points for surveyed sites
+  # geom_point(data = pctbl23.adj, aes(x = Longitude, y = Latitude, fill = adjprob),
+  #            alpha = 0.6, stroke = 0.05, pch = 21) +
+  # Plot Florida
+  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
+                       midpoint = 0.5, limits = c(0, 1), na.value = NA,
+                       labels = scales::label_percent(), name = "Corals\nbleached") +
+  theme(text = element_text(size = 10),
+        axis.title = element_blank(),
+        panel.background = element_rect(fill = "lightsteelblue1"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.grid = element_blank(),
+        legend.position = c(0.2, 0.5),
+        legend.background = element_blank())
 
-# Initialize a raster layer
-ras <- raster(ext)
-
-# Set the resolution to be
-res(ras) <- c(cell_size, cell_size)
-ras[] <- 0
-
-# Project the raster
-projection(ras) <- CRS("+init=epsg:3857")
-
-# Create interactive map
-mapview(station) + mapview(ras)
+# Map with interpolated raster
+rasterplot <- basemap +
+  geom_spatraster(data = x) +
+  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
 ```
+
+# Map heat stress accumulation in 2023 (max. DHW)
+```{r}
+dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
+  mutate(across(where(is.character), as_factor)) %>%
+  rename(Date = date) %>%
+  dplyr::select(Site, Date, dhw)
+
+maxdhw <- dhw %>%
+  group_by(Site) %>%
+  summarize(maxdhw = max(dhw)) %>%
+  right_join(sites23, by = "Site")
+
+# Create SpatialPointsDataFrame of survey sites
+dhwdat <- sp::SpatialPointsDataFrame(
+    coords=maxdhw[,c('Longitude','Latitude')], 
+    data=maxdhw[,c('Site', 'maxdhw')], 
+    proj4string = CRS("+init=epsg:4326")
+)
+
+# Create empty raster to hold interpolated values
+dhwgrid <- raster::raster(dhwdat, res = c(0.005, 0.005))
+raster::crs(dhwgrid) <- raster::crs(dhwdat) <- sp::CRS("+init=epsg:4326")
+# Run interpolation
+dhw.idw.model <- gstat(formula=dhwdat$maxdhw~1, locations=dhwdat)
+dhw.idw.spp <- raster::interpolate(dhwgrid, dhw.idw.model)
+# Clip
+dhw.idw.spp.reef <- raster::mask(dhw.idw.spp, (as_Spatial(my_hull)))
+
+# Convert clipped interpolation to spatraster for plotting
+x2 <- rast(dhw.idw.spp.reef)
+
+dhwmap <- basemap +
+  geom_spatraster(data = x2) +
+  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_distiller(palette = "Spectral", 
+                       limits = c(0, 23), na.value = NA,
+                       name = "Max.\nDHW      ")
+
+dhw_bleach <- cowplot::plot_grid(dhwmap, rasterplot, ncol = 2)
+ggsave(filename = "output/dhw_bleach.png", plot = dhw_bleach, width = 180, height = 80, units = "mm")
+```
+![](./output/dhw_bleach.png)
+# Detailed bleaching maps
+```{r}
+# Raster plot with rectangles for Subregions
+rasterplot_rect <- rasterplot +
+  geom_rect(aes(xmin = -83, xmax = -82, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.05) +
+  geom_rect(aes(xmin = -82, xmax = -81, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.05) +
+  geom_rect(aes(xmin = -81, xmax = -80, ymin = 24.65, ymax = 25.65), fill = NA, color = "black", lwd = 0.05) +
+  geom_rect(aes(xmin = -80.4, xmax = -79.8, ymin = 25.65, ymax = 26.8), fill = NA, color = "black", lwd = 0.05)
+
+# Raster plot with points for each surveyed site
+sitesplot <- rasterplot +
+  geom_point(data = pctbl23.adj, aes(x = Longitude, y = Latitude, fill = adjprob),
+             alpha = 1, stroke = 0.1, pch = 21)
+
+# Subregion plots
+dtmap <- sitesplot + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE) + theme(legend.position = "none")
+lkmap <- sitesplot + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = FALSE) + theme(legend.position = "none")
+ukmap <- sitesplot + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE) + theme(legend.position = "none")
+semap <- sitesplot + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE) + theme(legend.position = "none")
+
+# Create and save multipanel plot
+maps_multipanel <- gridExtra::arrangeGrob(
+  rasterplot_rect, lkmap, dtmap, ukmap, semap, 
+  layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
+ggsave(filename = "output/2023_bleaching_maps_multipanel.png", 
+       plot = maps_multipanel, width = 16, height = 4, unit = "in")
+```
+![](./output/2023_bleaching_maps_multipanel.png)
 
 # Species differences in bleaching severity in 2023
 
-```{r}
+### Species differences in bleaching with increasing DHWs
+```{r bleaching_by_species}
+# Probability of each bleaching level by species as a function of DHW (ordinal regression)
+#https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
 
+df23.abund <- df23 %>%
+  group_by(Species) %>%
+  filter(n() > 100)
+  
+# Species-specific bleaching susceptibility w/increasing DHW
+## Plot raw data/bleaching categoties by binned.dhw
+ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
+  geom_bar(position = "fill") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
+  facet_wrap(~Species, scales = "free_y")
+
+## Include only species with ≥3 individuals in ≥70% of dhw bins
+incl_spp <- df23.abund %>%
+  count(Species, cut(dhw, breaks = seq(0,21,3))) %>%
+  group_by(Species) %>%
+  filter((sum(n >= 3) >= 2)) %>%
+  distinct(Species)
+
+df23.abund.ss <- filter(df23.abund, Species %in% incl_spp$Species) %>%
+  mutate(dhw.bin = cut(dhw, breaks = seq(0,21,3)))
+
+# Fit regression for PB or worse
+m <- glm(Bleaching2 > 1 ~ Species * dhw.bin + Week2, family = "binomial", data = df23.abund.ss)
+
+# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
+res <- emmeans(m, specs = c("Species", "dhw.bin"), rg.limit = 20000, type = "response",
+               at = list(Week2 = factor("(33,35]")))
+
+as.tibble(res) %>%
+  filter(Species %in% sig$Species) %>%
+  ggplot(aes(x = dhw.bin, y = response)) +
+  geom_point() +
+  facet_wrap(~Species)
+
+sppbleachprob23 <- as.tibble(res)
 ```
 
 # Glimmers of hope

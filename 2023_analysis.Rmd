@@ -165,6 +165,11 @@ df23 <- df23 %>%
 ```
 
 ```{r}
+# Remove rows where Species is NA (transects 3 and 4 when nothing was observed)
+df23 <- df23 %>%
+  filter(!is.na(Species))
+df23 %>%
+  count(TransectNum)
 save(df23, file = "output/2023.RData")
 ```
 
