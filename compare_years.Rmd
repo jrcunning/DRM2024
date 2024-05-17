@@ -269,20 +269,70 @@ df23.abund.ss <- filter(df23.abund, Species %in% incl_spp$Species) %>%
   mutate(dhw.bin = cut(dhw, breaks = seq(0,21,3)))
 
 # Fit regression for PB or worse
-m <- glm(Bleaching2 > 1 ~ Species * dhw.bin + Week2, family = "binomial", data = df23.abund.ss)
+m <- glmer(Bleaching2 > 1 ~ Species * dhw.bin + Week2 + (1|Subregion), family = "binomial", data = df23.abund.ss,
+           nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
 
 # Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
 res <- emmeans(m, specs = c("Species", "dhw.bin"), rg.limit = 20000, type = "response",
                at = list(Week2 = factor("(33,35]")))
 
 as.tibble(res) %>%
-  filter(Species %in% sig$Species) %>%
+  #filter(Species %in% sig$Species) %>%
   ggplot(aes(x = dhw.bin, y = response)) +
   geom_point() +
   facet_wrap(~Species)
 
-sppbleachprob23 <- as.tibble(res)
+#### Try with actual dhw values
+m2 <- glmer(Bleaching2 > 1 ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23.abund.ss,
+            nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
+res2 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
+               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
+as.tibble(res2) %>%
+  #filter(Species %in% sig$Species) %>%
+  ggplot(aes(x = dhw, y = response)) +
+  geom_point() +
+  facet_wrap(~Species)
+
+as.tibble(res2) %>%
+  #filter(Species %in% sig$Species) %>%
+  ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
+  geom_line()
+
+# Get dhw to 50% of colonies bleached
+spp50 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
+                 at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
+spp50.thresh <- as.tibble(spp50) %>%
+  mutate(ind = row_number()) %>%
+  group_by(Species) %>%
+  slice(which.min(abs(response - 0.5))) %>%
+  ungroup() %>%
+  mutate(Species = fct_reorder(Species, dhw))
+spp25.thresh <- as.tibble(spp50) %>%
+  mutate(ind = row_number()) %>%
+  group_by(Species) %>%
+  slice(which.min(abs(response - 0.25)))
+spp75.thresh <- as.tibble(spp50) %>%
+  mutate(ind = row_number()) %>%
+  group_by(Species) %>%
+  slice(which.min(abs(response - 0.75)))
+
+as.tibble(spp50) %>%
+  mutate(Species = factor(Species, levels = levels(spp50.thresh$Species))) %>%
+  ggplot(aes(x = dhw, y = Species)) +
+  geom_tile(aes(fill = response)) +
+  scale_fill_gradient2(low = "#91cf60", mid = "#ffffbf", high = "#fc8d59", 
+                       limits = c(0, 1), midpoint = 0.5) +
+  geom_point(data = spp50.thresh, pch = 5) +
+  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse")
+
+
+
+
+
+
+
 ```
+
 
 # Glimmers of hope
 
@@ -769,3 +819,63 @@ ggplot(test) +
 hist(test$adj)
 ```
 
+
+
+```{r, eval = F}
+### TRYING TO GET LD50 OR SOMETHING BETTER
+
+spp50.2 <- spp50[spp50.thresh$ind, ]
+spp50.2 <- subset(spp50, spp50.thresh$ind)
+
+as.tibble(spp50.2) %>%
+  arrange(dhw) %>%
+  mutate(Species = fct_reorder(Species, dhw)) %>%
+  ggplot(aes(y = Species, x = dhw)) +
+  geom_point()
+
+
+LD <- MASS::dose.p(m2, p = 0.5)
+
+dose.p.glmm <-  function(obj, cf = c(1, 4), p = 0.5) {
+  f <- family(obj)
+  eta <- f$linkfun(p)
+  b <- fixef(obj)[cf]
+  x.p <- (eta - b[1L])/b[2L]
+  names(x.p) <- paste("p = ", format(p), ":", sep = "")
+  pd <- -cbind(1, x.p)/b[2L]
+    SE <- sqrt(((pd %*% vcov(obj)[cf, cf]) * pd) %*% c(1, 1))
+  res <- structure(x.p, SE = matrix(SE), p = p)
+  class(res) <- "glm.dose"
+  res
+}
+
+dose.p.glmm(m2)
+fixef(m2)
+
+library(medrc)
+df23f <- df23.abund %>%
+  group_by(Site, Subregion, Week2, Species, dhw) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1),
+            pctNB = NB / (NB + BL),
+            n = n())
+
+m <- medrm(pctNB ~ dhw, data = df23f, 
+           curveid = b + d + e ~ Species,
+           random = b + d + e ~ 1|Subregion,
+           fct = LL.3(), start = coefs)
+
+lmm <- lm(pctNB ~ dhw, data = df23f)
+coefs <- coef(lmm)
+
+sm <- metadrm(pctNB ~ dhw,
+              data = df23f,
+              fct = LL.3(),
+              ind = Species,
+              cid2 = Subregion,
+              struct = "UN")
+
+ggplot(df23f, aes(x = dhw, y = pctNB)) +
+  geom_point() +
+  facet_wrap(~Species)
+```
