@@ -111,23 +111,73 @@ pctbl23.adj <- pctbl23 %>%
          adjprob = exp(adj) / (1 + exp(adj)))
 
 # Plot on map
-ggplot(data = world) +
-  geom_sf(lwd = 0, fill = "gray70") +
+(myplot <- ggplot(data = pctbl23.adj) +
+  geom_sf(data = world, lwd = 0, fill = "gray70") +
+  geom_sf(data = my_hull) +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
-  geom_point(data = out, aes(x = Longitude, y = Latitude, fill = adjprob), 
-             alpha = 1, stroke = 0.1, pch = 21) +
-  scale_fill_gradient2(high = "red", mid = NA, low = "blue", midpoint = 0.5,
-                       limits = c(0, 1)) +
+  geom_point(aes(x = Longitude, y = Latitude, fill = adjprob), 
+             alpha = 0.6, stroke = 0.05, pch = 21, height = 0.1, width = 0.1) +
+  
+  # scale_fill_gradient2(high = "red", mid = NA, low = "blue", midpoint = 0.5,
+  #                      limits = c(0, 1)) +
+  scale_fill_distiller(palette = "Spectral", limits = c(0, 1)) +
   #theme(legend.position = "none") +
   theme(text = element_text(size = 10),
         axis.title = element_blank(),
-        panel.background = element_blank(),
-        panel.border = element_rect(colour = "black", fill=NA))
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.grid = element_blank()))
+
+# Change order of points to deal with overplotting
+### Less bleaching plotted on top
+myplot %+% arrange(pctbl23.adj, -adjprob)
+### More bleaching plotted on top
+myplot %+% arrange(pctbl23.adj, adjprob)
+
+# Interpolate surface?
+# https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
+
+# create raster object that is just the reef area?
+sites23 <- pctbl23.adj %>%
+  distinct(Site, Longitude, Latitude, adjprob)
+library(sf)
+pts1 <- st_as_sf(x = sites23, coords = c('Longitude', 'Latitude'))
+my_hull <- st_convex_hull(st_union(pts1))
+my_hull <- st_concave_hull(st_union(pts1), ratio = 0.1)
+my_hull <- my_hull %>% st_set_crs(4326)
+plot(my_hull)
+my_buff <- st_buffer(st_union(pts1), 0.05)
+plot(my_buff)
+my_buff <- my_buff %>% st_set_crs(4326)
+
+
+library(gstat)
+g = gstat(formula = adjprob ~ 1, data = sites23)
+z = predict(g, my_hull)
+
+# Initialize a raster layer
+ras <- raster(ext)
+
+# Set the resolution to be
+res(ras) <- c(cell_size, cell_size)
+ras[] <- 0
+
+# Project the raster
+projection(ras) <- CRS("+init=epsg:3857")
+
+# Create interactive map
+mapview(station) + mapview(ras)
 ```
 
+# Species differences in bleaching severity in 2023
 
+```{r}
 
-# Overall bleaching severity by DHWs across years
+```
+
+# Glimmers of hope
+
+### Overall bleaching severity by DHWs in 2023 vs. 2014 and 2015
 
 ```{r bleaching_by_dhw.bin_across_years}
 # Will it work if species is a random factor instead of fixed? YES!!!
@@ -174,7 +224,7 @@ as.tibble(dhw.bin.res2) %>%
 
 ```
 
-# Species-specific bleaching severity by DHWs across years
+## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
 
 ```{r SPECIES_diffs_by_dhwbin_by_year}
 # Fit a singular model for bleaching susceptibility by Species, DHW.bin, and year, to look at how bleaching susceptibility differs by year
@@ -305,7 +355,20 @@ myfun %>%
   facet_wrap(~Species, scales = "free")
 ```
 
-# Bleaching by subregion across years
+
+# Size diffs
+
+## 2023 and possibly 2014 and 2015
+
+```{r}
+
+```
+
+
+
+# Not to include?
+
+## Bleaching by subregion across years
 
 ```{r regional_bleaching_vs_dhw_by_year_modeledalltogether}
 # Model bleaching severity by subregion across years
@@ -344,7 +407,7 @@ as.tibble(subregion.res2) %>%
 # This is good, but probably makes more sense to look at bleaching as a function of DHW across years. This is of more general interest than "Subregions"...
 ```
 
-# Old code....
+## Old code....
 
 ```{r, eval = F}
 # Trying to get overall bleaching (avg across species) but emmeans are nonEst
