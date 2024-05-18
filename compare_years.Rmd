@@ -18,6 +18,7 @@ library(emmeans)
 library(tidyverse)
 library(terra)
 library(tidyterra)
+library(drc)
 # Download satellite map for Florida
 world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
 ```
@@ -36,7 +37,7 @@ all0 <- bind_rows(
   `2023` = df23,
   .id = "year"
 ) %>%
-  mutate(dhw.bin = cut(dhw, breaks = seq(0, 21, 3)))
+  mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
 
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
 all0 <- all0 %>%
@@ -72,7 +73,7 @@ allf <- all0 %>%
 
 ## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
 allg <- allf %>%
-  group_by(year, Week2, Subregion, Site, dhw.bin, Species) %>%
+  group_by(year, Week2, Subregion, Site, dhw, dhw.bin, Species) %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
@@ -245,210 +246,6 @@ ggsave(filename = "output/2023_bleaching_maps_multipanel.png",
 
 ### Species differences in bleaching with increasing DHWs
 ```{r bleaching_by_species}
-# Probability of each bleaching level by species as a function of DHW (ordinal regression)
-#https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/
-
-df23.abund <- df23 %>%
-  group_by(Species) %>%
-  filter(n() > 100)
-  
-# Species-specific bleaching susceptibility w/increasing DHW
-## Plot raw data/bleaching categoties by binned.dhw
-ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
-  geom_bar(position = "fill") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
-  facet_wrap(~Species, scales = "free_y")
-
-## Include only species with ≥3 individuals in ≥70% of dhw bins
-incl_spp <- df23.abund %>%
-  count(Species, cut(dhw, breaks = seq(0,21,3))) %>%
-  group_by(Species) %>%
-  filter((sum(n >= 3) >= 2)) %>%
-  distinct(Species)
-
-df23.abund.ss <- filter(df23.abund, Species %in% incl_spp$Species) %>%
-  mutate(dhw.bin = cut(dhw, breaks = seq(0,21,3)))
-
-# Fit regression for PB or worse
-m <- glmer(Bleaching2 > 1 ~ Species * dhw.bin + Week2 + (1|Subregion), family = "binomial", data = df23.abund.ss,
-           nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
-
-# Get fitted values across dhw [normalize to Aug13-26 window of bleaching rates]
-res <- emmeans(m, specs = c("Species", "dhw.bin"), rg.limit = 20000, type = "response",
-               at = list(Week2 = factor("(33,35]")))
-
-as.tibble(res) %>%
-  #filter(Species %in% sig$Species) %>%
-  ggplot(aes(x = dhw.bin, y = response)) +
-  geom_point() +
-  facet_wrap(~Species)
-
-#### Try with actual dhw values
-m2 <- glmer(Bleaching2 > 1 ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23.abund.ss,
-            nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
-res2 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
-               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
-m2 <- glmer(cbind(NB, BL) ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23f,
-            nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
-res2 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
-               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
-
-glmer.res <- as.tibble(res2)
-as.tibble(res2) %>%
-  #filter(Species %in% sig$Species) %>%
-  ggplot(aes(x = dhw, y = response)) +
-  geom_point() +
-  facet_wrap(~Species)
-
-as.tibble(res2) %>%
-  #filter(Species %in% sig$Species) %>%
-  ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
-  geom_line()
-
-test <- as.tibble(res2) %>%
-  dplyr::select(Species, dhw, response) %>%
-  pivot_wider(id_cols = "Species", names_from = dhw, values_from = response)
-clust <- hclust(dist(test[,-1]))
-plot(clust)
-cutree(clust, k = 5)
-grps <- test %>%
-  dplyr::select(Species) %>%
-  mutate(clust = cutree(clust, k = 5))
-as.tibble(res2) %>%
-  left_join(grps) %>%
-  ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
-  geom_line() +
-  geom_label_repel(data = grps, aes(x = 5, y = 0.5, label = Species), max.overlaps = 100) +
-  facet_wrap(~clust)
-
-
-
-# Get dhw to 50% of colonies bleached
-spp50 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
-                 at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
-spp50.thresh <- as.tibble(spp50) %>%
-  mutate(ind = row_number()) %>%
-  group_by(Species) %>%
-  slice(which.min(abs(response - 0.5))) %>%
-  ungroup() %>%
-  mutate(Species = fct_reorder(Species, dhw))
-spp25.thresh <- as.tibble(spp50) %>%
-  mutate(ind = row_number()) %>%
-  group_by(Species) %>%
-  slice(which.min(abs(response - 0.25)))
-spp75.thresh <- as.tibble(spp50) %>%
-  mutate(ind = row_number()) %>%
-  group_by(Species) %>%
-  slice(which.min(abs(response - 0.75)))
-
-as.tibble(spp50) %>%
-  mutate(Species = factor(Species, levels = levels(spp50.thresh$Species))) %>%
-  ggplot(aes(x = dhw, y = Species)) +
-  geom_tile(aes(fill = response)) +
-  scale_fill_gradient2(low = "#91cf60", mid = "#ffffbf", high = "#fc8d59", 
-                       limits = c(0, 1), midpoint = 0.5) +
-  geom_point(data = spp50.thresh, pch = 5) +
-  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse")
-
-
-### With the glmer above, cannot get ED50, and cannot constrain to all healthy at DHW=0. Try DRC?
-library(drc)
-df23f <- df23.abund %>%
-  group_by(Site, Subregion, Week2, Species, dhw) %>%
-  summarize(BL = sum(Bleaching2 > 1),
-            NB = sum(Bleaching2 <= 1),
-            pctNB = NB / (NB + BL),
-            n = n()) %>%
-  drop_na()
-# Define function to fit 3-parameter LL model to data and return NULL if fitting error
-library(broom)
-ll3 <- function(data) {
-  drm(pctNB ~ dhw, 
-      data = data, 
-      weights = n,
-      type = "binomial",
-      fct = LL.3(names = c("hill", "max", "ED50"),
-                 ## Max parameter is fixed to 1
-                 fixed = c(NA, 1, NA)))}
-tryll3 <- possibly(ll3, otherwise = NULL)
-
-# Fit model to each coral species separately, get parameters, fitted values, and residuals
-initmods <- df23f %>%
-  nest(data = c(Site, Subregion, Week2, dhw, BL, NB, pctNB, n)) %>%
-  # Fit the model to each coral
-  mutate(ll3 = map(data, tryll3)) %>%
-  # # Get model parameters and fitted values/residuals
-  mutate(pars = map(ll3, tidy),
-         pred = map(ll3, ~augment(., newdata = data.frame(dhw = seq(0,23,1)))),
-         dhw25 = map(ll3, ~as_tibble(ED(., 0.25, type = "absolute"))),
-         dhw50 = map(ll3, ~as_tibble(ED(., 0.50, type = "absolute"))),
-         dhw75 = map(ll3, ~as_tibble(ED(., 0.75, type = "absolute"))))
-
-# Extract ed50 parameter values from model fits
-outt <- initmods %>% 
-  dplyr::select(Species, dhw50) %>%
-  unnest(dhw50)
-
-# Collect raw data, fitted values, and diagnostics
-vals <- initmods %>%
-  dplyr::select(Species, pred) %>%
-  unnest(pred)
-
-rankdrc <- outt %>%
-  ungroup() %>%
-  mutate(Species = fct_reorder(Species, Estimate)) %>%
-  ggplot(aes(x = Estimate, y = Species)) +
-  geom_point() +
-  geom_errorbar(aes(xmin = Estimate - `Std. Error`, xmax = Estimate + `Std. Error`)) +
-  xlim(0, 23)
-
-ggplot(vals, aes(x = dhw, y = .fitted)) +
-  geom_line() +
-  facet_wrap(~Species)
-
-
-
-# Single DRC with curveid = Species?
-# Gets an error if DLAB is included
-df23ff <- filter(df23f, Species ) %>%
-  droplevels()
-df23f <- droplevels(df23f)
-m <- drm(pctNB ~ dhw, 
-    data = df23f, 
-    curveid = Species,
-    weights = n,
-    type = "binomial",
-    logDose = NULL,
-    fct = LL.3(names = c("hill", "max", "ED50"),
-               ## Max parameter is fixed to 1
-               fixed = c(NA, 1, NA)),
-    # Hill parameter must be positive (must decrease with incr. dhw)
-    lowerl = c(rep(0, 22), rep(0, 22)),
-    control = drmc(relTol = 1e-7))
-# Stats on ED50s
-compParm(m, "ED50", operator = "-")
-plot(m)
-
-nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 1))
-pred <- predict(m, newdata = nd)
-myres <- as_tibble(bind_cols(nd, pred = pred))
-# Cluster
-test <- as.tibble(myres) %>%
-  pivot_wider(id_cols = "Species", names_from = dhw, values_from = pred)
-clust <- hclust(dist(test[,-1]))
-plot(clust)
-cutree(clust, k = 4)
-grps <- test %>%
-  dplyr::select(Species) %>%
-  mutate(clust = cutree(clust, k = 6))
-
-
-myres %>%
-  left_join(grps) %>%
-  ggplot(aes(x = dhw, y = pred)) +
-  geom_line(aes(color = Species)) +
-  facet_wrap(~clust)
-
 ## Ways of modeling species-level bleaching susceptibility vs. dhw
 # 1. GLMER (+random effects, -no constraining at 0 DHW, -no ED50)
 # 2. DRC (+constrain at 0 DHW, +ED50 stats, -no random effects)
@@ -456,14 +253,31 @@ myres %>%
 # 1. Plot curves
 # 2. Plot heatmaps
 
+# Get subsetted dataset of corals observed >100 times
+df23.abund <- df23 %>%
+  group_by(Species) %>%
+  filter(n() > 100)
+df23f <- df23.abund %>%
+  group_by(Site, Subregion, Week2, Species, dhw) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1),
+            pctNB = NB / (NB + BL),
+            n = n()) %>%
+  drop_na()
+
 #### GLMER
 m2 <- glmer(cbind(NB, BL) ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23f,
             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
 res2 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
-               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
+               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 0.1)))
 glmer.res <- as.tibble(res2)
+glmer.ord <- glmer.res %>%
+  group_by(Species) %>%
+  slice(which.min(abs(prob - 0.5))) %>%
+  ungroup() %>%
+  mutate(Species = fct_reorder(Species, dhw))
 
-#### DRC
+#### DRC (tried 3par, 4par, and 5par -- all work, just slight diffs. )
 m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "binomial",
          logDose = NULL, fct = LL.5(
            names = c("hill","c", "max", "ED50", "f"),
@@ -472,9 +286,6 @@ m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "bin
     # Hill parameter must be positive (must decrease with incr. dhw)
     lowerl = c(rep(0, 22), rep(-Inf, 22), rep(0, 22), rep(-Inf, 22)),
     control = drmc(relTol = 1e-7))
-# Stats on ED50s
-compParm(m3, "ED50", operator = "-")
-
 nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 0.1))
 pred <- predict(m3, newdata = nd)
 drc.res <- as_tibble(bind_cols(nd, prob = pred))
@@ -483,106 +294,54 @@ drc.ord <- ED(m3, 0.5, type = "absolute") %>%
   mutate(Species = levels(df23f$Species),
          Species = fct_reorder(Species, Estimate))
 
-myp <- ggplot(data.frame(0), aes(x = dhw, y = prob, color = Species)) +
-         geom_line() +
-         facet_wrap(~Species)
-
-myp %+% glmer.res
-myp %+% drc.res
-
+# Combine GLMER and DRC results for comparison
 allres <- bind_rows(
   glmer = glmer.res,
   drc = drc.res,
   .id = "method"
 )
 # Plot as response curves
-ggplot(allres, aes(x = dhw, y = prob, color = Species)) +
+ggplot(allres, aes(x = dhw, y = prob)) +
          geom_line(aes(linetype = method)) +
          facet_wrap(~Species)
-ggplot(drc.res, aes(x = dhw, y = prob, color = Species)) +
-  geom_line()
+
 
 # Plot as heatmap
-drc.res %>%
+glmer.heatmap <- glmer.res %>%
+  mutate(Species = factor(Species, levels = levels(glmer.ord$Species))) %>%
+  ggplot(aes(x = dhw, y = Species)) +
+  geom_tile(aes(fill = prob)) +
+  scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
+                       limits = c(0, 1), midpoint = 0.5) +
+  geom_point(data = glmer.ord, aes(x = dhw), pch = 5) +
+  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse") +
+  theme(legend.position = "none")
+
+
+drc.heatmap <- drc.res %>%
   mutate(Species = factor(Species, levels = levels(drc.ord$Species))) %>%
   ggplot(aes(x = dhw, y = Species)) +
   geom_tile(aes(fill = prob)) +
   scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
                        limits = c(0, 1), midpoint = 0.5) +
   geom_point(data = drc.ord, aes(x = Estimate), pch = 5) +
-  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse")
+  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse") +
+  theme(legend.position = "none")
 
-# Sanity check barplot
-ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
-  geom_bar(position = "fill") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
-  facet_wrap(~Species, scales = "free_y")
+bleaching_heatmaps <- cowplot::plot_grid(glmer.heatmap, drc.heatmap, ncol = 2)
+ggsave(filename = "output/bleaching_heatmaps.png", plot = bleaching_heatmaps, width = 200, height = 70, units = "mm")
+
+# Stats on ED50s
+# compParm(m3, "ED50", operator = "-")
+
+
+# # # Sanity check barplot
+# ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
+#   geom_bar(position = "fill") +
+#   geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
+#   facet_wrap(~Species, scales = "free_y")
 ```
-
-
-```{r, eval = FALSE}
-##^^ THis is pretty good, but can I get medrm to work? 
-
-mell3 <- function(data) {
-  medrm(pctNB ~ dhw, data = data,
-      fct = LL.3(fixed = c(NA, 1, NA)), 
-      random = b + e ~ 1|Week2/Subregion,
-      control=nlmeControl(tolerance=0.1, pnlsTol=1))
-  }
-trymell3 <- possibly(mell3, otherwise = NULL)
-aagamell3 <- trymell3(filter(df23f, Species == "PFUR"))
-aagall3 <- tryll3(filter(df23f, Species == "PFUR"))
-plot(aagall3)
-plot(aagamell3)
-aagamell3predvals <- predict(aagamell3, newdata = data.frame(dhw = seq(0,23,1)), level = 0)
-aagall3predvals <- predict(aagall3, newdata = data.frame(dhw = seq(0,23,1)), level = 0)
-plot(aagall3, xlim = c(0, 23))
-plot(NA, xlim = c(0,23), ylim = c(0,1))
-lines(seq(0,23,1), aagamell3predvals)
-lines(seq(0,23,1), aagall3predvals)
-
-augment(aagall3, filter(df23f, Species == "AAGA")) %>%
-  ggplot(aes(x = dhw, y = .fitted)) + geom_point()
-predict(aagall3, newdata = data.frame(dhw = seq(0, 23, 1)))
-
-
-medrm(pctNB ~ dhw, data = filter(df23f, Species == "OFAV"),
-      fct = LL.4(fixed = c(NA, NA, 1, NA)), 
-      random = b + c + e ~ 1|Week2/Subregion,
-      control=nlmeControl(tolerance=0.1, pnlsTol=1))
-
-initmods <- df23f %>%
-  nest(data = c(Site, Subregion, Week2, dhw, BL, NB, pctNB, n)) %>%
-  # Fit the model to each coral
-  mutate(ll3 = map(data, trymell3))
-plot(initmods$ll3[[1]], xlim = c(0,22))
-
-nd <- data.frame(dhw = seq(0, 23, 1), Week2 = "(33,35]", Subregion = "Middle Keys")
-
-pred = predict(initmods$ll3[[17]], newdata = nd)
-plot(seq(0, 23, 1), pred, ylim = c(0, 1))
-
-plot(initmods$ll3[[17]])
-
-
-  mymods <- function(n) {
-    medrm(pctNB ~ dhw, data = df23f, 
-          curveid = b + e ~ Species,
-          fct = LL.3(fixed = c(NA, 1, NA)), 
-      random = b + e ~ 1|Week2/Subregion,
-      start = rep(1, n),
-      control=nlmeControl(tolerance=0.1, pnlsTol=1))}
-  trymymods <- possibly(mymods, otherwise = NULL)
-  
-# Try mell3 with curveID = Species
-out <- tibble(n = 1:500) %>%
-  mutate(mod = map(n, ~trymymods(.)))
-for (n in 1:100) {
-  mod <- trymymods(n)
-}
-
-```
-
+![](./output/bleaching_heatmaps.png)
 
 # Glimmers of hope
 
@@ -607,11 +366,13 @@ for (n in 1:100) {
 # dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (1|Species),
 #                        family = "binomial", data = allg)
 ###^^ This model works
-dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species),  
+dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species) + (year|Subregion),  
                      family = "binomial", data = allg, verbose = TRUE,
                      nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
 #^^^ but is this one ^^ better? ???: YES
 ##change dhw.bin+year to dhw.bin*year in random slopes???: doesn't change much, takes longer to fit
+## Add (year|Subregion) as random??
+## Best formula seems to be: cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species) + (year|Subregion)
 dhw.bin.res <- emmeans(dhw.bin.mod, specs = c("dhw.bin", "year", "Week2"), 
                        rg.limit = 20000, type = "response")
 # THIS IS IT ^^^
@@ -624,13 +385,15 @@ dhw.bin.res2 <- subset(dhw.bin.res,
 as.tibble(dhw.bin.res2) %>%
   ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
   geom_point() +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.2) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
   geom_line() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
   theme(legend.position = c(0.8, 0.25)) +
   labs(x = "DHWs", y = "Probability of bleaching")
 # THIS IS IT ^^^
 
+# Stats for differences between years
+rbind(pairs(dhw.bin.res2, by = "dhw.bin"), adjust = "none")
 ```
 
 ## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
@@ -639,7 +402,9 @@ as.tibble(dhw.bin.res2) %>%
 # Fit a singular model for bleaching susceptibility by Species, DHW.bin, and year, to look at how bleaching susceptibility differs by year
 
 # Fit regression for PB or worse
-dhw.bin.sp.mod <- glm(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2, family = "binomial", data = allg)
+dhw.bin.sp.mod <- glmer(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2 + (year|Subregion), 
+                        family = "binomial", data = allg,
+                        verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
 # Get fitted values across dhw
 dhw.bin.sp.res <- emmeans(dhw.bin.sp.mod, specs = c("Species", "dhw.bin", "year", "Week2"), 
                rg.limit = 20000, type = "response")
@@ -695,10 +460,15 @@ allplots %+% dhw.bin.sp.sigres
 #   ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
 #   geom_bar(position = "stack") +
 #   facet_wrap(~year)
+
 ```
 
 
-```{r}
+
+
+
+
+```{r, eval = FALSE}
 # Look at changes in avg coral density --- correlate w/changes in bleaching?
 # Need zero-inflated Poisson regression?
 dens <- all0 %>%
@@ -770,6 +540,76 @@ myfun %>%
 ## 2023 and possibly 2014 and 2015
 
 ```{r}
+# Model bleaching severity by Width, species, and dhw. 
+# There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
+df23.abund <- df23.abund %>%
+  mutate(Width2 = case_when(Width >= 4 ~ Width,
+                            Width < 4 ~ 4))
+
+# Fit model
+mod <- glm(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
+             family = "binomial", data = df23.abund,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
+#plot(mod, which = 1)
+
+# Test if significant effect of width for each species
+res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2",
+                at = list(dhw = 15))
+# Get significant species
+sig <- as.tibble(summary(res, infer = TRUE)) %>%
+  filter(p.value < 0.05)
+
+# Get fitted values for bleaching probability as a function of size for significant species
+pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
+                          at = list(Width2 = seq(4,500,5), dhw = 15), 
+                          type = "response", rg.limit = 20000)) %>%
+  filter(Species %in% sig$Species) %>%
+  left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
+# Get actual observed size ranges for these species
+actual <- filter(df23.abund) %>%
+  drop_na(Species) %>%
+  group_by(Species) %>%
+  summarize(min = min(Width2, na.rm = T), max = max(Width2, na.rm = T)) %>%
+  mutate(ad = map(max, ~expand_grid(Width2 = seq(4, ., 5)))) %>%
+  unnest(ad)
+pred2 <- pred %>%
+  semi_join(actual, by = c("Species", "Width2"))
+  
+# Plot fitted probabilities within the range of observed Widths for each significant species
+ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, linetype = is.na(asymp.LCL.y))) +
+  facet_wrap(~Species, scales = "free_x") +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.2, lwd = 0) +
+  #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
+  ylim(0, 1) +
+  labs(x = "Colony width", y = "Proportion of colonies PB or worse") +
+  theme(legend.position = "none")
+
+# Sanity checks for size effects
+# Plot actual proportions binned by size class a confirmation
+# filter(df23.abund) %>%
+#   filter(Species %in% sig$Species) %>%
+#   group_by(Species) %>%
+#   mutate(Width.bin = cut(log(Width), breaks = 5)) %>%
+#   ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
+#   geom_bar(position = "fill") +
+#   facet_wrap(~Species, scales = "free")
+
+# sanity check on dlab size effect
+# dlab <- df23.abund %>%
+#   filter(Species == "DLAB")
+# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
+#   geom_bar(position = "stack") +
+#   facet_wrap(~Subregion)
+
+# filter(df23.abund) %>%
+#   filter(Species %in% sig$Species) %>%
+#   ggplot(aes(x = Bleaching2 > 1, y = Width2)) +
+#   geom_jitter(width = 0.1, alpha = 0.1) +
+#   geom_violin(draw_quantiles = 0.5, alpha = 0.5) +
+#   facet_wrap(~Species, scales = "free_y") +
+#   #scale_y_continuous(trans = "log10") +
+#   coord_trans(y = "log2")
 
 ```
 
@@ -779,7 +619,7 @@ myfun %>%
 
 ## Bleaching by subregion across years
 
-```{r regional_bleaching_vs_dhw_by_year_modeledalltogether}
+```{r regional_bleaching_vs_dhw_by_year_modeledalltogether, eval = FALSE}
 # Model bleaching severity by subregion across years
 ### (This replicates what was done individually by year and then combined -- use THIS.)
 
