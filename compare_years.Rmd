@@ -211,6 +211,7 @@ dhw_bleach <- cowplot::plot_grid(dhwmap, rasterplot, ncol = 2)
 ggsave(filename = "output/dhw_bleach.png", plot = dhw_bleach, width = 180, height = 80, units = "mm")
 ```
 ![](./output/dhw_bleach.png)
+
 # Detailed bleaching maps
 ```{r}
 # Raster plot with rectangles for Subregions
@@ -298,6 +299,33 @@ as.tibble(res2) %>%
   ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
   geom_line()
 
+test <- as.tibble(res2) %>%
+  dplyr::select(Species, dhw, response) %>%
+  pivot_wider(id_cols = "Species", names_from = dhw, values_from = response)
+clust <- hclust(dist(test[,-1]))
+plot(clust)
+cutree(clust, k = 5)
+grps <- test %>%
+  dplyr::select(Species) %>%
+  mutate(clust = cutree(clust, k = 5))
+as.tibble(res2) %>%
+  left_join(grps) %>%
+  ggplot(aes(x = dhw, y = response, color = Species, group = Species)) +
+  geom_line() +
+  geom_label_repel(data = grps, aes(x = 5, y = 0.5, label = Species), max.overlaps = 100) +
+  facet_wrap(~clust)
+
+set.seed(786)
+file_loc <- "~/Downloads/seeds_dataset.txt"
+seeds_df <- read.csv(file_loc,sep = '\t',header = FALSE)
+seeds_df
+feature_name <- c('area','perimeter','compactness','length.of.kernel','width.of.kernal','asymmetry.coefficient','length.of.kernel.groove','type.of.seed')
+colnames(seeds_df) <- feature_name
+seeds_label <- seeds_df$type.of.seed
+seeds_df$type.of.seed <- NULL
+str(seeds_df)
+seeds_df
+
 # Get dhw to 50% of colonies bleached
 spp50 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
                  at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 1)))
@@ -326,10 +354,142 @@ as.tibble(spp50) %>%
   labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse")
 
 
+### With the glmer above, cannot use dose.p function to get ED50. Try glm
+
+library(drc)
+df23f <- df23.abund %>%
+  group_by(Site, Subregion, Week2, Species, dhw) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1),
+            pctNB = NB / (NB + BL),
+            n = n()) %>%
+  drop_na()
+m4 <- drm(pctNB ~ dhw, curveid = Species,
+          weights = n,
+          fct = LL.5(), 
+          data = df23f)
+m4res <- broom::tidy(m4)
+
+m4res %>%
+  filter(term == "ED50") %>%
+  mutate(curve = fct_reorder(curve, estimate)) %>%
+  ggplot(aes(x = estimate, y = curve)) +
+  geom_point()
+
+out <- broom::augment(m4, df23f)
+
+# Define function to fit 3-parameter LL model to data and return NULL if fitting error
+library(broom)
+ll3 <- function(data) {
+  drm(pctNB ~ dhw, 
+      data = data, 
+      weights = n,
+      type = "binomial",
+      fct = LL.3(names = c("hill", "max", "ED50"),
+                 fixed = c(NA, 1, NA)))}
+tryll3 <- possibly(ll3, otherwise = NULL)
+
+# Fit model to each coral, get parameters, fitted values, and residuals
+initmods <- df23f %>%
+  nest(data = c(Site, Subregion, Week2, dhw, BL, NB, pctNB, n)) %>%
+  # Fit the model to each coral
+  mutate(ll3 = map(data, tryll3)) %>%
+  # # Get model parameters and fitted values/residuals
+  mutate(pars = map(ll3, tidy),
+         pred = map(ll3, ~augment(., newdata = data.frame(dhw = seq(0,23,1)))),
+         dhw25 = map(ll3, ~as_tibble(ED(., 0.25, type = "absolute"))),
+         dhw50 = map(ll3, ~as_tibble(ED(., 0.50, type = "absolute"))),
+         dhw75 = map(ll3, ~as_tibble(ED(., 0.75, type = "absolute"))))
+
+initmods %>%
+  unnest(pars) %>%
+  filter(Species == "ACER")
+
+# Extract ed50 parameter values from model fits
+outt <- initmods %>% 
+  dplyr::select(Species, dhw50) %>%
+  unnest(dhw50)
 
 
+# Collect raw data, fitted values, and diagnostics
+vals <- initmods %>%
+  dplyr::select(Species, pred) %>%
+  unnest(pred)
+
+rankdrc <- outt %>%
+  ungroup() %>%
+  mutate(Species = fct_reorder(Species, Estimate)) %>%
+  ggplot(aes(x = Estimate, y = Species)) +
+  geom_point() +
+  geom_errorbar(aes(xmin = Estimate - `Std. Error`, xmax = Estimate + `Std. Error`)) +
+  xlim(0, 23)
+
+ggplot(vals, aes(x = dhw, y = .fitted)) +
+  geom_line() +
+  facet_wrap(~Species)
+```
 
 
+```{r, eval = FALSE}
+##^^ THis is pretty good, but can I get medrm to work? 
+
+mell3 <- function(data) {
+  medrm(pctNB ~ dhw, data = data,
+      fct = LL.3(fixed = c(NA, 1, NA)), 
+      random = b + e ~ 1|Week2/Subregion,
+      control=nlmeControl(tolerance=0.1, pnlsTol=1))
+  }
+trymell3 <- possibly(mell3, otherwise = NULL)
+aagamell3 <- trymell3(filter(df23f, Species == "PFUR"))
+aagall3 <- tryll3(filter(df23f, Species == "PFUR"))
+plot(aagall3)
+plot(aagamell3)
+aagamell3predvals <- predict(aagamell3, newdata = data.frame(dhw = seq(0,23,1)), level = 0)
+aagall3predvals <- predict(aagall3, newdata = data.frame(dhw = seq(0,23,1)), level = 0)
+plot(aagall3, xlim = c(0, 23))
+plot(NA, xlim = c(0,23), ylim = c(0,1))
+lines(seq(0,23,1), aagamell3predvals)
+lines(seq(0,23,1), aagall3predvals)
+
+augment(aagall3, filter(df23f, Species == "AAGA")) %>%
+  ggplot(aes(x = dhw, y = .fitted)) + geom_point()
+predict(aagall3, newdata = data.frame(dhw = seq(0, 23, 1)))
+
+
+medrm(pctNB ~ dhw, data = filter(df23f, Species == "OFAV"),
+      fct = LL.4(fixed = c(NA, NA, 1, NA)), 
+      random = b + c + e ~ 1|Week2/Subregion,
+      control=nlmeControl(tolerance=0.1, pnlsTol=1))
+
+initmods <- df23f %>%
+  nest(data = c(Site, Subregion, Week2, dhw, BL, NB, pctNB, n)) %>%
+  # Fit the model to each coral
+  mutate(ll3 = map(data, trymell3))
+plot(initmods$ll3[[1]], xlim = c(0,22))
+
+nd <- data.frame(dhw = seq(0, 23, 1), Week2 = "(33,35]", Subregion = "Middle Keys")
+
+pred = predict(initmods$ll3[[17]], newdata = nd)
+plot(seq(0, 23, 1), pred, ylim = c(0, 1))
+
+plot(initmods$ll3[[17]])
+
+
+  mymods <- function(n) {
+    medrm(pctNB ~ dhw, data = df23f, 
+          curveid = b + e ~ Species,
+          fct = LL.3(fixed = c(NA, 1, NA)), 
+      random = b + e ~ 1|Week2/Subregion,
+      start = rep(1, n),
+      control=nlmeControl(tolerance=0.1, pnlsTol=1))}
+  trymymods <- possibly(mymods, otherwise = NULL)
+  
+# Try mell3 with curveID = Species
+out <- tibble(n = 1:500) %>%
+  mutate(mod = map(n, ~trymymods(.)))
+for (n in 1:100) {
+  mod <- trymymods(n)
+}
 
 ```
 
