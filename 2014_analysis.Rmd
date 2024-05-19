@@ -98,9 +98,13 @@ dhw <- read_csv("data/dhw/2014/2014_dhw_processed.csv") %>%
 # Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
 df14 <- left_join(df14, dhw, by = c("Site", "Date"), keep = FALSE)
 
-# Create binned DHW variable
-df14 <- df14 %>%
-  mutate(dhw.bin = cut(dhw, breaks = c(0,2,4,6,8,10)))
+# Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
+peakdhw <- dhw %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(0,52,2)))) %>%
+  filter(Week2 == "(36,38]") %>%
+  group_by(Site) %>%
+  summarize(peakdhw = max(dhw))
+df14 <- left_join(df14, peakdhw)
 ```
 
 ```{r}

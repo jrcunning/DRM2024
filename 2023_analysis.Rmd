@@ -159,9 +159,14 @@ dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
 # Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
 df23 <- left_join(df23, dhw, by = c("Site", "Date"))
 
-# Create binned DHW variable
-df23 <- df23 %>%
-  mutate(dhw.bin = cut(dhw, breaks = c(0,4,8,12,16,20,24)))
+# Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
+peakdhw <- dhw %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(1,52,2)))) %>%
+  filter(Week2 == "(33,35]") %>%
+  group_by(Site) %>%
+  summarize(peakdhw = max(dhw))
+df23 <- left_join(df23, peakdhw)
+ggplot(df23, aes(x = dhw, y = peakdhw, color = Subregion)) + geom_point()
 ```
 
 ```{r}
