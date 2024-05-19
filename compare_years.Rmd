@@ -28,6 +28,7 @@ world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
 # Load all data from 2014, 2015, and 2023
 # QC'd by year
 load("output/2014.RData")
+df14 <- df14 %>% filter(!Subregion %in% c("Martin", "North Palm Beach"))
 load("output/2015.RData")
 load("output/2023.RData")
 df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
@@ -263,7 +264,8 @@ df23f <- df23.abund %>%
             NB = sum(Bleaching2 <= 1),
             pctNB = NB / (NB + BL),
             n = n()) %>%
-  drop_na()
+  drop_na() %>%
+  droplevels()
 
 #### GLMER
 m2 <- glmer(cbind(NB, BL) ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23f,
@@ -278,6 +280,7 @@ glmer.ord <- glmer.res %>%
   mutate(Species = fct_reorder(Species, dhw))
 
 #### DRC (tried 3par, 4par, and 5par -- all work, just slight diffs. )
+# More pars = less estimable standard errors on ED50... depends how important ED50 inference is
 m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "binomial",
          logDose = NULL, fct = LL.5(
            names = c("hill","c", "max", "ED50", "f"),
@@ -334,6 +337,14 @@ ggsave(filename = "output/bleaching_heatmaps.png", plot = bleaching_heatmaps, wi
 # Stats on ED50s
 # compParm(m3, "ED50", operator = "-")
 
+# Pretty plot drc heatmap
+drc.heatmap +
+  # geom_errorbar(data = drc.ord, aes(x = Estimate, xmin = Estimate - `Std. Error`, 
+  #                                   xmax = Estimate + `Std. Error`)) +
+  scale_x_continuous(expand = c(0, 0)) +
+  theme(panel.background = element_blank(),
+        legend.position = "right") +
+  labs(y = "Coral species", fill = "P(not bleached)")
 
 # # # Sanity check barplot
 # ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
@@ -382,19 +393,79 @@ dhw.bin.res2 <- subset(dhw.bin.res,
   (year == "2015" & Week2 == "(36,38]") |
   (year == "2023" & Week2 == "(33,35]")
 )
-as.tibble(dhw.bin.res2) %>%
-  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-  geom_point() +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
+dhw.bin.bleach.plot <- as.tibble(dhw.bin.res2) %>%
+  ggplot(aes(x = dhw.bin, y = prob, shape = year, group = year)) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
   geom_line() +
+  geom_point(aes(fill = prob), size = 4) +
+  scale_x_discrete(labels = c("0-3", "3-6", "6-9", "9-12", "12-15", "15-18", "18-22")) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
-  theme(legend.position = c(0.8, 0.25)) +
+  scale_shape_manual(values = c(23, 22, 21)) +
+  scale_fill_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  theme_classic() +
+  theme(legend.position = "none") +
   labs(x = "DHWs", y = "Probability of bleaching")
-# THIS IS IT ^^^
 
 # Stats for differences between years
 rbind(pairs(dhw.bin.res2, by = "dhw.bin"), adjust = "none")
+  
+
+
+# OK now what if use dhw instead of dhw.bin
+dhw.mod <- glmer(cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
+                     family = "binomial", data = allg, verbose = TRUE,
+                     nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
+                   at = list(dhw = seq(0, 23, 0.1)), rg.limit = 12000)
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+dhw.res2 <- subset(dhw.res,
+  (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
+  (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
+  (year == "2023" & Week2 == "(33,35]" & dhw <= 22.1 & dhw > 1.53) 
+)
+
+dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
+  #geom_point() +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
+  geom_line(aes(color = prob), lwd = 2) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
+  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "DHWs", y = "Probability of bleaching")
+
+bleachplots <- cowplot::plot_grid(dhw.bin.bleach.plot, dhw.bleach.plot, ncol = 2)
+ggsave(filename = "output/bleaching_years.png", plot = bleachplots, width =150, height = 70, units = "mm")
+
+# # OK now what if we use DRC? -- cannot use drc because not high enough dhw's and bleaching in 2014/2015 to fit a full curve
+# allg <- allg %>% mutate(n = BL + NB, pctNB = NB / n)
+# m5 <- drm(pctNB ~ dhw, data = allg, curveid = year, weights = n, type = "binomial",
+#          logDose = NULL, fct = LL.3(
+#            names = c("hill", "max", "ED50"),
+#            ## Max parameter is fixed to 1
+#            fixed = c(NA, 1, NA)),
+#     # Hill parameter must be positive (must decrease with incr. dhw)
+#     lowerl = c(rep(0, 3), rep(0, 3)),
+#     control = drmc(relTol = 1e-7))
+# nd <- expand.grid(year = c("2014", "2015", "2023"), dhw = seq(0, 23, 0.1))
+# pred <- predict(m5, newdata = nd)
+# drc.res <- as_tibble(bind_cols(nd, prob = pred))
+# drc.ord <- ED(m5, 0.5, type = "absolute") %>%
+#   as_tibble() %>%
+#   mutate(Species = levels(df23f$Species),
+#          Species = fct_reorder(Species, Estimate))
+# ggplot(as.tibble(drc.res), aes(x = dhw, y = prob, color = year, group = year)) +
+#   #geom_point() +
+#   #geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
+#   geom_line() +
+#   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
+#   theme(legend.position = c(0.8, 0.25)) +
+#   labs(x = "DHWs", y = "Probability of bleaching")
+
 ```
+![](./output/bleaching_years.png)
 
 ## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
 
