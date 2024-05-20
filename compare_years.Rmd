@@ -21,6 +21,74 @@ library(tidyterra)
 library(drc)
 # Download satellite map for Florida
 world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+
+# Create species labeller
+species_names <- c(
+  AAGA = "Agaricia agaricities",
+  AFRA = "Agaricia fragilis",
+  AGAR = "Agaricia sp.",
+  AGRA = "Agaricia grahamae",
+  AHUM = "Agaricia humilis",
+  ALAM = "Agaricia lamarcki",
+  ACER = "Acropora cervicornis",
+  AGAR = "Agaricia sp.",
+  APAL = "Acropora palmata",
+  APRO = "Acropora prolifera",
+  CNAT = "Colpophyllia natans",
+  DCYL = "Dendrogyra cylindrus",
+  DLAB = "Diploria labyrinthiformis",
+  DSTO = "Dichocoenia stokesii",
+  EFAS = "Eusmilia fastigiata",
+  FFRA = "Favia fragum",
+  HCUC = "Helioseris cucullata",
+  ISIN = "Isophyllia sinuosa",
+  IRIG = "Isophyllia rigida",
+  ISOP = "Isophyllia sp.",
+  MADR = "Madracis sp.",
+  MANG = "Mussa angulosa",
+  MARE = "Manicina areolata",
+  MAUR = "Madriacis auretenra",
+  MCAV = "Montastraea cavernosa",
+  MDEC = "Madracis decactis",
+  MFER = "Mycetophyllia ferox",
+  MALI = "Mycetophyllia aliciae",
+  MLAM = "Mycetophyllia lamarckiana",
+  MFOR = "Madracis formosa",
+  MJAC = "Meandrina jacksoni",
+  MMEA = "Meandrina meandrites",
+  MSEN = "Madracis senaria",
+  MYCE = "Mycetophyllia sp.",
+  OANN = "Orbicella annularis",
+  OCUL = "Oculina sp.",
+  ODIF = "Oculina diffusa",
+  OFAV = "Orbicella faveolata",
+  OFRA = "Orbicella franksi",
+  PAST = "Porites astreoides",
+  PBRA = "Porites branneri",
+  PCLI = "Pseudodiploria clivosa",
+  PDIV = "Porites divaricata",
+  PFUR = "Porites furcata",
+  PORI = "Porites sp.",
+  PPOR = "Porites porites",
+  PSTR = "Pseudodiploria strigosa",
+  SBOU = "Solenastrea bournoni",
+  SCOL = "Scolymia sp.",
+  SHYA = "Solenastrea hyades",
+  SIDE = "Siderastrea sp.",
+  SINT = "Stephanocoenia intersepta",
+  SOLE = "Solenastrea sp.",
+  SRAD = "Siderastrea radians",
+  SSID = "Siderastrea siderea",
+  UNKN = "Unknown"
+)
+
+species_names_2l <- gsub(" ", "\n", species_names)
+abbrev_names <- as_tibble(species_names) %>%
+  separate(value, into = c("genus", "species")) %>%
+  mutate(genus = gsub("[a-z]+", ".", genus)) %>%
+  unite(genus, species, col = "name", sep = " ")
+abbrev_names <- c(abbrev_names$name)
+names(abbrev_names) <- names(species_names)
 ```
 
 # Import all data (2014, 2015, 2023)
@@ -39,45 +107,6 @@ all0 <- bind_rows(
   .id = "year"
 ) %>%
   mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
-
-# Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
-all0 <- all0 %>%
-  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
-                             Species %in% c("MALI", "MLAM", "MYCE") ~ "MYCE",  #, "MFER"
-                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
-                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
-                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
-                             #Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
-                             TRUE ~ Species)) %>%
-  drop_na(Species)
-
-# Keep only those species observed at least 10 times per year
-# Filter1 -- working well but too strict?
-# spps <- all0 %>%
-#   count(Species, year) %>%
-#   group_by(Species) %>%
-#   summarize(minn = min(n), nyear = n()) %>%
-#   filter(minn >= 10)
-# allf <- all0 %>%
-#   filter(Species %in% spps$Species)
-# Try alternate filter -- bad results
-# allf <- all0 %>%
-#   group_by(Species, year) %>%
-#   filter(n() >= 10) %>%         # Species must have been counted at least 10 times within a year
-#   group_by(Species) %>%
-#   filter(n_distinct(year) == 3) %>%     # Species must have been counted (at least 10 times) in at least 2 years
-#   ungroup()
-# Try another alternate filter using dhw.bins
-allf <- all0 %>%
-  group_by(Species, year, dhw.bin) %>%
-  filter(n() > 3)
-
-## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
-allg <- allf %>%
-  group_by(year, Week2, Subregion, Site, dhw, dhw.bin, Species) %>%
-  summarize(BL = sum(Bleaching2 > 1),
-            NB = sum(Bleaching2 <= 1)) %>%
-  ungroup()
 ```
 
 # Map overall bleaching severity in 2023
@@ -351,48 +380,126 @@ drc.heatmap +
 #   geom_bar(position = "fill") +
 #   geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
 #   facet_wrap(~Species, scales = "free_y")
+
+
+# Try as ggridges
+
+drc.res.ridges <- drc.res %>%
+  mutate(Species = factor(Species, levels = levels(drc.ord$Species))) %>%
+  ggplot(aes(x = dhw, y = Species)) +
+  geom_ridgeline_gradient(aes(height = (1 - prob), fill = prob)) +
+  scale_y_discrete(labels = species_names[as.character(drc.ord$Species)]) +
+  scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
+                       limits = c(0, 1), midpoint = 0.5) +
+  geom_point(data = drc.ord, aes(x = Estimate), pch = 5, size = 0.5) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(face = "italic")) +
+  labs(x = "Degree Heating Weeks", y = "")
+ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
+       width = 120, height = 120, units = "mm")
 ```
 ![](./output/bleaching_heatmaps.png)
+![](./output/bleaching_ridges.png)
+```{r}
+# Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
+span <- drc.res %>%
+  group_by(Species) %>%
+  slice(which.min(abs(prob - 0.90)),
+        which.min(abs(prob - 0.10))) %>%
+  summarize(min = min(dhw), max = max(dhw)) %>%
+  mutate(span = max - min) %>%
+  arrange(-span)
+
+pbleach <- drc.res %>%
+  filter(dhw == 23) %>%
+  mutate(pbleach = 1 - prob)
+
+medrangeplot <- drc.ord %>%
+  left_join(span) %>%
+  ggplot(aes(x = Estimate, y = span)) +
+  geom_point() +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, lineheight = 0.75) +
+  labs(x = "Median tolerance (DHW ED50)",
+       y = "Range in tolerance (DHW ED75 - ED10)") +
+  theme_classic()
+
+ggsave(filename = "output/medrangeplot.png", plot = medrangeplot, width = 120, height = 120, units = "mm")
+
+cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0.4))
+```
+
 
 # Glimmers of hope
 
-### Overall bleaching severity by DHWs in 2023 vs. 2014 and 2015
+### Reduced bleaching sensitivity in 2023 vs. 2014 and 2015
 
 ```{r bleaching_by_dhw.bin_across_years}
-# Will it work if species is a random factor instead of fixed? YES!!!
-# overall.bleach.mod <- glmer(cbind(BL, NB) ~ year * dhw.bin + (dhw.bin+year|Species), 
-#            family = "binomial", data = allg)
-# overall.bleach.res <- emmeans(overall.bleach.mod, specs = c("dhw.bin", "year"), 
-#                               type = "response", rg.limit = 15000)
-# as.tibble(overall.bleach.res) %>%
-#   ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-#   geom_point() +
-#   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.2) +
-#   geom_line()
+# Filter and aggregate data?
+# Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
+all0 <- all0 %>%
+  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
+                             Species %in% c("MALI", "MLAM", "MYCE") ~ "MYCE",  #, "MFER"
+                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
+                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
+                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
+                             Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             TRUE ~ Species)) %>%
+  drop_na(Species)
 
-### NEW: try with Week2 to be able to adjust for that
-# dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year * Week2 + (dhw.bin+year|Species),
-#                        family = "binomial", data = allg)
-## ^^ above model formulation has nonEst for 2023 0-3 and 6-9 DHW. Why?
-# dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (1|Species),
-#                        family = "binomial", data = allg)
-###^^ This model works
+# Keep only those species observed at least 10 times per year
+# Filter1 -- working well but too strict?
+# spps <- all0 %>%
+#   count(Species, year) %>%
+#   group_by(Species) %>%
+#   summarize(minn = min(n), nyear = n()) %>%
+#   filter(minn >= 10)
+# allf <- all0 %>%
+#   filter(Species %in% spps$Species)
+# Try alternate filter -- bad results
+# allf <- all0 %>%
+#   group_by(Species, year) %>%
+#   filter(n() >= 10) %>%         # Species must have been counted at least 10 times within a year
+#   group_by(Species) %>%
+#   filter(n_distinct(year) == 3) %>%     # Species must have been counted (at least 10 times) in at least 2 years
+#   ungroup()
+# Try another alternate filter using dhw.bins
+# allf <- all0 %>%
+#   group_by(Species, year, dhw.bin) %>%
+#   filter(n() > 3)
+# Try another filter just getting rid of poorly sampled species
+spp_to_include <- all0 %>%
+  count(Species, year) %>%
+  group_by(Species) %>%
+  filter(min(n) >= 10)
+allf <- all0 %>%
+  filter(Species %in% spp_to_include$Species)
+
+## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
+allg <- allf %>%
+  group_by(year, Week2, Subregion, Site, dhw, dhw.bin, Species) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1)) %>%
+  ungroup()
+
+# Model differences in bleaching severity between the three years as a function of DHW bin
 dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species) + (year|Subregion),  
                      family = "binomial", data = allg, verbose = TRUE,
                      nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-#^^^ but is this one ^^ better? ???: YES
-##change dhw.bin+year to dhw.bin*year in random slopes???: doesn't change much, takes longer to fit
-## Add (year|Subregion) as random??
 ## Best formula seems to be: cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species) + (year|Subregion)
+
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 dhw.bin.res <- emmeans(dhw.bin.mod, specs = c("dhw.bin", "year", "Week2"), 
                        rg.limit = 20000, type = "response")
-# THIS IS IT ^^^
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 dhw.bin.res2 <- subset(dhw.bin.res,
   (year == "2014" & Week2 == "(36,38]") |
   (year == "2015" & Week2 == "(36,38]") |
   (year == "2023" & Week2 == "(33,35]")
 )
+dhw.bin.res2
+
+# Plot
 dhw.bin.bleach.plot <- as.tibble(dhw.bin.res2) %>%
   ggplot(aes(x = dhw.bin, y = prob, shape = year, group = year)) +
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
@@ -408,23 +515,25 @@ dhw.bin.bleach.plot <- as.tibble(dhw.bin.res2) %>%
   labs(x = "DHWs", y = "Probability of bleaching")
 
 # Stats for differences between years
-rbind(pairs(dhw.bin.res2, by = "dhw.bin"), adjust = "none")
+#rbind(pairs(dhw.bin.res2, by = "dhw.bin"), adjust = "none")
   
 
-
-# OK now what if use dhw instead of dhw.bin
+# Model differences in bleaching severity between years with DHW as continuous predictor instead of bins
 dhw.mod <- glmer(cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
                      family = "binomial", data = allg, verbose = TRUE,
                      nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+# And select just the range of peak DHWs experienced across sites in each year
 dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
                    at = list(dhw = seq(0, 23, 0.1)), rg.limit = 12000)
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 dhw.res2 <- subset(dhw.res,
   (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
   (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
   (year == "2023" & Week2 == "(33,35]" & dhw <= 22.1 & dhw > 1.53) 
 )
 
+# Plot
 dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   #geom_point() +
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
@@ -436,34 +545,9 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   theme(legend.position = "none") +
   labs(x = "DHWs", y = "Probability of bleaching")
 
+# Combine plots from both approaches for comparison
 bleachplots <- cowplot::plot_grid(dhw.bin.bleach.plot, dhw.bleach.plot, ncol = 2)
 ggsave(filename = "output/bleaching_years.png", plot = bleachplots, width =150, height = 70, units = "mm")
-
-# # OK now what if we use DRC? -- cannot use drc because not high enough dhw's and bleaching in 2014/2015 to fit a full curve
-# allg <- allg %>% mutate(n = BL + NB, pctNB = NB / n)
-# m5 <- drm(pctNB ~ dhw, data = allg, curveid = year, weights = n, type = "binomial",
-#          logDose = NULL, fct = LL.3(
-#            names = c("hill", "max", "ED50"),
-#            ## Max parameter is fixed to 1
-#            fixed = c(NA, 1, NA)),
-#     # Hill parameter must be positive (must decrease with incr. dhw)
-#     lowerl = c(rep(0, 3), rep(0, 3)),
-#     control = drmc(relTol = 1e-7))
-# nd <- expand.grid(year = c("2014", "2015", "2023"), dhw = seq(0, 23, 0.1))
-# pred <- predict(m5, newdata = nd)
-# drc.res <- as_tibble(bind_cols(nd, prob = pred))
-# drc.ord <- ED(m5, 0.5, type = "absolute") %>%
-#   as_tibble() %>%
-#   mutate(Species = levels(df23f$Species),
-#          Species = fct_reorder(Species, Estimate))
-# ggplot(as.tibble(drc.res), aes(x = dhw, y = prob, color = year, group = year)) +
-#   #geom_point() +
-#   #geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
-#   geom_line() +
-#   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
-#   theme(legend.position = c(0.8, 0.25)) +
-#   labs(x = "DHWs", y = "Probability of bleaching")
-
 ```
 ![](./output/bleaching_years.png)
 
@@ -615,25 +699,36 @@ myfun %>%
 # There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
 df23.abund <- df23.abund %>%
   mutate(Width2 = case_when(Width >= 4 ~ Width,
-                            Width < 4 ~ 4))
+                            Width < 4 ~ 4)) %>%
+  droplevels()
+
+# mod <- glm(Bleaching2 > 1 ~ Width2 * Species, family = "binomial", data = df23.abund)
+# summary(emtrends(mod, specs = "Species", var = "Width2"), infer = TRUE) %>% arrange(p.value)
+# nd <- expand.grid(Width2 = seq(4,200,1), Species = levels(df23.abund$Species))
+# pred <- predict(mod, newdata = nd, re.form = NA, type = "response")
+# bind_cols(nd, pred) %>%
+#   ggplot(aes(x = Width2, y = ...3)) +
+#   geom_line() +
+#   facet_wrap(~Species)
 
 # Fit model
-mod <- glm(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
+mod <- glmer(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
              family = "binomial", data = df23.abund,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
 #plot(mod, which = 1)
+summary(mod)
 
-# Test if significant effect of width for each species
-res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2",
-                at = list(dhw = 15))
+# Test if significant effect of width for each species at DHW = 15
+res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw = 15))
+
 # Get significant species
 sig <- as.tibble(summary(res, infer = TRUE)) %>%
   filter(p.value < 0.05)
 
 # Get fitted values for bleaching probability as a function of size for significant species
 pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
-                          at = list(Width2 = seq(4,500,5), dhw = 15), 
-                          type = "response", rg.limit = 20000)) %>%
+                          at = list(Width2 = seq(4,500,1), dhw = 15), 
+                          type = "response", rg.limit = 100000)) %>%
   filter(Species %in% sig$Species) %>%
   left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
 # Get actual observed size ranges for these species
@@ -641,20 +736,47 @@ actual <- filter(df23.abund) %>%
   drop_na(Species) %>%
   group_by(Species) %>%
   summarize(min = min(Width2, na.rm = T), max = max(Width2, na.rm = T)) %>%
-  mutate(ad = map(max, ~expand_grid(Width2 = seq(4, ., 5)))) %>%
+  mutate(ad = map(max, ~expand_grid(Width2 = seq(4, ., 1)))) %>%
   unnest(ad)
 pred2 <- pred %>%
   semi_join(actual, by = c("Species", "Width2"))
   
+# Get species full names for plotting
+mynames <- pred2 %>%
+  left_join(tibble(name = abbrev_names, Species = names(abbrev_names))) %>%
+  group_by(Species, name) %>%
+  summarize(maxw = max(Width2)) %>%
+  distinct(Species, name, maxw)
 # Plot fitted probabilities within the range of observed Widths for each significant species
-ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, linetype = is.na(asymp.LCL.y))) +
-  facet_wrap(~Species, scales = "free_x") +
-  geom_line() +
-  geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.2, lwd = 0) +
+(sizeplot <- ggplot(pred2, aes(x = Width2, y = response, group = Species)) +
+  coord_trans(x = "log") +
+  scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
+  facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
+  geom_line(aes(color = response)) +
+  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
+  geom_text(data = mynames, aes(label = name, x = maxw), y = 0, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
   #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
   ylim(0, 1) +
-  labs(x = "Colony width", y = "Proportion of colonies PB or worse") +
-  theme(legend.position = "none")
+  labs(x = "Colony width (cm)", y = "Probability of bleaching at 10 DHWs") +
+  theme_classic() +
+  theme(legend.position = "none",
+        strip.text = element_blank(),
+        strip.background = element_blank()))
+
+ggsave(filename = "output/sizeplot.png", plot = sizeplot,
+       width = 120, height = 100, units = "mm")
+
+
+# Ridges?
+ggplot(pred2, aes(x = log(Width2), y = Species)) +
+  #coord_trans(x = "log") +
+  scale_x_continuous(breaks = log(c(4, 16, 64, 256))) +
+  geom_ridgeline_gradient(aes(height = response, fill = response), alpha = 0.5) +
+  scale_fill_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  theme_classic()
 
 # Sanity checks for size effects
 # Plot actual proportions binned by size class a confirmation
@@ -681,8 +803,8 @@ ggplot(pred2, aes(x = Width2, y = response, color = factor(dhw), group = dhw, li
 #   facet_wrap(~Species, scales = "free_y") +
 #   #scale_y_continuous(trans = "log10") +
 #   coord_trans(y = "log2")
-
 ```
+
 
 
 
