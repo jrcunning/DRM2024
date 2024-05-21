@@ -34,22 +34,25 @@ df <- read_csv("data/drm/export.csv") %>%
 df <- df %>%
   mutate(Day = yday(Date),
          Week = week(Date),
-         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week2 = factor(cut(Week, breaks = seq(1,52,2))),
          Week = factor(Week),
          Month = factor(month(Date)))
 
 # Subset just 2015 surveys
 df22 <- filter(df, year(Date) == "2022")
 
-# # Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
-# df22[df22$Subregion == "Deerfield" & df22$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
-# df22[df22$Subregion == "Deerfield" & df22$Latitude < 26.32825, "Subregion"] <- "Broward-Miami"
+# # Change Marquesas-Tortugas Trans to Marquesas
+# df22 %>%
+#   filter(Subregion %in% c("Tortugas--Dry Tortugas NP", "Marquesas", "Marquesas-Tortugas Trans")) %>%
+#   ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) + geom_point()
+df22[df22$Subregion == "Marquesas-Tortugas Trans", "Subregion"] <- "Marquesas"
+
 
 # Order Subregions from south to north
 df22 <- df22 %>%
-  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas-Tortugas Trans", "Marquesas", 
-                                              "Lower Keys", "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
-                                              "Biscayne", "Broward-Miami", "South Palm Beach", 
+  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", 
+                                              "Lower Keys", "Middle Keys", "Mid-Upper Keys Transition", 
+                                              "Upper Keys", "Biscayne", "Broward-Miami", "South Palm Beach", 
                                               "North Palm Beach", "Martin")))
 
 # Order Species alphabetically
@@ -99,37 +102,12 @@ df22 <- left_join(df22, dhw, by = c("Site", "Date"))
 # Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
 peakdhw <- dhw %>%
   mutate(Week2 = factor(cut(week(Date), breaks = seq(1,52,2)))) %>%
-  filter(Week2 == "(33,35]") %>%
+  filter(Week2 == "(37,39]") %>%
   group_by(Site) %>%
   summarize(peakdhw = max(dhw))
 df22 <- left_join(df22, peakdhw)
-ggplot(df22, aes(x = dhw, y = peakdhw, color = Subregion)) + geom_point()
+#ggplot(df22, aes(x = dhw, y = peakdhw, color = Subregion)) + geom_point()
 ```
-
-```{r}
-save(df22, file = "output/2022.RData")
-```
-
-
-
-```{r subset_drm}
-# Create subsets of DRM data for downstream analyses
-### Subset just abundant species
-sppcounts <- df22 %>%
-  count(Species) %>%
-  arrange(-n)
-abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
-
-### Create subsets
-df22.keys <- df22 %>% filter(
-  Subregion %in% c("Upper Keys", "Mid-Upper Keys Transition", "Middle Keys", 
-                   "Lower Keys", "Marquesas", "Tortugas--Dry Tortugas NP"))
-df22.abund <- df22 %>% filter(Species %in% abund.spp)
-df22.keys.abund <- df22.keys %>% filter(Species %in% abund.spp)
-df22.abund.nopfursint <- df22.abund %>% filter(!Species %in% c("PFUR", "SINT"))
-```
-
-
 
 # DRM dataset summary
 
@@ -207,12 +185,7 @@ alldhwplot +
 #   summarize(maxmeanDHW = max(meanDHW))
 ```
 
-DHWs in DRTO reached ~15.
-DHWs in the Lower, Middle, and Upper Keys reached ~20.
-DHWs in Biscayne reach 14-15, similar to DRTO.
-DHWs in Miami and Broward reached 10-11.
-DHWs in South Palm Beach also reached 10-12, and North Palm Beach ~8.
-DHWs in Martin County reached ~3.
+
 
 ### Bleaching prevalence by subregion over time, and overall
 ```{r bleaching_summary_subregion_time}
@@ -234,13 +207,43 @@ df22 %>%
   geom_point(aes(color = Subregion)) +
   geom_smooth(method = "gam") +
   labs(x = "DHW at time of survey", y = "Percent of surveyed colonies with at least partial bleaching")
+
+martin22 <- df22 %>%
+  filter(Subregion == "Martin")
+
+# Martin county had majority SRAD and PAST, and was an outlier region with very high bleaching recorded despite recording zero DHWs. Remove Martin county from the 2022 dataset...
+
+df22 <- df22 %>% filter(Subregion != "Martin")
+
 ```
 
-Bleaching prevalence peaked in late August to early September, with ~70-100% of colonies bleached (≥PB) in the Keys and Tortugas. At the same time, bleaching prevalence in Miami and Broward was <25%. Bleaching prevalence decreases in late September and October surveys, which may be due to death of bleached corals leading to them not being recorded in surveys.
+
+```{r subset_drm}
+# Create subsets of DRM data for downstream analyses
+sppcounts <- df22 %>%
+  count(Species) %>%
+  arrange(-n)
+abund.spp <- sppcounts %>% filter(n > 100) %>% pull(Species)
+
+### Create subsets
+df22.abund <- df22 %>% filter(Species %in% abund.spp)
+
+### Subset just surveys done pre-peakDHW
+df22.prepeak <- df22 %>% filter(Date <= "2022-10-05")
+
+df22.abund.prepeak <- df22.prepeak %>% filter(Species %in% abund.spp)
+```
+
+
+```{r}
+save(df22, file = "output/2022.RData")
+```
+
+
 
 ```{r bleaching_summary_overall_subregion}
 # Count number of bleached and unbleached colonies of each species at each site
-summ <- df22.abund %>%
+summ <- df22.abund.prepeak %>%
   group_by(Site, Species, Subregion, Week, Week2) %>%
   summarize(bl = sum(Bleaching2 > 1, na.rm = T),
             nb = sum(Bleaching2 <= 1, na.rm = T),
@@ -266,23 +269,23 @@ summ %>%
 
 
 # Model proportion of bleached colonies in each subregion, controlling for species and week of survey
-## Use 2-Week periods in model, and predict based on weeks 34-35 (Week2 = "(33,35]" => (August 20-September 2))) = peak of heat stress, before too much mortality
+## Use 2-Week periods in model, and predict based on weeks 38-39 (Week2 = "(37,39]" => (September 19 - October 2))) = peak of heat stress, before too much mortality
 mod <- glm(cbind(bl, nb) ~ Subregion + Species + Week2, family = "binomial", data = summ)
-res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(33,35]")), type = "response")
+res <- emmeans(mod, specs = c("Subregion"), at = list(Week2 = factor("(37,39]")), type = "response")
 # Join predicted bleaching prevalence for Aug20-Sep2 with average DHWs during same dates
 mymaxdhw <- dhw %>%
   left_join(distinct(df22, Site, Subregion)) %>%
-  filter(Date >= "2023-08-20", Date <= "2023-09-02") %>%
+  filter(Date >= "2022-09-19", Date <= "2022-10-02") %>%
   group_by(Subregion, Date) %>%
   summarize(meanDHW = mean(dhw)) %>%
   group_by(Subregion) %>%
   summarize(maxDHW = max(meanDHW)) %>%
   drop_na()
 
-regional23 <- as.tibble(res) %>% full_join(mymaxdhw) %>%
+regional22 <- as.tibble(res) %>% full_join(mymaxdhw) %>%
   mutate(group = "allcorals")
 
-ggplot(regional23, aes(y = Subregion)) +
+ggplot(regional22, aes(y = Subregion)) +
   geom_point(aes(x = prob)) +
   geom_errorbar(aes(xmin = asymp.LCL, xmax = asymp.UCL), width = 0) +
   geom_path(aes(x = prob, group = group)) +
@@ -294,11 +297,7 @@ ggplot(regional23, aes(y = Subregion)) +
   theme(axis.text.x.top = element_text(color = "red"),
         axis.title.x.top = element_text(color = "red")) +
   labs(y = "")
-
-regional23 %>% left_join(mymaxdhw) %>%
-  pivot_longer(cols = c(prob, maxDHW))
-ggplot(regional23, aes(y = Subregion)) +
   
 
-save(regional23, file = "output/regional23.RData")
+save(regional22, file = "output/regional22.RData")
 ```
