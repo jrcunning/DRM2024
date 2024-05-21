@@ -1,0 +1,149 @@
+---
+title: "binning locations across years"
+author: "R. Cunning"
+date: "2024-05-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# Load all data from 2014, 2015, 2022, and 2023
+# QC'd by year
+load("output/2014.RData")
+df14 <- df14 %>% filter(!Subregion %in% c("Martin", "North Palm Beach"))
+load("output/2015.RData")
+load("output/2022.RData")
+load("output/2023.RData")
+df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
+all0 <- bind_rows(
+  `2014` = df14,
+  `2015` = df15,
+  `2022` = df22,
+  `2023` = df23,
+  .id = "year"
+) %>%
+  mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
+
+sites <- all0 %>%
+  distinct(year, Subregion, Zone, Latitude, Longitude, Site)
+
+# test <- sites %>%
+#   #group_by(Subregion) %>%
+#   #filter(n() > 3) %>%
+#   nest() %>%
+#   mutate(dist = map(data, ~dist(.[,c("Longitude", "Latitude")])),
+#            hc = map(dist, ~hclust(.)),
+#         clust = map(hc, ~cutree(hc, k = 50)))
+
+dist <- dist(sites[,c("Longitude", "Latitude")])
+hc <- hclust(dist)
+plot(hc)
+clust <- cutree(hc, k = 100)
+
+sites <- sites %>%
+  mutate(clust = clust)
+
+sites %>%
+  #filter(Subregion == "Broward-Miami") %>%
+  ggplot(aes(x = Longitude, y = Latitude, color = factor(clust))) +
+  #geom_point() +
+  geom_text(aes(label = clust)) +
+  facet_wrap(~Subregion, scales = "free") +
+  theme(legend.position = "none")
+  
+
+all0 <- left_join(all0, sites)
+
+res <- all0 %>%
+  group_by(year, clust, Subregion) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1),
+            pctBL = BL / (NB + BL))
+
+res2 <- res %>% 
+  dplyr::select(clust, Subregion, year, pctBL) %>%
+  pivot_wider(names_from = year, values_from = pctBL)
+
+library(GGally)
+res2 %>%
+  ungroup() %>%
+  dplyr::select(3:6) %>%
+  #filter(Subregion == "Broward-Miami") %>%
+  droplevels() %>%
+  ggpairs()
+
+
+ggplot(res2, aes(x = pc))
+
+ggplot(res, aes(x = year, y = pctBL)) +
+  geom_boxplot() +
+  facet_wrap(~Subregion)
+```
+
+
+```{r}
+# Subset only peak bleaching for each year
+
+peak0 <- all0 %>%
+  filter((Date > "2014-08-20" & Date < "2014-10-15") |
+         (Date > "2015-09-01" & Date < "2015-10-05") |
+         (Date > "2022-09-15" & Date < "2022-10-30") |
+         (Date > "2023-08-01" & Date < "2023-10-01"))
+
+res <- peak0 %>%
+  group_by(year, clust, Subregion) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1),
+            pctBL = BL / (NB + BL))
+
+ggplot(res, aes(x = year, y = pctBL)) +
+  geom_boxplot() +
+  facet_wrap(~Subregion)
+
+
+res2 <- res %>% 
+  dplyr::select(clust, Subregion, year, pctBL) %>%
+  pivot_wider(names_from = year, values_from = pctBL)
+
+library(GGally)
+res2 %>%
+  ungroup() %>%
+  dplyr::select(3:6) %>%
+  #filter(Subregion == "Broward-Miami") %>%
+  droplevels() %>%
+  ggpairs()
+```
+
+
+```{r}
+test <- peak0 %>%
+  group_by(year, clust, Site, dhw, Subregion) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1),
+            pctBL = BL / (NB + BL)) %>%
+  group_by(year, clust, Subregion) %>%
+  summarize(meanpctBL = mean(pctBL),
+            meandhw = mean(dhw)) %>%
+  mutate(pctBL.dhw = log(meanpctBL / meandhw))
+
+
+test2 <- test %>% 
+  dplyr::select(Subregion, clust, year, pctBL.dhw) %>%
+  pivot_wider(names_from = year, values_from = pctBL.dhw)
+
+library(GGally)
+test2 %>%
+  ungroup() %>%
+  dplyr::select(3:6) %>%
+  #filter(Subregion == "Broward-Miami") %>%
+  droplevels() %>%
+  ggpairs()
+```
+
