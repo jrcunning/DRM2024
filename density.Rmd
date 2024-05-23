@@ -1,0 +1,84 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-05-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(lme4)
+library(emmeans)
+library(tidyverse)
+```
+
+### DRM data
+```{r import_drm}
+# Import DRM data
+df0 <- read_csv("data/drm/export.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+
+# Get day of the year number, week, and month for some model fitting
+df0 <- df0 %>%
+  mutate(Day = yday(Date),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week = factor(Week),
+         Month = factor(month(Date)),
+         year = factor(year(Date)))
+
+```
+
+```{r}
+# Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
+df <- df0 %>%
+  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
+                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",  #, "MFER"
+                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
+                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
+                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
+                             Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             TRUE ~ Species)) %>%
+  drop_na(Species)
+
+spp_to_include <- df %>%
+  count(Species, year) %>%
+  complete(Species, year, fill = list(n = 0)) %>%
+  group_by(Species) %>%
+  dplyr::filter(min(n) >= 10)  # 20 is a good cutoff
+
+dens <- df %>%
+  # Count number of colonies of each species per transect
+  count(year, Species, Site, Transect, Subregion) %>%
+  # Add zeros for all species not counted on a transect
+  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
+  # SUBSET FOR FASTER MODELING
+  filter(Species %in% spp_to_include$Species)
+
+mod_1 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
+               verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
+anova(mod_1)
+
+res <- emmeans(mod_1, specs = c("Species", "year"), type = "response")
+
+as.tibble(res) %>%
+  ggplot(aes(x = year, y = rate)) +
+  geom_point() + #aes(color = Subregion)
+  geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
+  geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
+  facet_wrap(~Species, scales = "free_y") +
+  geom_vline(aes(xintercept = "2014")) +
+  theme(axis.text.x = element_text(angle = 45))
+
+densres <- res
+saveRDS(densres, file = "output/density.rds")
+```
+
+
+
+
+
+
+
+
