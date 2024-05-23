@@ -672,7 +672,7 @@ anova(dhw.sp.mod)
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
 dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 1)), rg.limit = 22000)
+                   at = list(dhw = seq(0, 23, 0.1)), rg.limit = 200000, level = 0.84)
 dhw.sp.res2 <- subset(dhw.sp.res,
   (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
   (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
@@ -687,29 +687,18 @@ dhw.sp.res22 <- subset(dhw.sp.res,
 )
 
 # Plot
-dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
+(dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species) +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.4) +
   geom_line(aes(color = year), lwd = 1) +
+  geom_hline(aes(yintercept = 0.5), lty = 2) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
   # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
   #                       limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
   #theme(legend.position = "none") +
-  labs(x = "DHWs", y = "Probability of bleaching")
+  labs(x = "DHWs", y = "Probability of bleaching"))
 
-
-# # Find significant differences at 6 DHW
-# dhw.sp.res3 <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-#                    at = list(dhw = 6), rg.limit = 22000)
-# dhw.sp.res4 <- subset(dhw.sp.res3,
-#   (year == "2014" & Week2 == "(36,38]") |
-#   (year == "2015" & Week2 == "(36,38]") |
-#   (year == "2022" & Week2 == "(37,39]") |
-#   (year == "2023" & Week2 == "(33,35]") 
-# )
-# dhw.sp.res4
-# rbind(pairs(dhw.sp.res4, specs = "year", by = "Species"), adjust = "fdr")
 
 
 # # Sanity check by species
@@ -721,36 +710,59 @@ dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, grou
 #   geom_bar(position = "stack") +
 #   facet_wrap(~year)
 
-# Find where confidence intervals are either fully below or fully above 0.5
-## (Assess which yearly differences are significant)
-cnat <- as.tibble(dhw.sp.res2) %>%
-  filter(Species == "CNAT") %>%
-  mutate(diff0.5 = case_when(asymp.LCL > 0.5 ~ "higher",
-                             asymp.UCL < 0.5 ~ "lower",
-                             TRUE ~ "same")) %>%
-  filter(diff0.5 %in% c("higher", "lower"))
-
-cnat %>% 
-  group_by(year, diff0.5) %>%
-  summarize(min = min(dhw),
-            max = max(dhw))
+# GET SIG DIFFS!
+## Find where dhw[year==2014&asymp.LCL>0.5] < dhw[year==2023&asymp.UCL<0.5]
+sigspp <- as.tibble(dhw.sp.res22) %>%
+  group_by(Species) %>%
+  summarize(higher2014 = min(dhw[year==2014 & asymp.LCL > 0.5]),
+            lower2023 = max(dhw[year==2023 & asymp.UCL < 0.5])) %>%
+  filter(higher2014 < lower2023)
+  
 
 # Get yearly DHW diffs to 50% bleaching -- convert to °C
-ok <- as.tibble(dhw.sp.res22) %>%
+spp_thresh <- as.tibble(dhw.sp.res22) %>%
   group_by(Species, year) %>%
   slice(which.min(abs(prob - 0.5))) %>%
   ungroup() %>%
   dplyr::select(year, Species, dhw) %>%
-  pivot_wider(names_from = year, values_from = dhw) %>%
-  mutate(diffdhw2015 = `2015` - `2014`,
-         diffdhw2023 = `2023` - `2014`,
-         diffC2015 = diffdhw2015 * 0.077,
-         diffC2023 = diffdhw2023 * 0.077)
+  group_by(Species) %>%
+  mutate(diffC = (dhw - dhw[year == "2014"]) * 0.077)
 
-ok %>% arrange(diffC2023)
+ggplot(spp_thresh, aes(y = diffC, x = as.numeric(as.character(year)), color = Species)) +
+  geom_point() +
+  geom_line()
 ```
 
 
+```{r last_try_drc_fitting_diff_years_by_species}
+# Here we fit drc for one species with curves for different years. Best result is allowing only the ED50 to vary by year with others fit across all years, or use contraints on parameters. In any case, the forms seem to inflexible to fit well to 2014 and 2015 data, which do not even reach a 50% bleaching response for many of the species...
+# one more try of drc?
+allg2 <- allg %>%
+  mutate(n = BL + NB,
+         pctNB = NB / (NB + BL)) %>%
+  filter(Species == "PAST") %>%
+  ungroup() %>%
+  mutate(year = factor(year))
+
+# More pars = less estimable standard errors on ED50... depends how important ED50 inference is
+m3 <- drm(pctNB ~ dhw, data = allg2, curveid = year, weights = n, type = "binomial",
+         logDose = NULL, fct = LL.3(
+           names = c("hill", "max", "ED50"),
+           ## Max parameter is fixed to 1
+           fixed = c(NA, 1, NA)),
+         pmodels = data.frame(year, year, year),
+    # Hill parameter must be positive (must decrease with incr. dhw)
+    lowerl = c(rep(1, 3), rep(0, 3)),
+    control = drmc(relTol = 1e-7))
+nd <- expand.grid(year = unique(allg2$year), dhw = seq(0, 23, 0.1))
+pred <- predict(m3, newdata = nd)
+drc.res <- as_tibble(bind_cols(nd, prob = pred))
+drc.ord <- ED(m3, 0.5, type = "absolute")
+
+drc.res %>% #filter(year == "2023") %>%
+ggplot(aes(x = dhw, y = prob, color = year, group = year)) + geom_line()
+spp_thresh %>% filter(Species == "PAST")
+```
 
 
 
@@ -779,7 +791,7 @@ dens <- all0 %>%
 # library(pscl)
 # m1 <- zeroinfl(n ~ Species + year | persons, data = zinb)
 
-mod_1 <- glmer(n ~ Species * year + (Species|Subregion), data = dens, family = "poisson",
+mod_1 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
                verbose = TRUE, nAGQ=0, control=glmerControl(optCtrl=list(maxfun=100))) 
 anova(mod_1)
 
@@ -796,29 +808,22 @@ mydens <- as.tibble(res)
 ```
 
 ```{r}
-# Get bleaching at 6-9 DHW
-mybleach69 <- filter(mybleach, dhw.bin == "(6,9]")
-myfun <- full_join(mydens, mybleach69, by = c("Species", "year"))
+myfun <- right_join(mydens, spp_thresh, by = c("Species", "year"))
 
-# any sig change over years in bleaching at 6-9dhw?
-res3 <- subset(res2, dhw.bin %in% c("(6,9]"))
-out <- rbind(pairs(res3, specs = "year", by = c("Species"), adjust = "fdr"))
-sigbleach <- as.tibble(out) %>% filter(p.value < 0.05)
-
-# any sig change over years in density?
-outt <- rbind(pairs(res, specs = "year", by = "Species", adjust = "fdr"))
-sigdens <- as.tibble(outt) %>% filter(p.value < 0.05)
+# # any sig change over years in density?
+# outt <- rbind(pairs(res, specs = "year", by = "Species", adjust = "fdr"))
+# sigdens <- as.tibble(outt) %>% filter(p.value < 0.05)
 
 # Plot species that had sig change in bleach OR sig change in dens
 myfun %>%
-  filter(Species %in% dhw.bin.sp.sig$Species) %>% # # | Species %in% sigdens$Species) %>%
-  ggplot(aes(x = rate, y = prob)) +
+  #filter(Species %in% dhw.bin.sp.sig$Species) %>% # # | Species %in% sigdens$Species) %>%
+  ggplot(aes(x = rate, y = diffC)) +
   geom_point(aes(shape = year, color = year), size = 3) +
-  geom_errorbar(aes(xmin = rate - SE.x, xmax = rate + SE.x)) +
-  geom_errorbar(aes(ymin = prob - SE.y, ymax = prob + SE.y)) +
+  geom_errorbar(aes(xmin = rate - SE, xmax = rate + SE)) +
+  #geom_errorbar(aes(ymin = prob - SE.y, ymax = prob + SE.y)) +
   geom_path(arrow = arrow(length = unit(1, "mm"))) +
   #geom_smooth(method = "lm", se = FALSE) +
-  facet_wrap(~Species, scales = "free")
+  facet_wrap(~Species, scales = "free_x")
 ```
 
 
