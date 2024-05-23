@@ -42,6 +42,7 @@ df <- df0 %>%
                              TRUE ~ Species)) %>%
   drop_na(Species)
 
+
 spp_to_include <- df %>%
   count(Species, year) %>%
   complete(Species, year, fill = list(n = 0)) %>%
@@ -69,7 +70,7 @@ as.tibble(res) %>%
   geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
   facet_wrap(~Species, scales = "free_y") +
   geom_vline(aes(xintercept = "2014")) +
-  theme(axis.text.x = element_text(angle = 45))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 densres <- res
 saveRDS(densres, file = "output/density.rds")
@@ -77,6 +78,19 @@ saveRDS(densres, file = "output/density.rds")
 
 
 
+```{r}
+# Look at size distribution over time
+dff <- df %>%
+  filter(Species %in% spp_to_include$Species)
+
+ggplot(dff, aes(x = year, y = Width)) +
+  scale_y_continuous(transform = "log", breaks = c(4, 16, 64, 256)) +
+  geom_violin() +
+  facet_wrap(~Species, scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
 
 
 
