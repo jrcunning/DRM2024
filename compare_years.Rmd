@@ -276,7 +276,7 @@ ggsave(filename = "output/2023_bleaching_maps_multipanel.png",
 
 # Species differences in bleaching severity in 2023
 
-### Species differences in bleaching with increasing DHWs
+### Species differences in bleaching in 2023 with increasing DHWs
 ```{r bleaching_by_species}
 ## Ways of modeling species-level bleaching susceptibility vs. dhw
 # 1. GLMER (+random effects, -no constraining at 0 DHW, -no ED50)
@@ -401,7 +401,6 @@ drc.res.ridges <- drc.res %>%
 ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
        width = 120, height = 120, units = "mm")
 ```
-![](./output/bleaching_heatmaps.png)
 ![](./output/bleaching_ridges.png)
 ```{r}
 # Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
@@ -431,22 +430,13 @@ ggsave(filename = "output/medrangeplot.png", plot = medrangeplot, width = 120, h
 
 cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0.4))
 ```
-
+![](./output/medrangeplot.png)
 
 # Glimmers of hope
 
 ### Reduced bleaching sensitivity in 2023 vs. 2014 and 2015
 
 ```{r bleaching_by_dhw.bin_across_years}
-# Filter to just pre-DHW peak?
-# all0.prepeak <- all0 %>%
-#   filter((year == "2014" & Date <= as.Date("2014-09-21")) |
-#          (year == "2015" & Date <= as.Date("2015-09-20")) |
-#          (year == "2022" & Date <= as.Date("2022-09-27")) |
-#          (year == "2023" & Date <= as.Date("2023-09-03")))
-
-
-# Filter and aggregate data?
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
 all0 <- all0 %>%
   mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
@@ -458,27 +448,7 @@ all0 <- all0 %>%
                              TRUE ~ Species)) %>%
   drop_na(Species)
 
-# Keep only those species observed at least 10 times per year
-# Filter1 -- working well but too strict?
-# spps <- all0 %>%
-#   count(Species, year) %>%
-#   group_by(Species) %>%
-#   summarize(minn = min(n), nyear = n()) %>%
-#   filter(minn >= 10)
-# allf <- all0 %>%
-#   filter(Species %in% spps$Species)
-# Try alternate filter -- bad results
-# allf <- all0 %>%
-#   group_by(Species, year) %>%
-#   filter(n() >= 10) %>%         # Species must have been counted at least 10 times within a year
-#   group_by(Species) %>%
-#   filter(n_distinct(year) == 3) %>%     # Species must have been counted (at least 10 times) in at least 2 years
-#   ungroup()
-# Try another alternate filter using dhw.bins
-# allf <- all0 %>%
-#   group_by(Species, year, dhw.bin) %>%
-#   filter(n() > 3)
-# Try another filter just getting rid of poorly sampled species
+# Keep only those species observed at least 20 times per year
 spp_to_include <- all0 %>%
   count(Species, year) %>%
   group_by(Species) %>%
@@ -494,48 +464,12 @@ allg <- allf %>%
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
 
-# Model differences in bleaching severity between the three years as a function of DHW bin
-dhw.bin.mod <- glmer(cbind(BL, NB) ~ dhw.bin * year + year:Week2 +
-                       (dhw.bin+year|Species) + (year|Subregion),  
-                     family = "binomial", data = allg, verbose = TRUE,
-                     nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-## Best formula seems to be: cbind(BL, NB) ~ dhw.bin * year + year:Week2 + (dhw.bin+year|Species) + (year|Subregion)
 
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-dhw.bin.res <- emmeans(dhw.bin.mod, specs = c("dhw.bin", "year", "Week2"), 
-                       rg.limit = 20000, type = "response")
-dhw.bin.res2 <- subset(dhw.bin.res,
-  (year == "2014" & Week2 == "(36,38]") |
-  (year == "2015" & Week2 == "(36,38]") |
-  (year == "2022" & Week2 == "(37,39]") | 
-  (year == "2023" & Week2 == "(33,35]")
-)
-dhw.bin.res2
-
-# Plot
-dhw.bin.bleach.plot <- as.tibble(dhw.bin.res2) %>%
-  ggplot(aes(x = dhw.bin, y = prob, shape = year, group = year)) +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
-  geom_line() +
-  geom_point(aes(fill = prob), size = 4) +
-  scale_x_discrete(labels = c("0-3", "3-6", "6-9", "9-12", "12-15", "15-18", "18-22")) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
-  scale_shape_manual(values = c(24, 23, 22, 21)) +
-  scale_fill_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-                        limits = c(0, 1), midpoint = 0.5) +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "DHWs", y = "Probability of bleaching")
-
-# Stats for differences between years
-#rbind(pairs(dhw.bin.res2, by = "dhw.bin"), adjust = "none")
-  
-
-# Model differences in bleaching severity between years with DHW as continuous predictor instead of bins
+# Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
                      family = "binomial", data = allg, verbose = TRUE,
                      nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-# Best formula: cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion)
+# Best formula: cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion)
 #### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
 #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
 anova(dhw.mod, test = "F")
@@ -564,97 +498,38 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   labs(x = "DHWs", y = "Probability of bleaching")
 
 # Combine plots from both approaches for comparison
-bleachplots <- cowplot::plot_grid(dhw.bin.bleach.plot, dhw.bleach.plot, ncol = 2)
-ggsave(filename = "output/bleaching_years.png", plot = bleachplots, width =150, height = 70, units = "mm")
+ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 90, height = 70, units = "mm")
 ```
-![](./output/bleaching_years.png)
+![](./output/dhw_bleach_allyears.png)
 ```{r}
 # Backcalculate increase in tolerance based on 50% bleaching
 bleach50 <- as.tibble(dhw.res2) %>%
   group_by(year) %>%
   slice(which.min(abs(prob - 0.5)))
 
-# In 2014: 3.9 DHW. In 2023: 11.2 DHW. (In 2015, did not reach 50% bleaching)
+# In 2014: 3.9 DHW. 2015: 8.1, In 2023: 11.2 DHW.
 # 11.7 - 3.9 = 7.8 DHW increase
 
-threshy <- bleach50 %>%
+degC <- bleach50 %>%
   ungroup() %>%
   mutate(diffdhw = dhw - dhw[year == "2014"],
-         diffthresh = diffdhw * 0.077)
+         diffthresh = diffdhw * 0.07770643,
+         lower = diffdhw * 0.07527467,
+         upper = diffdhw * 0.08013819)
 
-ggplot(threshy, aes(x = as.numeric(as.character(year)), y = diffthresh)) + 
-  geom_point() + geom_smooth(method = "lm")
+ggplot(degC, aes(x = as.numeric(as.character(year)), y = diffthresh)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin = lower, ymax = upper)) +
+  geom_smooth(method = "lm", se = FALSE)
 
-mod <- lm(diffthresh ~ as.numeric(as.character(year)), data = threshy)
+mod <- lm(diffthresh ~ as.numeric(as.character(year)), data = degC)
 summary(mod)
+anova(mod)
+# 0.0504°C/year = 0.5°C/decade
+
 ```
 
 ## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
-
-```{r species_bleaching_by_year_dhw.bin}
-# Fit a singular model for bleaching susceptibility by Species, DHW.bin, and year, to look at how bleaching susceptibility differs by year
-
-# Fit regression for PB or worse
-dhw.bin.sp.mod <- glmer(cbind(BL, NB) ~ year * Species * dhw.bin + year:Week2 + (year|Subregion), 
-                        family = "binomial", data = allg,
-                        verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-# Get fitted values across dhw
-dhw.bin.sp.res <- emmeans(dhw.bin.sp.mod, specs = c("Species", "dhw.bin", "year", "Week2"), 
-               rg.limit = 20000, type = "response")
-
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-dhw.bin.sp.res2 <- subset(dhw.bin.sp.res,
-  (year == "2014" & Week2 == "(36,38]") |
-  (year == "2015" & Week2 == "(36,38]") |
-  (year == "2023" & Week2 == "(33,35]")
-)
-mybleach <- as.tibble(dhw.bin.sp.res2)
-# Plot
-allplots <- as.tibble(dhw.bin.sp.res2) %>%
-  ggplot(aes(x = dhw.bin, y = prob, color = year, group = year)) +
-  geom_point(position = position_dodge(width = 0.25), size = 0.5) +
-  geom_line(position = position_dodge(width = 0.25)) +
-  geom_errorbar(aes(ymin = prob - SE, ymax = prob + SE), width = 0.1,
-                position = position_dodge(width = 0.25)) +
-  facet_wrap(~Species) +
-  ylim(0,1)
-allplots
-
-# For some reason the output is better when MFOR and SCUB are present in the data? Not sure why.
-# MYCE (aggregated) was coming out as significant before but now it's not. something about adding MFER to the aggregation?
-### Yes, it's MFER... when included with MYCE, MYCE has no sig diffs, but quite sig without the added MFER? MFER is all bleached, and all 
-
-# Statistically compare years for each Species and dhw.bin level (only look at 3-6 and 6-9 dhw, where we have data from all years)
-dhw.bin.sp.res3 <- subset(dhw.bin.sp.res2, dhw.bin %in% c("(3,6]", "(6,9]"))
-dhw.bin.sp.tests <- rbind(pairs(dhw.bin.sp.res3, specs = "year", by = c("Species", "dhw.bin")), adjust = "fdr")
-dhw.bin.sp.sig <- as.tibble(dhw.bin.sp.tests) %>%
-  filter(p.value < 0.05)
-
-dhw.bin.sp.sigres <- as.tibble(dhw.bin.sp.res2) %>%
-  filter(Species %in% dhw.bin.sp.sig$Species)
-
-# Plot just species with sig diffs btw years
-allplots %+% dhw.bin.sp.sigres
-
-
-# Sanity checks
-# ## Simple proportions as a santiy check
-# all0 %>%
-#   drop_na(dhw.bin) %>%
-#   group_by(year, Species, dhw.bin) %>%
-#   summarize(pctbl = sum(Bleaching2 > 1) / n()) %>%
-#   ggplot(aes(x = dhw.bin, y = pctbl, color = year, group = year)) +
-#   geom_point() +
-#   geom_line() +
-#   facet_wrap(~Species)
-# 
-# # MYCE sanity check
-# all0 %>% filter(Species == "MYCE") %>%
-#   ggplot(aes(x = dhw.bin, fill = Bleaching3)) +
-#   geom_bar(position = "stack") +
-#   facet_wrap(~year)
-
-```
 
 ```{r species_bleaching_by_year_dhw}
 # Model differences in bleaching severity between years with DHW as continuous predictor instead of bins
@@ -726,11 +601,21 @@ spp_thresh <- as.tibble(dhw.sp.res22) %>%
   ungroup() %>%
   dplyr::select(year, Species, dhw) %>%
   group_by(Species) %>%
-  mutate(diffC = (dhw - dhw[year == "2014"]) * 0.077)
+  mutate(diffC = (dhw - dhw[year == "2014"]) * 0.07770643,
+         lower = (dhw - dhw[year == "2014"]) * 0.07527467,
+         upper = (dhw - dhw[year == "2014"]) * 0.08013819)
 
 ggplot(spp_thresh, aes(y = diffC, x = as.numeric(as.character(year)), color = Species)) +
   geom_point() +
   geom_line()
+
+spp_thresh %>%
+  ungroup() %>%
+  filter(year == "2023") %>%
+  mutate(Species = fct_reorder(Species, diffC)) %>%
+  ggplot(aes(x = Species, y = diffC)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper))
 ```
 
 
