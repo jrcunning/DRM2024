@@ -1,0 +1,54 @@
+---
+title: "thresh_dhw"
+author: "R. Cunning"
+date: "2024-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Find the relationship between bleaching threshold (°C) and DHW accumulation
+
+```{r}
+# Import Florida Keys daily temperature data for 1985-2023
+## Downloaded from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
+temp0 <- read_delim("data/temp/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
+temp <- temp0 %>%
+  mutate(temp = `SST@90th_HS`) %>%
+  dplyr::select(YYYY, MM, DD, temp) %>%
+  unite(YYYY, MM, DD, col = "date", sep = "-") %>%
+  mutate(date = as_date(date),
+         yday = yday(date),
+         year = year(date))
+
+# Calculate DHWs for different thresholds, and reduction in max DHW for each treshold
+# mmm <- 29.6264. # Actual MMM for FL Keys
+mmm <- 28.6 # Use a reduced MMM in order to accumulate more DHWs in more years for simulation purposes
+
+dhwout <- temp %>%
+  group_by(year) %>%
+  nest() %>%
+  crossing(add = seq(0, 2.5, 0.1)) %>%
+  mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
+         dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
+         maxdhw = map_dbl(dhw, max))
+         
+diffs <- dhwout %>%
+  group_by(year) %>%
+  mutate(diff = maxdhw[add==0] - maxdhw) %>%
+  filter(maxdhw > 0)
+         
+ggplot(diffs, aes(y = add, x = diff)) + 
+  geom_point() +
+  labs(x = "Reduction of max DHW (DHW)",
+       y = "Increase in bleaching threshold (°C)")
+
+mod <- lm(add ~ diff, data = diffs)
+summary(mod)
+coef(mod) # slope is 0.077
+## Every 1 DHW gained represents an increase in bleaching threshold of 0.077°C
+## How to put confidence on this estimate?
+
+```
