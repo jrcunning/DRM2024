@@ -50,5 +50,7 @@ summary(mod)
 coef(mod) # slope is 0.077
 ## Every 1 DHW gained represents an increase in bleaching threshold of 0.077°C
 ## How to put confidence on this estimate?
+confint(mod, level = 0.95)
+
 
 ```
