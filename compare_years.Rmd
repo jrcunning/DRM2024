@@ -474,8 +474,46 @@ dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + 
 #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
 anova(dhw.mod)
 
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-# And select just the range of peak DHWs experienced across sites in each year
+# Function to get DHW's that cause 50% bleaching for each year
+ed50s.fun <- function(dhw.mod) {
+  dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
+                     at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                     rg.limit = 20000)
+  dhw.res2 <- subset(dhw.res,
+                     (year == "2014" & Week2 == "(36,38]") |
+                     (year == "2015" & Week2 == "(36,38]") |
+                     (year == "2023" & Week2 == "(33,35]"))
+  bleach50 <- as.tibble(dhw.res2) %>%
+    group_by(year) %>%
+    slice(which.min(abs(prob - 0.5))) %>%
+    pull(dhw)
+  diff2015 <- bleach50[2]-bleach50[1]
+  diff2023 <- bleach50[3]-bleach50[1]
+  res <- c(bleach50, diff2015, diff2023)
+  res <- setNames(res, c("2014", "2015", "2023", "2015-2014", "2023-2014"))
+  return(res)
+}
+
+# Get point estimates for ED50s (DHW's that cause 50% bleaching)
+bleach50 <- ed50s.fun(dhw.mod)
+bleach50
+
+# Bootstrap the calculation of ED50
+## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
+boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 48, seed = 123, re.form = NA,
+                    parallel = "multicore", ncpus = 8)
+## Get confidence intervals from Bootstrap
+lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.08, na.rm=TRUE)))
+upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.92, na.rm=TRUE)))
+
+ed50conf <- tibble(
+  year = names(bleach50), 
+  ed50 = bleach50,
+  lower = lower,
+  upper = upper)
+
+
+# For plotting, Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching), And select just the range of peak DHWs experienced across sites in each year
 dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
                    at = list(dhw = seq(0, 23, 0.1)), rg.limit = 20000)
 dhw.res2 <- subset(dhw.res,
@@ -497,63 +535,33 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   theme(legend.position = "none") +
   labs(x = "DHWs", y = "Probability of bleaching")
 
-# Combine plots from both approaches for comparison
+dhw.bleach.plot +
+  geom_errorbar(data = myconf, aes(y = 0.5, xmin = lower, xmax = upper), width = 0.03)
+
+# Save plot
 ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 90, height = 70, units = "mm")
 ```
 ![](./output/dhw_bleach_allyears.png)
 
 ```{r change_degC_thresh}
-# Backcalculate increase in tolerance based on 50% bleaching
-bleach50 <- as.tibble(dhw.res2) %>%
-  group_by(year) %>%
-  slice(which.min(abs(prob - 0.5)))
+# Backcalculate change in ed50s (DHW) to change in tolerance (°C) 
+degC <- ed50conf %>%
+  mutate(ed50.degC = ed50 * 0.07770643,
+         lower.degC = lower * 0.07770643,
+         upper.degC = upper * 0.07770643)
 
-# In 2014: 3.9 DHW. 2015: 7.5, In 2023: 11.5 DHW.
-# 11.7 - 3.9 = 7.8 DHW increase
-
-degC <- bleach50 %>%
-  ungroup() %>%
-  mutate(diffdhw = dhw - dhw[year == "2014"],
-         diffthresh = diffdhw * 0.07770643,
-         lower = diffdhw * 0.07527467,
-         upper = diffdhw * 0.08013819)
-
-ggplot(degC, aes(x = as.numeric(as.character(year)), y = diffthresh)) + 
+degC %>% slice(1:3) %>%
+  ggplot(aes(x = as.numeric(as.character(year)), y = ed50.degC)) + 
   geom_point() + 
-  geom_errorbar(aes(ymin = lower, ymax = upper)) +
+  geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC)) +
   geom_smooth(method = "lm", se = FALSE)
 
-mod <- lm(diffthresh ~ as.numeric(as.character(year)), data = degC)
+mod <- degC %>%
+  slice(1:3) %>%
+  lm(ed50.degC ~ as.numeric(as.character(year)), data = .)
 summary(mod)
 anova(mod)
 # 0.05535°C/year = 0.5°C/decade
-
-
-
-### Better way of calculating 50% bleaching level and confidence interval? bootstrapping?
-# Can we bootstrap the model to run many permutations and calculate ED50 w/confint?
-ed50s.fun <- function(dhw.mod) {
-  dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
-                     at = list(dhw = seq(0, 23, 0.1)), rg.limit = 20000)
-  dhw.res2 <- subset(dhw.res,
-                     (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
-                     (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
-                     (year == "2022" & Week2 == "(37,39]" & dhw <= 8.07 & dhw > 0) |
-                     (year == "2023" & Week2 == "(33,35]" & dhw <= 22.1 & dhw > 1.53))
-  bleach50 <- as.tibble(dhw.res2) %>%
-    group_by(year) %>%
-    slice(which.min(abs(prob - 0.5))) %>%
-    pull(dhw)
-  setNames(bleach50, c("2014", "2015", "2023"))
-  return(bleach50)
-}
-
-ed50s.fun(dhw.mod)
-
-
-boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 10, seed = 123)
-
-myconf <- confint(boot.out)
 ```
 
 ## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
