@@ -31,8 +31,20 @@ df0 <- df0 %>%
 ```
 
 ```{r}
-# Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
+# Aggregate Subregions which changed over time...
 df <- df0 %>%
+  mutate(Subregion = case_when(Subregion %in% c("Broward", "Broward-Miami") ~ "Broward-Miami",
+                               Subregion %in% c("Deerfield", "Palm Beach",
+                                                "South Palm Beach", "North Palm Beach") ~ "Palm Beach",
+                               Subregion %in% c("Marquesas", "Marquesas-Tortugas Trans") ~ "Marquesas",
+                               Subregion %in% c("Tortugas--Tortugas Bank", 
+                                                "Tortugas--Dry Tortugas NP") ~ "Tortugas",
+                               Subregion %in% c("Mid-Upper Keys Transition") ~ "Middle Keys",
+                               TRUE ~ Subregion))
+
+
+# Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
+df <- df %>%
   mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
                              Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",  #, "MFER"
                              Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
@@ -92,6 +104,43 @@ ggplot(dff, aes(x = year, y = Width)) +
 
 ```
 
+
+```{r}
+# Density of all corals
+dens0 <- df %>%
+  # Count number of colonies of each species per transect
+  count(year, Site, Transect, Subregion)
+
+# Density by region
+mod_1 <- glm(n ~ year * Subregion, data = dens0, family = "poisson")
+
+res <- emmeans(mod_1, specs = c("year"), by = "Subregion", type = "response")
+
+as.tibble(res) %>%
+  ggplot(aes(x = year, y = rate)) +
+  facet_wrap(~Subregion) +
+  geom_point() + #aes(color = Subregion)
+  geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
+  geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
+  geom_vline(aes(xintercept = "2014")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# Overall density
+mod_1 <- glmer(n ~ year + (year|Subregion), data = dens0, family = "poisson",
+               verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
+anova(mod_1)
+
+res <- emmeans(mod_1, specs = c("year"), type = "response")
+
+as.tibble(res) %>%
+  ggplot(aes(x = year, y = rate)) +
+  geom_point() + #aes(color = Subregion)
+  geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
+  geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
+  geom_vline(aes(xintercept = "2014")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
 
 
 
