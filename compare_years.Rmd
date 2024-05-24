@@ -500,11 +500,12 @@ bleach50
 
 # Bootstrap the calculation of ED50
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
-boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 48, seed = 123, re.form = NA,
+## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
+boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 48, seed = 123, re.form = NULL,
                     parallel = "multicore", ncpus = 8)
 ## Get confidence intervals from Bootstrap
-lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.08, na.rm=TRUE)))
-upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.92, na.rm=TRUE)))
+lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
+upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
 
 ed50conf <- tibble(
   year = names(bleach50), 
@@ -536,7 +537,8 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   labs(x = "DHWs", y = "Probability of bleaching")
 
 dhw.bleach.plot +
-  geom_errorbar(data = myconf, aes(y = 0.5, xmin = lower, xmax = upper), width = 0.03)
+  geom_errorbar(data = slice(ed50conf, 1:3), 
+                aes(x = ed50, y = 0.5, xmin = lower, xmax = upper), width = 0.03)
 
 # Save plot
 ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 90, height = 70, units = "mm")
