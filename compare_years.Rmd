@@ -15,10 +15,11 @@ library(sp)
 library(gstat)
 library(lme4)
 library(emmeans)
-library(tidyverse)
 library(terra)
 library(tidyterra)
 library(drc)
+library(tidyverse)
+
 # Download satellite map for Florida
 world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
 
@@ -402,7 +403,7 @@ ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
 ```
 ![](./output/bleaching_ridges.png)
 
-```{r}
+```{r within_spp_bleaching_variability}
 # Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
 span <- drc.res %>%
   group_by(Species) %>%
@@ -434,7 +435,7 @@ cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0
 
 # Overall bleaching susceptibility in 2023 vs. 2014 and 2015
 
-```{r bleaching_by_dhw.bin_across_years}
+```{r aggregate_subset_data}
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
 all0 <- all0 %>%
   mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
@@ -461,8 +462,9 @@ allg <- allf %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
+```
 
-
+```{r bleaching_by_dhw.bin_across_years}
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
                      family = "binomial", data = allg, verbose = TRUE,
@@ -500,7 +502,7 @@ ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, widt
 ```
 ![](./output/dhw_bleach_allyears.png)
 
-```{r}
+```{r change_degC_thresh}
 # Backcalculate increase in tolerance based on 50% bleaching
 bleach50 <- as.tibble(dhw.res2) %>%
   group_by(year) %>%
@@ -529,24 +531,29 @@ anova(mod)
 
 
 ### Better way of calculating 50% bleaching level and confidence interval? bootstrapping?
-dhw.mod
-coef(dhw.mod)
-2.789484/-0.5577
-exp(5) / (1 + exp(5))
-fixef(dhw.mod)
-# Intercept = -2.1745690
-# dhw = 0.2321739
-# year2015 = -8086685
-# year2023 = -0.7306541
-# year2014:Week2(36,38] = 1.2722875
-# year2015:Week2(36,38] = 1.2432991
-# year2023:Week2(33,35] = 0.2338052
-model.matrix(dhw.mod)
+# Can we bootstrap the model to run many permutations and calculate ED50 w/confint?
+ed50s.fun <- function(dhw.mod) {
+  dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
+                     at = list(dhw = seq(0, 23, 0.1)), rg.limit = 20000)
+  dhw.res2 <- subset(dhw.res,
+                     (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
+                     (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
+                     (year == "2022" & Week2 == "(37,39]" & dhw <= 8.07 & dhw > 0) |
+                     (year == "2023" & Week2 == "(33,35]" & dhw <= 22.1 & dhw > 1.53))
+  bleach50 <- as.tibble(dhw.res2) %>%
+    group_by(year) %>%
+    slice(which.min(abs(prob - 0.5))) %>%
+    pull(dhw)
+  setNames(bleach50, c("2014", "2015", "2023"))
+  return(bleach50)
+}
+
+ed50s.fun(dhw.mod)
 
 
-install.packages("effects")
-library(effects)
-plot(allEffects(dhw.mod))
+boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 10, seed = 123)
+
+myconf <- confint(boot.out)
 ```
 
 ## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
@@ -618,6 +625,9 @@ sigspp <- as.tibble(dhw.sp.res22) %>%
 spp_thresh <- as.tibble(dhw.sp.res22) %>%
   group_by(Species, year) %>%
   slice(which.min(abs(prob - 0.5))) %>%
+  group_by(Species) %>%
+  # Filter out species AAGA/PFUR/PDIV? No.
+  #filter(sum((abs(prob - 0.5)) < 0.02) > 1) %>%
   ungroup() %>%
   dplyr::select(year, Species, dhw) %>%
   group_by(Species) %>%
@@ -625,9 +635,9 @@ spp_thresh <- as.tibble(dhw.sp.res22) %>%
          lower = (dhw - dhw[year == "2014"]) * 0.07527467,
          upper = (dhw - dhw[year == "2014"]) * 0.08013819)
 
-ggplot(spp_thresh, aes(y = diffC, x = as.numeric(as.character(year)), color = Species)) +
-  geom_point() +
-  geom_line()
+# ggplot(spp_thresh, aes(y = diffC, x = as.numeric(as.character(year)), color = Species)) +
+#   geom_point() +
+#   geom_line()
 
 spp_thresh %>%
   ungroup() %>%
@@ -662,7 +672,11 @@ net <- bleach_dens %>%
             logratiodens = log(rate[year == "2023"]/rate[year == "2014"]))
 
 ggplot(net, aes(x = logratiodens, y = netthresh)) + geom_label(aes(label = Species)) +
-  geom_smooth(method = "lm", se = FALSE)
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Change in density (log(2023/2014))", y = "Change in heat tolerance (2014-2023, °C)")
+
+mod <- lm(netthresh ~ logratiodens, data = net)
+anova(mod)
 ```
 
 
