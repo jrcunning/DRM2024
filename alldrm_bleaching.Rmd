@@ -1,0 +1,52 @@
+---
+title: "drm_overall"
+author: "R. Cunning"
+date: "2024-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### DRM data
+```{r import_drm}
+# Import DRM data
+df <- read_csv("data/drm/export.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+
+# Get day of the year number, week, and month for some model fitting
+df <- df %>%
+  mutate(Day = yday(Date),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week = factor(Week),
+         Month = factor(month(Date)),
+         Year = factor(year(Date)))
+
+# Create ordinal variables and factors for bleaching severity
+df <- df %>%
+  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
+                                Bleaching == "P" ~ 1,
+                                Bleaching == "PB" ~ 2,
+                                Bleaching == "BL" ~ 3,
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4))
+
+# Summarize bleaching by year
+BLsumm <- df %>% 
+  group_by(Year) %>%
+  summarize(pctBL = sum(Bleaching2 > 1) / n())
+
+BLsites <- df %>% 
+  group_by(Year, Site) %>%
+  summarize(pctBL = sum(Bleaching2 > 1) / n())
+  
+ggplot(BLsites, aes(x = Year, y = pctBL)) + geom_boxplot()
+
+# Summarize each year
+dfn %>%
+  mutate(pctBL = map(data, ~))
+```
+
