@@ -39,14 +39,17 @@ BLsumm <- df %>%
   group_by(Year) %>%
   summarize(pctBL = sum(Bleaching2 > 1) / n())
 
+# Summarize bleaching by site by year
 BLsites <- df %>% 
-  group_by(Year, Site) %>%
-  summarize(pctBL = sum(Bleaching2 > 1) / n())
-  
-ggplot(BLsites, aes(x = Year, y = pctBL)) + geom_boxplot()
+  group_by(Year, Site, Subregion) %>%
+  summarize(pctBL = sum(Bleaching2 > 1) / n(),
+            n = n())
 
-# Summarize each year
-dfn %>%
-  mutate(pctBL = map(data, ~))
+# Plot
+ggplot(BLsites, aes(x = Year, y = pctBL)) + 
+  geom_jitter(alpha = 0.25) +
+  geom_boxplot(outliers = FALSE, alpha = 0.9)
+
+# 2014, 2015, and 2023 have median bleaching >25% across all sites surveyed
 ```
 
