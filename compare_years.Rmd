@@ -85,8 +85,9 @@ species_names <- c(
 
 species_names_2l <- gsub(" ", "\n", species_names)
 abbrev_names <- as_tibble(species_names) %>%
-  separate(value, into = c("genus", "species")) %>%
-  mutate(genus = gsub("[a-z]+", ".", genus)) %>%
+  separate(value, into = c("genus", "species"), sep = " ") %>%
+  mutate(genus = case_when(species == "sp." ~ genus,
+                           species != "sp." ~ gsub("[a-z]+", ".", genus))) %>%
   unite(genus, species, col = "name", sep = " ")
 abbrev_names <- c(abbrev_names$name)
 names(abbrev_names) <- names(species_names)
@@ -94,7 +95,7 @@ names(abbrev_names) <- names(species_names)
 
 # Import all data (2014, 2015, 2022, 2023)
 ```{r}
-# Load all data from 2014, 2015, 2022, and 2023
+# Load all data from 2014, 2015, and 2023
 # QC'd by year
 load("output/2014.RData")
 df14 <- df14 %>% filter(!Subregion %in% c("Martin", "North Palm Beach"))
@@ -275,7 +276,7 @@ ggsave(filename = "output/2023_bleaching_maps_multipanel.png",
 ```
 ![](./output/2023_bleaching_maps_multipanel.png)
 
-# Variation in bleaching susceptibility in 2023 by species
+# Bleaching variability across and within species
 
 ```{r bleaching_by_species}
 ## Ways of modeling species-level bleaching susceptibility vs. dhw
@@ -389,7 +390,7 @@ drc.heatmap +
 drc.res.ridges <- drc.res %>%
   mutate(Species = factor(Species, levels = levels(drc.ord$Species))) %>%
   ggplot(aes(x = dhw, y = Species)) +
-  geom_ridgeline_gradient(aes(height = (1 - prob), fill = prob)) +
+  ggridges::geom_ridgeline_gradient(aes(height = (1 - prob), fill = prob)) +
   scale_y_discrete(labels = species_names[as.character(drc.ord$Species)]) +
   scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
                        limits = c(0, 1), midpoint = 0.5) +
@@ -403,6 +404,7 @@ ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
 ```
 ![](./output/bleaching_ridges.png)
 
+# Intra-species bleaching variability
 ```{r within_spp_bleaching_variability}
 # Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
 span <- drc.res %>%
@@ -433,7 +435,7 @@ cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0
 ```
 ![](./output/medrangeplot.png)
 
-# Overall bleaching susceptibility in 2023 vs. 2014 and 2015
+# Overall bleaching susceptibility in 2023 vs. 2015 vs. 2014
 
 ```{r aggregate_subset_data}
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
@@ -501,8 +503,8 @@ bleach50
 # Bootstrap the calculation of ED50
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 48, seed = 123, re.form = NULL,
-                    parallel = "multicore", ncpus = 8)
+boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 200, seed = 123, re.form = NULL,
+                    parallel = "multicore", ncpus = 20)
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -612,50 +614,117 @@ dhw.sp.res22 <- subset(dhw.sp.res,
   labs(x = "DHWs", y = "Probability of bleaching"))
 
 
+# Function to get DHW's that cause 50% bleaching for each year
+ed50s.fun <- function(dhw.sp.mod) {
+  dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
+                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), rg.limit = 200000, level = 0.84)
+  dhw.sp.res22 <- subset(dhw.sp.res,
+    (year == "2014" & Week2 == "(36,38]") |
+    (year == "2015" & Week2 == "(36,38]") |
+    (year == "2023" & Week2 == "(33,35]") 
+  )
+  bleach50 <- as.tibble(dhw.sp.res22) %>%
+    group_by(Species, year) %>%
+    slice(which.min(abs(prob - 0.5)))
+  bleachdiffs <- bleach50 %>%
+    group_by(Species) %>%
+    summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
+              "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
+    pivot_longer(2:3)
+  names <- c(paste(bleach50$Species, bleach50$year), paste(bleachdiffs$Species, bleachdiffs$name))
+  vals <- c(bleach50$dhw, bleachdiffs$value)
+  vals <- setNames(vals, names)
+  return(vals)
+}
 
-# # Sanity check by species
-# myspp <- allf %>%
-#   filter(Species == "CNAT") %>%
-#   mutate(dhw.bin = cut(dhw, breaks = seq(0, 20, 2))) #%>%
-# 
-# ggplot(myspp, aes(x = dhw.bin, fill = Bleaching2 > 1)) +
-#   geom_bar(position = "stack") +
-#   facet_wrap(~year)
+# Get point estimates for ED50s (DHW's that cause 50% bleaching)
+sp.bleach50 <- ed50s.fun(dhw.sp.mod)
+sp.bleach50
 
-# GET SIG DIFFS!
-## Find where dhw[year==2014&asymp.LCL>0.5] < dhw[year==2023&asymp.UCL<0.5]
-sigspp <- as.tibble(dhw.sp.res22) %>%
-  group_by(Species) %>%
-  summarize(higher2014 = min(dhw[year==2014 & asymp.LCL > 0.5]),
-            lower2023 = max(dhw[year==2023 & asymp.UCL < 0.5])) %>%
-  filter(higher2014 < lower2023)
-  
+# Bootstrap the calculation of ED50
+## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
+## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
+sp.boot.out <- bootMer(dhw.sp.mod, FUN = ed50s.fun, nsim = 200, seed = 123, re.form = NULL,
+                    parallel = "multicore", ncpus = 20)
+## Get confidence intervals from Bootstrap
+sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
+sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
+## Get standard error from Bootstrap
+sp.se <- apply(sp.boot.out$t, 2, sd)
 
-# Get yearly DHW diffs to 50% bleaching -- convert to °C
-spp_thresh <- as.tibble(dhw.sp.res22) %>%
-  group_by(Species, year) %>%
-  slice(which.min(abs(prob - 0.5))) %>%
-  group_by(Species) %>%
-  # Filter out species AAGA/PFUR/PDIV? No.
-  #filter(sum((abs(prob - 0.5)) < 0.02) > 1) %>%
-  ungroup() %>%
-  dplyr::select(year, Species, dhw) %>%
-  group_by(Species) %>%
-  mutate(diffC = (dhw - dhw[year == "2014"]) * 0.07770643,
-         lower = (dhw - dhw[year == "2014"]) * 0.07527467,
-         upper = (dhw - dhw[year == "2014"]) * 0.08013819)
+sp.ed50conf <- tibble(
+  year = names(sp.bleach50), 
+  ed50 = sp.bleach50,
+  se = sp.se,
+  lower = sp.lower,
+  upper = sp.upper) %>%
+  separate(year, into = c("Species", "year"), sep = " ")
 
-# ggplot(spp_thresh, aes(y = diffC, x = as.numeric(as.character(year)), color = Species)) +
-#   geom_point() +
-#   geom_line()
+# Get changes relative to 2014, convert to degC
+sp.degC <- sp.ed50conf %>%
+  filter(year %in% c("2015-2014", "2023-2014")) %>%
+  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * 0.077, .names = "{.col}.degC")) %>%
+  separate(year, into = c("year", "2014"))
 
-spp_thresh %>%
-  ungroup() %>%
+
+sp.degC %>%
   filter(year == "2023") %>%
-  mutate(Species = fct_reorder(Species, diffC)) %>%
-  ggplot(aes(x = Species, y = diffC)) +
+  mutate(Species = fct_reorder(Species, ed50.degC)) %>%
+  ggplot(aes(x = Species, y = ed50.degC)) +
   geom_point() +
-  geom_errorbar(aes(ymin = lower, ymax = upper))
+  #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
+  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC))
+
+
+
+
+
+
+# ######### older 
+# 
+# # # Sanity check by species
+# # myspp <- allf %>%
+# #   filter(Species == "CNAT") %>%
+# #   mutate(dhw.bin = cut(dhw, breaks = seq(0, 20, 2))) #%>%
+# # 
+# # ggplot(myspp, aes(x = dhw.bin, fill = Bleaching2 > 1)) +
+# #   geom_bar(position = "stack") +
+# #   facet_wrap(~year)
+# 
+# # GET SIG DIFFS!
+# ## Find where dhw[year==2014&asymp.LCL>0.5] < dhw[year==2023&asymp.UCL<0.5]
+# sigspp <- as.tibble(dhw.sp.res22) %>%
+#   group_by(Species) %>%
+#   summarize(higher2014 = min(dhw[year==2014 & asymp.LCL > 0.5]),
+#             lower2023 = max(dhw[year==2023 & asymp.UCL < 0.5])) %>%
+#   filter(higher2014 < lower2023)
+#   
+# 
+# # Get yearly DHW diffs to 50% bleaching -- convert to °C
+# spp_thresh <- as.tibble(dhw.sp.res22) %>%
+#   group_by(Species, year) %>%
+#   slice(which.min(abs(prob - 0.5))) %>%
+#   group_by(Species) %>%
+#   # Filter out species AAGA/PFUR/PDIV? No.
+#   #filter(sum((abs(prob - 0.5)) < 0.02) > 1) %>%
+#   ungroup() %>%
+#   dplyr::select(year, Species, dhw) %>%
+#   group_by(Species) %>%
+#   mutate(diffC = (dhw - dhw[year == "2014"]) * 0.07770643,
+#          lower = (dhw - dhw[year == "2014"]) * 0.07527467,
+#          upper = (dhw - dhw[year == "2014"]) * 0.08013819)
+# 
+# # ggplot(spp_thresh, aes(y = diffC, x = as.numeric(as.character(year)), color = Species)) +
+# #   geom_point() +
+# #   geom_line()
+# 
+# spp_thresh %>%
+#   ungroup() %>%
+#   filter(year == "2023") %>%
+#   mutate(Species = fct_reorder(Species, diffC)) %>%
+#   ggplot(aes(x = Species, y = diffC)) +
+#   geom_point() +
+#   geom_errorbar(aes(ymin = lower, ymax = upper))
 ```
 
 
@@ -663,10 +732,11 @@ spp_thresh %>%
 ```{r bleachthresh_vs_density}
 densres <- readRDS("output/density.rds")
 
-bleach_dens <- right_join(as.tibble(densres), spp_thresh, by = c("Species", "year"))
+bleach_dens <- right_join(as.tibble(densres), sp.ed50conf, by = c("Species", "year"))
 
+# Plot 
 bleach_dens %>%
-  ggplot(aes(x = rate, y = diffC)) +
+  ggplot(aes(x = rate, y = ed50.degC)) +
   geom_errorbar(aes(xmin = rate - SE, xmax = rate + SE), lwd = 0.2) +
   geom_point(aes(shape = year, color = year), size = 3) +
   #geom_errorbar(aes(ymin = prob - SE.y, ymax = prob + SE.y)) +
@@ -675,18 +745,48 @@ bleach_dens %>%
   facet_wrap(~Species, scales = "free_x") +
   labs(x = "Density (colonies/10m^2)", y = "Change in heat tolerance (°C) from 2014")
 
-net <- bleach_dens %>%
-  group_by(Species) %>%
-  summarize(netthresh = diffC[year == "2023"],
-            netdens = rate[year == "2023"] - rate[year == "2014"],
-            logratiodens = log(rate[year == "2023"]/rate[year == "2014"]))
+# net <- as.tibble(densres) %>%
+#   group_by(Species) %>%
+#   summarize(netdens = rate[year == "2023"] - rate[year == "2014"],
+#             logratiodens = log(rate[year == "2023"]/rate[year == "2014"])) %>%
+#   left_join(filter(sp.degC, year == "2023"))
 
-ggplot(net, aes(x = logratiodens, y = netthresh)) + geom_label(aes(label = Species)) +
+net <- sp.degC %>%
+  filter(year == "2023") %>%
+  select(Species, ed50.degC, se.degC, lower.degC, upper.degC) %>%
+  left_join(select(as.tibble(diffs), Species, estimate, SE)) %>%
+  drop_na()
+
+ggplot(net, aes(x = estimate, y = ed50.degC)) + 
+  #geom_label(aes(label = Species)) +
+  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC)) +
+  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE)) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(x = "Change in density (log(2023/2014))", y = "Change in heat tolerance (2014-2023, °C)")
 
-mod <- lm(netthresh ~ logratiodens, data = net)
+# Model change in tolerance vs. change in density
+mod <- lm(ed50.degC ~ estimate, data = net)
 anova(mod)
+
+# Passing Bablok regression
+PBreg <- mcr::mcreg(net$estimate+2, net$ed50.degC,
+               method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
+summary(PBreg)
+PBfit <- mcr::calcResponse(PBreg, x.levels = seq(0.645, 3.178, 0.1), 
+                      alpha = 0.1) %>% as_tibble()
+PBfit <- PBfit %>%
+  mutate(estimate = X - 2,
+         ed50.degC = Y)
+
+ggplot(net, aes(x = estimate, y = ed50.degC)) + 
+  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC)) +
+  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
+  geom_point() +
+  geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
+  #geom_label(aes(label = Species)) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, lineheight = 0.75) +
+  labs(x = "Change in density (log(2023/2014))", y = "Change in heat tolerance (2014-2023, °C)")
 ```
 
 
