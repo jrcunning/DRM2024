@@ -143,5 +143,25 @@ as.tibble(res) %>%
 ```
 
 
+```{r}
+# Model change in density from 2014-2023 for each species
+dens <- df %>%
+  filter(year %in% c("2014", "2023")) %>%
+  mutate(year = factor(year, levels = c("2023", "2014"))) %>%
+  # Count number of colonies of each species per transect
+  count(year, Species, Site, Transect, Subregion) %>%
+  # Add zeros for all species not counted on a transect
+  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
+  # SUBSET FOR FASTER MODELING
+  filter(Species %in% spp_to_include$Species)
+
+mod5 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
+              verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
+anova(mod5)
+
+
+diffs <- rbind(pairs(emmeans(mod5, specs = c("Species", "year")), by = "Species", level = 0.95))
+saveRDS(diffs, file = "output/dens20142023.rds")
+```
 
 
