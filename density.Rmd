@@ -164,4 +164,22 @@ diffs <- rbind(pairs(emmeans(mod5, specs = c("Species", "year")), by = "Species"
 saveRDS(diffs, file = "output/dens20142023.rds")
 ```
 
+```{r}
+# Model change in density from 2014-2023 for each Subregion
+dens <- df %>%
+  filter(year %in% c("2014", "2023")) %>%
+  mutate(year = factor(year, levels = c("2023", "2014"))) %>%
+  # Count number of colonies of each species per transect
+  count(year, Site, Transect, Subregion)
 
+mod7 <- glm(n ~ Subregion * year, data = dens, family = "poisson") 
+anova(mod7)
+as_tibble(emmeans(mod7, specs = c("Subregion", "year"))) %>%
+  ggplot(aes(x = year, y = emmean)) +
+  geom_point() + geom_line() +
+  facet_wrap(~Subregion)
+
+
+diffs <- rbind(pairs(emmeans(mod7, specs = c("Subregion", "year")), by = "Subregion", level = 0.95))
+saveRDS(diffs, file = "output/dens20142023subregions.rds")
+```

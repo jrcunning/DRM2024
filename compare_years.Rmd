@@ -9,7 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r libraries}
+# Load libraries
 library(sf)
 library(sp)
 library(gstat)
@@ -19,10 +20,9 @@ library(terra)
 library(tidyterra)
 library(drc)
 library(tidyverse)
+```
 
-# Download satellite map for Florida
-world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
-
+```{r labellers}
 # Create species labeller
 species_names <- c(
   AAGA = "Agaricia agaricities",
@@ -113,7 +113,9 @@ all0 <- bind_rows(
   mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
 ```
 
-# Map overall bleaching severity in 2023
+# 2023 bleaching severity
+
+## Map bleaching (all corals)
 ```{r}
 # Get percent of colonies surveyed that were bleached at each site 
 pctbl23 <- df23 %>%
@@ -175,14 +177,10 @@ idw.spp.reef <- raster::mask(idw.spp, (as_Spatial(my_hull)))
 x <- rast(idw.spp.reef)
 
 # PLOT
-# Create base map
+# Download satellite map for Florida
+world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+# Create base map of Florida
 basemap <- ggplot() +
-  # Plot interpolated raster
-  #geom_spatraster(data = x) +
-  # Plot points for surveyed sites
-  # geom_point(data = pctbl23.adj, aes(x = Longitude, y = Latitude, fill = adjprob),
-  #            alpha = 0.6, stroke = 0.05, pch = 21) +
-  # Plot Florida
   geom_sf(data = world, lwd = 0.1, fill = "gray90") +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
   scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
@@ -203,7 +201,7 @@ rasterplot <- basemap +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
 ```
 
-### Map heat stress accumulation in 2023 (max. DHW)
+## Map DHWs
 ```{r}
 dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
@@ -247,7 +245,7 @@ ggsave(filename = "output/dhw_bleach.png", plot = dhw_bleach, width = 180, heigh
 ```
 ![](./output/dhw_bleach.png)
 
-### Detailed bleaching maps
+## Map subregions
 ```{r}
 # Raster plot with rectangles for Subregions
 rasterplot_rect <- rasterplot +
@@ -276,8 +274,9 @@ ggsave(filename = "output/2023_bleaching_maps_multipanel.png",
 ```
 ![](./output/2023_bleaching_maps_multipanel.png)
 
-# 2023 Bleaching variability across and within species
+## Species variation in bleaching
 
+### Species DRCs, ED50s
 ```{r bleaching_by_species}
 ## Ways of modeling species-level bleaching susceptibility vs. dhw
 # 1. GLMER (+random effects, -no constraining at 0 DHW, -no ED50)
@@ -404,7 +403,7 @@ ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
 ```
 ![](./output/bleaching_ridges.png)
 
-### Within-species variability
+### Within-species variation (ED90-ED10) vs. ED50
 ```{r within_spp_bleaching_variability}
 # Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
 span <- drc.res %>%
@@ -435,7 +434,7 @@ cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0
 ```
 ![](./output/medrangeplot.png)
 
-# Overall bleaching susceptibility in 2023 vs. 2015 vs. 2014
+# 2014-15-23 bleaching severity 
 
 ```{r aggregate_subset_data}
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
@@ -466,7 +465,8 @@ allg <- allf %>%
   ungroup()
 ```
 
-```{r bleaching_by_dhw.bin_across_years}
+## All corals - ED50s (glmer)
+```{r bleaching_by_dhw_across_years}
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
                      family = "binomial", data = allg, verbose = TRUE,
@@ -503,7 +503,7 @@ bleach50
 # Bootstrap the calculation of ED50
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 200, seed = 123, re.form = NULL,
+boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
                     parallel = "multicore", ncpus = 20)
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -532,7 +532,9 @@ dhw.res2 <- subset(dhw.res,
 dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   #geom_point() +
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
-  geom_line(aes(color = prob), lwd = 2) +
+  geom_line(aes(color = prob), lwd = 1) +
+  geom_segment(data = slice(ed50conf, 1:3),
+               aes(x = ed50, xend = ed50, y = 0.5, yend = 0), lty = 2, lwd = 0.25) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
@@ -542,13 +544,17 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
 
 dhw.bleach.plot +
   geom_errorbar(data = slice(ed50conf, 1:3), 
-                aes(x = ed50, y = 0.5, xmin = ed50-se, xmax = ed50+se), width = 0.03)
+               aes(x = ed50, y = 0.5, xmin = ed50-se, xmax = ed50+se), 
+               width = 0.02, alpha = 0.5)
+  # geom_errorbar(data = slice(ed50conf, 1:3), 
+  #              aes(x = ed50, y = 0.01, xmin = ed50-se, xmax = ed50+se), 
+  #              width = 0, lwd = 2, alpha = 0.3)
 
 # Save plot
 ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 90, height = 70, units = "mm")
 ```
 ![](./output/dhw_bleach_allyears.png)
-
+## All corals - ∆ED50, ∆°C
 ```{r change_degC_thresh}
 # Backcalculate change in ed50s (DHW) to change in tolerance (°C) 
 degC <- ed50conf %>%
@@ -567,6 +573,7 @@ degC %>%
   labs(y = "Change in heat tolerance from 2014 (°C)") +
   theme_classic()
 
+# # Model ∆°C vs year w/0intercept @ 2015 -- but only two data points
 # fit <- lm(ed50.degC ~ 0 + I(as.numeric(year) - 2014), data = degC)
 # plot(as.numeric(degC$year), degC$ed50.degC, xlim = c(2010, 2025), ylim = c(-0.1, 1))
 # newdat <- data.frame(year = seq(2010, 2025, 1))
@@ -574,12 +581,33 @@ degC %>%
 # lines(newdat$year, pred)
 # summary(fit)
 # confint(fit)
+
+# Model ED50 vs. year
+ed50conf %>%
+  slice(1:3) %>%
+  ggplot(aes(x = as.numeric(year), y = ed50)) + geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  geom_path(data = filter(ed50conf, year %in% c("2014", "2023")))
+
+mod <- ed50conf %>%
+  slice(1:3) %>%
+  lm(ed50 ~ as.numeric(year), data = .)
+
+# Change over time from regression on 2014-2015-2023
+(c1 <- coef(mod)[2])
+## 0.7123 DHW's per year --> 0.55°C/decade
+c1 * 0.0777 * 10
+
+# Change over time considering just 2014-2023
+(c2 <- ed50conf %>% filter(year == "2023-2014") %>% pull(ed50) / 9)
+## 0.8444 DHW's per year --> 0.66°C/decade
+c2 * 0.0777 * 10
 ```
 
-## Species-specific bleaching severity by DHWs in 2023 vs. 2014 and 2015
+## Species - ED50s 2014-15-23
 
 ```{r species_bleaching_by_year_dhw}
-# Model differences in bleaching severity between years with DHW as continuous predictor instead of bins
+# Model differences in bleaching severity between years with DHW
 dhw.sp.mod <- glmer(
   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
   family = "binomial", data = allg, verbose = TRUE,
@@ -652,8 +680,10 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-                       parallel = "multicore", ncpus = 20)
+# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 20)
+# saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
+sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -668,16 +698,19 @@ sp.ed50conf <- tibble(
   upper = sp.upper) %>%
   separate(year, into = c("Species", "year"), sep = " ")
 
-# Plot ED50s for each species for each year
-sp.ed50conf %>%
-  filter(year %in% c("2014", "2015", "2023")) %>%
-  ggplot(aes(x = year, y = ed50)) +
-    geom_point() +
-    geom_errorbar(aes(ymin = ed50 - se, ymax = ed50 + se), width = 0.2) +
-    facet_wrap(~Species, scales = "free_y") +
-    labs(y = "ED50 (DHWs to 50% bleaching)") +
-    theme_classic()
+# # Plot ED50s for each species for each year
+# sp.ed50conf %>%
+#   filter(year %in% c("2014", "2015", "2023")) %>%
+#   ggplot(aes(x = year, y = ed50)) +
+#     geom_point() +
+#     geom_errorbar(aes(ymin = ed50 - se, ymax = ed50 + se), width = 0.2) +
+#     facet_wrap(~Species, scales = "free_y") +
+#     labs(y = "ED50 (DHWs to 50% bleaching)") +
+#     theme_classic()
+```
 
+## Species - ∆ED50, ∆°C
+```{r sp.changeED50}
 # Convert ∆ED50s to degC
 sp.degC <- sp.ed50conf %>%
   filter(year %in% c("2015-2014", "2023-2014")) %>%
@@ -685,52 +718,222 @@ sp.degC <- sp.ed50conf %>%
   separate(year, into = c("year", "2014"))
 
 # Plot ∆ED50 2014-2023 for all Species
-sp.degC %>%
-  filter(year == "2023") %>%
-  mutate(Species = fct_reorder(Species, ed50.degC)) %>%
-  ggplot(aes(x = Species, y = ed50.degC)) +
+# sp.degC %>%
+#   filter(year == "2023") %>%
+#   mutate(Species = fct_reorder(Species, ed50.degC)) %>%
+#   ggplot(aes(x = Species, y = ed50.degC)) +
+#   geom_point() +
+#   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
+#   geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC), width = 0.2) +
+#   theme_classic() +
+#   theme(axis.text.x = element_text(angle = 90)) +
+#   labs(y = "Change in heat tolerance (°C) 2014-2023")
+
+# Plot ED50 vs. year for all Species
+sp.ed50conf %>%
+  filter(year %in% c("2014", "2015", "2023")) %>%
+  ggplot(aes(x = as.numeric(year), y = ed50)) + 
   geom_point() +
-  #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
-  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC), width = 0.2) +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  labs(y = "Change in heat tolerance (°C) 2014-2023")
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_path(data = filter(sp.ed50conf, year != "2015")) +
+  facet_wrap(~Species)
+
+# Get slopes for ∆DHW/year from regressions on 2014-2015-2023
+mod <- sp.ed50conf %>%
+  filter(year %in% c("2014", "2015", "2023")) %>%
+  mutate(year = as.numeric(year)) %>%
+  lm(ed50 ~ year * Species, data = .)
+
+slopes <- as.tibble(emtrends(mod, specs = "Species", var = "year")) %>%
+  mutate(slope = year.trend, slope.SE = SE) %>%
+  select(Species, slope, slope.SE)
+nets <- sp.ed50conf %>%
+  filter(year == "2023-2014") %>%
+  mutate(neted50 = ed50, neted50.SE = se) %>%
+  select(Species, neted50, neted50.SE)
+
+out <- full_join(slopes, nets) %>%
+  mutate(`2014-2015-2023` = slope * 0.0777 * 10,
+         `2014-2023` = neted50/9 * 0.0777 * 10)
+
+out %>%
+  pivot_longer(c(`2014-2015-2023`, `2014-2023`)) %>%
+  ggplot(aes(x = name, y = value, color = name)) +
+  geom_boxplot(alpha = 0.5) +
+  geom_jitter(height = 0, width = 0.1) +
+  scale_color_manual(values = c("blue", "black")) +
+  scale_y_continuous(breaks = seq(-0.5, 1.2, 0.1)) +
+  labs(y = "Change in heat tolerance (°C/decade)") +
+  theme(legend.position = "none")
+
+# Choose metric for °C/decade
+fin <- out %>%
+  select(Species, degC.dec = `2014-2023`, degC.dec.se = neted50.SE)
 ```
 
-# Compare change in heat tolerance to change in density, 2014-2023
+## Tolerance vs. density changes, 2014-2013
 
 ```{r bleachthresh_vs_density}
 #densres <- readRDS("output/density.rds")
-diffs <- readRDS("output/dens20142023.rds")
+densdiffs <- readRDS("output/dens20142023.rds")
 
 # Combine net changes in heat tolerance and density across species
-net <- sp.degC %>%
-  filter(year == "2023") %>%
-  select(Species, ed50.degC, se.degC, lower.degC, upper.degC) %>%
-  left_join(select(as.tibble(diffs), Species, estimate, SE)) %>%
+net <- fin %>%
+  left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   drop_na()
 
 # Model change in tolerance vs. change in density
 # Passing Bablok regression
-PBreg <- mcr::mcreg(net$estimate+2, net$ed50.degC,
+PBreg <- mcr::mcreg(net$estimate+3, net$degC.dec+3,
                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
 summary(PBreg)
-PBfit <- mcr::calcResponse(PBreg, x.levels = seq(0.645, 3.178, 0.1), 
+PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
                       alpha = 0.1) %>% as_tibble()
 PBfit <- PBfit %>%
-  mutate(estimate = X - 2,
-         ed50.degC = Y)
+  mutate(estimate = X - 3,
+         degC.dec = Y - 3)
 
-ggplot(net, aes(x = estimate, y = ed50.degC)) + 
-  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC)) +
+ggplot(net, aes(x = estimate, y = degC.dec)) + 
+  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * 0.0777, ymax = degC.dec + degC.dec.se * 0.0777)) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
   geom_point() +
   geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
   #geom_label(aes(label = Species)) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
-  labs(x = "Change in density (log(2023/2014))", y = "Change in heat tolerance (2014-2023, °C)") +
+  labs(x = "Change in density (log(2023/2014))", 
+       y = "Change in heat tolerance (2014-2023, °C)") +
   theme_classic()
+```
+
+## Subregions - ED50s
+
+```{r species_bleaching_by_year_dhw}
+# Model differences in bleaching severity between years with DHW
+dhw.reg.mod <- glmer(
+  cbind(BL, NB) ~ Subregion + dhw + Subregion:dhw + year + Subregion:year + year:Week2 + (dhw+year|Species),  
+  family = "binomial", data = allg, verbose = TRUE,
+  nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+
+# Best formula: cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion)
+#### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
+#### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
+anova(dhw.reg.mod)
+
+
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+# And select just the range of peak DHWs experienced across sites in each year
+dhw.reg.res <- emmeans(dhw.reg.mod, specs = c("Subregion", "dhw", "year", "Week2"), 
+                       type = "response",
+                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                   rg.limit = 200000, level = 0.84)
+dhw.reg.res2 <- subset(dhw.reg.res,
+  (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
+  (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
+  (year == "2022" & Week2 == "(37,39]" & dhw <= 8.07 & dhw > 0) |
+  (year == "2023" & Week2 == "(33,35]" & dhw <= 22.1 & dhw > 1.53) 
+)
+dhw.reg.res22 <- subset(dhw.reg.res,
+  (year == "2014" & Week2 == "(36,38]") |
+  (year == "2015" & Week2 == "(36,38]") |
+  (year == "2022" & Week2 == "(37,39]") |
+  (year == "2023" & Week2 == "(33,35]")
+)
+
+# Plot
+(dhw.reg.bleach.plot <- ggplot(as.tibble(dhw.reg.res2), aes(x = dhw, y = prob, group = year)) +
+  facet_wrap(~Subregion) +
+  #geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.4) +
+  geom_line(aes(color = year), lwd = 1, alpha = 0.9) +
+  geom_hline(aes(yintercept = 0.5), lty = 2) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
+  # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+  #                       limits = c(0, 1), midpoint = 0.5) +
+  theme_classic() +
+  #theme(legend.position = "none") +
+  labs(x = "DHWs", y = "Probability of bleaching"))
+
+
+# Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
+## change in ED50s from 2014-2015, and 2014-2023
+reg.ed50s.fun <- function(dhw.reg.mod) {
+  dhw.reg.res <- emmeans(dhw.reg.mod, specs = c("Subregion", "dhw", "year", "Week2"), type = "response",
+                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), rg.limit = 200000, level = 0.84)
+  dhw.reg.res22 <- subset(dhw.reg.res,
+    (year == "2014" & Week2 == "(36,38]") |
+    (year == "2015" & Week2 == "(36,38]") |
+    (year == "2023" & Week2 == "(33,35]") 
+  )
+  bleach50 <- as.tibble(dhw.reg.res22) %>%
+    group_by(Subregion, year) %>%
+    slice(which.min(abs(prob - 0.5)))
+  bleachdiffs <- bleach50 %>%
+    group_by(Subregion) %>%
+    summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
+              "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
+    pivot_longer(2:3)
+  names <- c(paste(bleach50$Subregion, bleach50$year), paste(bleachdiffs$Subregion, bleachdiffs$name))
+  vals <- c(bleach50$dhw, bleachdiffs$value)
+  vals <- setNames(vals, names)
+  return(vals)
+}
+
+# Get point estimates for ED50s and ∆ED50s
+reg.bleach50 <- reg.ed50s.fun(dhw.reg.mod)
+
+# Bootstrap ED50s for SE/confidence intervals
+## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
+## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
+# reg.boot.out <- bootMer(dhw.reg.mod, FUN = reg.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 10)
+# saveRDS(reg.boot.out, file = "output/reg.boot.out.rds")
+reg.boot.out <- readRDS(file = "output/reg.boot.out.rds")
+## Get confidence intervals from Bootstrap
+reg.lower <- apply(reg.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
+reg.upper <- apply(reg.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
+## Get standard error from Bootstrap
+reg.se <- apply(reg.boot.out$t, 2, sd)
+
+reg.ed50conf <- tibble(
+  name = names(reg.bleach50), 
+  ed50 = reg.bleach50,
+  se = reg.se,
+  lower = reg.lower,
+  upper = reg.upper) %>%
+  mutate(year = gsub("\\D+", "", name),
+         Subregion = gsub("\\d+", "", name)) %>%
+  mutate(Subregion = gsub("\\ -", " ", Subregion)) %>%
+  mutate(Subregion = trimws(Subregion, "right"))
+
+# # Plot ED50s for each subregion for each year
+reg.ed50conf %>%
+  filter(year %in% c("2014", "2015", "2023")) %>%
+  ggplot(aes(x = year, y = ed50)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = ed50 - se, ymax = ed50 + se), width = 0.2) +
+    facet_wrap(~Subregion, scales = "free_y") +
+    labs(y = "ED50 (DHWs to 50% bleaching)") +
+    theme_classic()
+
+# Changes in heat tolerance for each region
+out <- reg.ed50conf %>%
+  filter(year == "20232014")
+```
+
+```{r subregion_bleachthresh_vs_density}
+#densres <- readRDS("output/density.rds")
+densdiffs <- readRDS("output/dens20142023subregions.rds")
+
+# Combine net changes in heat tolerance and density across species
+net <- out %>%
+  left_join(select(as.tibble(densdiffs), Subregion, estimate, SE))
+
+ggplot(net, aes(x = estimate, y = ed50)) + 
+  geom_label(aes(label = Subregion)) +
+  theme_classic() +
+  xlim(-0.2, 1) +
+  labs(x = "Change in density (log(2023/2014))",
+       y = "Change in ED50 2014-2023 (DHW)")
 ```
 
 
@@ -860,7 +1063,7 @@ ggplot(pred2, aes(x = log(Width2), y = Species)) +
 # Model bleaching severity by subregion across years
 ### (This replicates what was done individually by year and then combined -- use THIS.)
 
-subregion.mod <- glmer(cbind(BL, NB) ~ Subregion * year * Week2 + (1|Species),
+subregion.mod <- glmer(cbind(BL, NB) ~ Subregion * year + year:Week2 + (year|Species),
                        family = "binomial", data = allg)
 
 # Get fitted values across dhw
