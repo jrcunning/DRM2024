@@ -1,12 +1,12 @@
 ---
-title: "Cross-year comparisons"
+title: "DRM bleaching analysis"
 author: "R. Cunning"
-date: "2024-05-12"
+date: "2024-05-26"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
 ```
 
 ```{r libraries}
@@ -22,7 +22,7 @@ library(drc)
 library(tidyverse)
 ```
 
-```{r labellers}
+```{r labellers, include = FALSE}
 # Create species labeller
 species_names <- c(
   AAGA = "Agaricia agaricities",
@@ -64,6 +64,7 @@ species_names <- c(
   ODIF = "Oculina diffusa",
   OFAV = "Orbicella faveolata",
   OFRA = "Orbicella franksi",
+  ORBI = "Orbicella sp.",
   PAST = "Porites astreoides",
   PBRA = "Porites branneri",
   PCLI = "Pseudodiploria clivosa",
@@ -93,8 +94,8 @@ abbrev_names <- c(abbrev_names$name)
 names(abbrev_names) <- names(species_names)
 ```
 
-# Import all data (2014, 2015, 2022, 2023)
-```{r}
+# Import DRM and DHW data (2014, 2015, 2023)
+```{r import_data}
 # Load all data from 2014, 2015, and 2023
 # QC'd by year
 load("output/2014.RData")
@@ -116,7 +117,7 @@ all0 <- bind_rows(
 # 2023 bleaching severity
 
 ## Map bleaching (all corals)
-```{r}
+```{r map_bleaching}
 # Get percent of colonies surveyed that were bleached at each site 
 pctbl23 <- df23 %>%
   #filter(Date >= as.Date("2023-08-01"), Date <= as.Date("2023-09-30")) %>%
@@ -202,7 +203,7 @@ rasterplot <- basemap +
 ```
 
 ## Map DHWs
-```{r}
+```{r map_dhw}
 dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
   rename(Date = date) %>%
@@ -246,7 +247,7 @@ ggsave(filename = "output/dhw_bleach.png", plot = dhw_bleach, width = 180, heigh
 ![](./output/dhw_bleach.png)
 
 ## Map subregions
-```{r}
+```{r map_subregions, fig.width = 6, fig.height = 6}
 # Raster plot with rectangles for Subregions
 rasterplot_rect <- rasterplot +
   geom_rect(aes(xmin = -83, xmax = -82, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.05) +
@@ -271,12 +272,16 @@ maps_multipanel <- gridExtra::arrangeGrob(
   layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
 ggsave(filename = "output/2023_bleaching_maps_multipanel.png", 
        plot = maps_multipanel, width = 16, height = 4, unit = "in")
+
+# Display subregion panels
+cowplot::plot_grid(dtmap, lkmap, ncol = 1)
+cowplot::plot_grid(ukmap, semap, ncol = 2, rel_widths = c(0.6, 0.4))
 ```
-![](./output/2023_bleaching_maps_multipanel.png)
+
 
 ## Species variation in bleaching
 
-### Species DRCs, ED50s
+### Species ED50s, DRCs, GLMERs
 ```{r bleaching_by_species}
 ## Ways of modeling species-level bleaching susceptibility vs. dhw
 # 1. GLMER (+random effects, -no constraining at 0 DHW, -no ED50)
@@ -300,7 +305,7 @@ df23f <- df23.abund %>%
 
 #### GLMER
 m2 <- glmer(cbind(NB, BL) ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23f,
-            nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
+            nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
 res2 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
                at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 0.1)))
 glmer.res <- as.tibble(res2)
@@ -323,7 +328,7 @@ m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "bin
 nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 0.1))
 pred <- predict(m3, newdata = nd)
 drc.res <- as_tibble(bind_cols(nd, prob = pred))
-drc.ord <- ED(m3, 0.5, type = "absolute") %>%
+drc.ord <- ED(m3, 0.5, type = "absolute", display = FALSE) %>%
   as_tibble() %>%
   mutate(Species = levels(df23f$Species),
          Species = fct_reorder(Species, Estimate))
@@ -368,15 +373,6 @@ ggsave(filename = "output/bleaching_heatmaps.png", plot = bleaching_heatmaps, wi
 # Stats on ED50s
 # compParm(m3, "ED50", operator = "-")
 
-# Pretty plot drc heatmap
-drc.heatmap +
-  # geom_errorbar(data = drc.ord, aes(x = Estimate, xmin = Estimate - `Std. Error`, 
-  #                                   xmax = Estimate + `Std. Error`)) +
-  scale_x_continuous(expand = c(0, 0)) +
-  theme(panel.background = element_blank(),
-        legend.position = "right") +
-  labs(y = "Coral species", fill = "P(not bleached)")
-
 # # # Sanity check barplot
 # ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
 #   geom_bar(position = "fill") +
@@ -384,8 +380,7 @@ drc.heatmap +
 #   facet_wrap(~Species, scales = "free_y")
 
 
-# Try as ggridges
-
+# Ridgeline plot
 drc.res.ridges <- drc.res %>%
   mutate(Species = factor(Species, levels = levels(drc.ord$Species))) %>%
   ggplot(aes(x = dhw, y = Species)) +
@@ -399,12 +394,12 @@ drc.res.ridges <- drc.res %>%
         axis.text.y = element_text(face = "italic")) +
   labs(x = "Degree Heating Weeks", y = "")
 ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
-       width = 120, height = 120, units = "mm")
+       width = 90, height = 90, units = "mm")
 ```
 ![](./output/bleaching_ridges.png)
 
 ### Within-species variation (ED90-ED10) vs. ED50
-```{r within_spp_bleaching_variability}
+```{r within_spp_bleaching_variability, fig.width = 10, fig.height = 7}
 # Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
 span <- drc.res %>%
   group_by(Species) %>%
@@ -418,21 +413,22 @@ pbleach <- drc.res %>%
   filter(dhw == 23) %>%
   mutate(pbleach = 1 - prob)
 
-medrangeplot <- drc.ord %>%
+(medrangeplot <- drc.ord %>%
   left_join(span) %>%
+  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
   ggplot(aes(x = Estimate, y = span)) +
-  geom_point() +
+  geom_point(aes(size = n_symbiont_genera, color = reproductive_mode,
+                 shape = sexual_system)) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
   labs(x = "Median tolerance (DHW ED50)",
        y = "Range in tolerance (DHW ED75 - ED10)") +
-  theme_classic()
+  theme_classic())
 
-ggsave(filename = "output/medrangeplot.png", plot = medrangeplot, width = 120, height = 120, units = "mm")
+ggsave(filename = "output/medrangeplot.png", plot = medrangeplot, width = 90, height = 90, units = "mm")
 
-cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0.4))
+cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.5, 0.5))
 ```
-![](./output/medrangeplot.png)
 
 # 2014-15-23 bleaching severity 
 
@@ -440,11 +436,12 @@ cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.6, 0
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
 all0 <- all0 %>%
   mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
-                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",  #, "MFER"
+                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
                              Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
                              Species %in% c("OCUL", "ODIF") ~ "OCUL",
                              Species %in% c("SHYA", "SBOU") ~ "SOLE",
                              Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             Species %in% c("OFAV", "OFRA", "OANN") ~ "ORBI",
                              TRUE ~ Species)) %>%
   drop_na(Species)
 
@@ -469,12 +466,12 @@ allg <- allf %>%
 ```{r bleaching_by_dhw_across_years}
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
-                     family = "binomial", data = allg, verbose = TRUE,
+                     family = "binomial", data = allg, verbose = FALSE,
                      nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
 # Best formula: cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion)
 #### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
 #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-anova(dhw.mod)
+#anova(dhw.mod)
 
 # Function to get DHW's that cause 50% bleaching for each year
 ed50s.fun <- function(dhw.mod) {
@@ -503,8 +500,10 @@ bleach50
 # Bootstrap the calculation of ED50
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-                    parallel = "multicore", ncpus = 20)
+# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
+#                     parallel = "multicore", ncpus = 10)
+# saveRDS(boot.out, file = "output/boot.out.rds")
+boot.out <- readRDS(file = "output/boot.out.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -529,31 +528,37 @@ dhw.res2 <- subset(dhw.res,
 )
 
 # Plot
-dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
+(dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   #geom_point() +
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
-  geom_line(aes(color = prob), lwd = 1) +
+  geom_line(aes(color = prob), lwd = 2) +
   geom_segment(data = slice(ed50conf, 1:3),
                aes(x = ed50, xend = ed50, y = 0.5, yend = 0), lty = 2, lwd = 0.25) +
+  geom_segment(aes(x = -1, xend = 11.5, y = 0.5, yend = 0.5), lty = 2, lwd = 0.2) +
+  # geom_text(data = slice(ed50conf, 1:3), 
+  #           aes(x = ed50, y = 0.54, label = year),
+  #           hjust = 1, angle = 40) +
+  geom_text(data = slice(ed50conf, 1:3), 
+            aes(x = c(8,9.5,20.5), y = c(0.8, 0.65, 0.97), label = year)) +
+  scale_x_continuous(limits = c(-1, 23), breaks = seq(0, 24, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
   theme(legend.position = "none") +
-  labs(x = "DHWs", y = "Probability of bleaching")
+  labs(x = "DHWs", y = "Probability of bleaching") +
+  coord_cartesian(clip = "off"))
 
-dhw.bleach.plot +
-  geom_errorbar(data = slice(ed50conf, 1:3), 
-               aes(x = ed50, y = 0.5, xmin = ed50-se, xmax = ed50+se), 
-               width = 0.02, alpha = 0.5)
-  # geom_errorbar(data = slice(ed50conf, 1:3), 
-  #              aes(x = ed50, y = 0.01, xmin = ed50-se, xmax = ed50+se), 
-  #              width = 0, lwd = 2, alpha = 0.3)
+# dhw.bleach.plot +
+#   geom_errorbar(data = slice(ed50conf, 1:3), 
+#                aes(x = ed50, y = 0.5, xmin = ed50-se, xmax = ed50+se), 
+#                width = 0.02, alpha = 0.5)
 
 # Save plot
 ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 90, height = 70, units = "mm")
 ```
-![](./output/dhw_bleach_allyears.png)
+
+
 ## All corals - ∆ED50, ∆°C
 ```{r change_degC_thresh}
 # Backcalculate change in ed50s (DHW) to change in tolerance (°C) 
@@ -582,12 +587,14 @@ degC %>%
 # summary(fit)
 # confint(fit)
 
-# Model ED50 vs. year
-ed50conf %>%
+# Plot ED50 vs. year
+plot1 <- ed50conf %>%
   slice(1:3) %>%
   ggplot(aes(x = as.numeric(year), y = ed50)) + geom_point() +
   geom_smooth(method = "lm", se = F) +
-  geom_path(data = filter(ed50conf, year %in% c("2014", "2023")))
+  geom_path(data = filter(ed50conf, year %in% c("2014", "2023"))) +
+  theme_classic() +
+  labs(x = "Year", y = "ED50 (DHW)")
 
 mod <- ed50conf %>%
   slice(1:3) %>%
@@ -606,17 +613,17 @@ c2 * 0.0777 * 10
 
 ## Species - ED50s 2014-15-23
 
-```{r species_bleaching_by_year_dhw}
+```{r species_bleaching_by_year_dhw, fig.width = 7, fig.height = 9}
 # Model differences in bleaching severity between years with DHW
 dhw.sp.mod <- glmer(
   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
-  family = "binomial", data = allg, verbose = TRUE,
+  family = "binomial", data = allg, verbose = FALSE,
   nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
 
 # Best formula: cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion)
 #### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
 #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-anova(dhw.sp.mod)
+#anova(dhw.sp.mod)
 
 
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
@@ -639,10 +646,10 @@ dhw.sp.res22 <- subset(dhw.sp.res,
 # Plot
 (dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species) +
-  #geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.4) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
   geom_line(aes(color = year), lwd = 1, alpha = 0.9) +
   geom_hline(aes(yintercept = 0.5), lty = 2) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25)) +
   # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
   #                       limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
@@ -681,7 +688,7 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
 # sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 20)
+#                        parallel = "multicore", ncpus = 10)
 # saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
 sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
@@ -710,7 +717,7 @@ sp.ed50conf <- tibble(
 ```
 
 ## Species - ∆ED50, ∆°C
-```{r sp.changeED50}
+```{r sp.changeED50, fig.width = 7, fig.height = 9}
 # Convert ∆ED50s to degC
 sp.degC <- sp.ed50conf %>%
   filter(year %in% c("2015-2014", "2023-2014")) %>%
@@ -736,7 +743,8 @@ sp.ed50conf %>%
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   geom_path(data = filter(sp.ed50conf, year != "2015")) +
-  facet_wrap(~Species)
+  facet_wrap(~Species) +
+  theme_classic()
 
 # Get slopes for ∆DHW/year from regressions on 2014-2015-2023
 mod <- sp.ed50conf %>%
@@ -759,11 +767,12 @@ out <- full_join(slopes, nets) %>%
 out %>%
   pivot_longer(c(`2014-2015-2023`, `2014-2023`)) %>%
   ggplot(aes(x = name, y = value, color = name)) +
-  geom_boxplot(alpha = 0.5) +
+  geom_boxplot(alpha = 0.5, outliers = FALSE) +
   geom_jitter(height = 0, width = 0.1) +
   scale_color_manual(values = c("blue", "black")) +
   scale_y_continuous(breaks = seq(-0.5, 1.2, 0.1)) +
   labs(y = "Change in heat tolerance (°C/decade)") +
+  theme_classic() +
   theme(legend.position = "none")
 
 # Choose metric for °C/decade
@@ -786,15 +795,17 @@ net <- fin %>%
 # Passing Bablok regression
 PBreg <- mcr::mcreg(net$estimate+3, net$degC.dec+3,
                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
-summary(PBreg)
+#summary(PBreg)
+
 PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
                       alpha = 0.1) %>% as_tibble()
 PBfit <- PBfit %>%
   mutate(estimate = X - 3,
          degC.dec = Y - 3)
 
-ggplot(net, aes(x = estimate, y = degC.dec)) + 
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * 0.0777, ymax = degC.dec + degC.dec.se * 0.0777)) +
+tol_dens_plot <- ggplot(net, aes(x = estimate, y = degC.dec)) + 
+  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * 0.0777, 
+                    ymax = degC.dec + degC.dec.se * 0.0777), width = 0) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
   geom_point() +
   geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
@@ -804,15 +815,20 @@ ggplot(net, aes(x = estimate, y = degC.dec)) +
   labs(x = "Change in density (log(2023/2014))", 
        y = "Change in heat tolerance (2014-2023, °C)") +
   theme_classic()
+ggsave(filename = "output/tol_dens_plot.png", plot = tol_dens_plot,
+       width = 95, height = 90, units = "mm")
+
+tol_dens_plot
 ```
+
 
 ## Subregions - ED50s
 
-```{r species_bleaching_by_year_dhw}
+```{r subregion_bleaching_by_year_dhw}
 # Model differences in bleaching severity between years with DHW
 dhw.reg.mod <- glmer(
   cbind(BL, NB) ~ Subregion + dhw + Subregion:dhw + year + Subregion:year + year:Week2 + (dhw+year|Species),  
-  family = "binomial", data = allg, verbose = TRUE,
+  family = "binomial", data = allg, verbose = FALSE,
   nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
 
 # Best formula: cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion)
@@ -941,7 +957,7 @@ ggplot(net, aes(x = estimate, y = ed50)) +
 
 ## 2023 and possibly 2014 and 2015
 
-```{r}
+```{r size_effects}
 # Model bleaching severity by Width, species, and dhw. 
 # There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
 df23.abund <- df23.abund %>%
@@ -961,9 +977,9 @@ df23.abund <- df23.abund %>%
 # Fit model
 mod <- glmer(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
              family = "binomial", data = df23.abund,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = TRUE)
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
 #plot(mod, which = 1)
-summary(mod)
+#summary(mod)
 
 # Test if significant effect of width for each species at DHW = 15
 res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw = 15))
@@ -1017,13 +1033,13 @@ ggsave(filename = "output/sizeplot.png", plot = sizeplot,
 
 
 # Ridges?
-ggplot(pred2, aes(x = log(Width2), y = Species)) +
-  #coord_trans(x = "log") +
-  scale_x_continuous(breaks = log(c(4, 16, 64, 256))) +
-  geom_ridgeline_gradient(aes(height = response, fill = response), alpha = 0.5) +
-  scale_fill_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-                        limits = c(0, 1), midpoint = 0.5) +
-  theme_classic()
+# ggplot(pred2, aes(x = log(Width2), y = Species)) +
+#   #coord_trans(x = "log") +
+#   scale_x_continuous(breaks = log(c(4, 16, 64, 256))) +
+#   ggridges::geom_ridgeline_gradient(aes(height = response, fill = response), alpha = 0.5) +
+#   scale_fill_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+#                         limits = c(0, 1), midpoint = 0.5) +
+#   theme_classic()
 
 # Sanity checks for size effects
 # Plot actual proportions binned by size class a confirmation
@@ -1055,7 +1071,7 @@ ggplot(pred2, aes(x = log(Width2), y = Species)) +
 
 
 
-# Not to include?
+# Code scratchpad below
 
 ## Bleaching by subregion across years
 
