@@ -282,7 +282,7 @@ cowplot::plot_grid(ukmap, semap, ncol = 2, rel_widths = c(0.6, 0.4))
 ## Species variation in bleaching
 
 ### Species ED50s, DRCs, GLMERs
-```{r bleaching_by_species}
+```{r bleaching_by_species, fig.width = 5, fig.height = 6}
 ## Ways of modeling species-level bleaching susceptibility vs. dhw
 # 1. GLMER (+random effects, -no constraining at 0 DHW, -no ED50)
 # 2. DRC (+constrain at 0 DHW, +ED50 stats, -no random effects)
@@ -342,7 +342,8 @@ allres <- bind_rows(
 # Plot as response curves
 ggplot(allres, aes(x = dhw, y = prob)) +
          geom_line(aes(linetype = method)) +
-         facet_wrap(~Species)
+         facet_wrap(~Species) +
+  theme_classic()
 
 
 # Plot as heatmap
@@ -395,16 +396,26 @@ drc.res.ridges <- drc.res %>%
   labs(x = "Degree Heating Weeks", y = "")
 ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
        width = 90, height = 90, units = "mm")
+
+drc.res.ridges
 ```
-![](./output/bleaching_ridges.png)
+
 
 ### Within-species variation (ED90-ED10) vs. ED50
-```{r within_spp_bleaching_variability, fig.width = 10, fig.height = 7}
+```{r within_spp_bleaching_variability, fig.width = 8, fig.height = 5}
 # Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
-span <- drc.res %>%
+span1090 <- drc.res %>%
   group_by(Species) %>%
   slice(which.min(abs(prob - 0.90)),
         which.min(abs(prob - 0.10))) %>%
+  summarize(min = min(dhw), max = max(dhw)) %>%
+  mutate(span = max - min) %>%
+  arrange(-span)
+
+span2575 <- drc.res %>%
+  group_by(Species) %>%
+  slice(which.min(abs(prob - 0.75)),
+        which.min(abs(prob - 0.25))) %>%
   summarize(min = min(dhw), max = max(dhw)) %>%
   mutate(span = max - min) %>%
   arrange(-span)
@@ -413,8 +424,8 @@ pbleach <- drc.res %>%
   filter(dhw == 23) %>%
   mutate(pbleach = 1 - prob)
 
-(medrangeplot <- drc.ord %>%
-  left_join(span) %>%
+(plot1090 <- drc.ord %>%
+  left_join(span1090) %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
   ggplot(aes(x = Estimate, y = span)) +
   geom_point(aes(size = n_symbiont_genera, color = reproductive_mode,
@@ -422,12 +433,22 @@ pbleach <- drc.res %>%
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
   labs(x = "Median tolerance (DHW ED50)",
-       y = "Range in tolerance (DHW ED75 - ED10)") +
+       y = "Range in tolerance (DHW ED90 - ED10)") +
   theme_classic())
 
-ggsave(filename = "output/medrangeplot.png", plot = medrangeplot, width = 90, height = 90, units = "mm")
+(plot2575 <- drc.ord %>%
+  left_join(span2575) %>%
+  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
+  ggplot(aes(x = Estimate, y = span)) +
+  geom_point(aes(size = n_symbiont_genera, color = reproductive_mode,
+                 shape = sexual_system)) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, lineheight = 0.75) +
+  labs(x = "Median tolerance (DHW ED50)",
+       y = "Range in tolerance (DHW ED75 - ED25)") +
+  theme_classic())
 
-cowplot::plot_grid(drc.res.ridges, medrangeplot, ncol = 2, rel_widths = c(0.5, 0.5))
+ggsave(filename = "output/medrangeplot.png", plot = plot1090, width = 90, height = 90, units = "mm")
 ```
 
 # 2014-15-23 bleaching severity 
@@ -569,14 +590,24 @@ degC <- ed50conf %>%
          lower.degC = lower * 0.07770643,
          upper.degC = upper * 0.07770643) %>%
   separate(year, into = c("year", "2014"))
-degC %>%
-  select(year, ed50.degC, se.degC, lower.degC, upper.degC) %>%
-  ggplot(aes(x = year, y = ed50.degC)) +
+# degC %>%
+#   select(year, ed50.degC, se.degC, lower.degC, upper.degC) %>%
+#   ggplot(aes(x = year, y = ed50.degC)) +
+#   geom_point() +
+#   geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0.2) +
+#   ylim(0, 0.8) +
+#   labs(y = "Change in heat tolerance from 2014 (°C)") +
+#   theme_classic()
+
+# Plot ED50 vs. year
+ed50conf %>%
+  slice(1:3) %>%
+  ggplot(aes(x = as.numeric(year), y = ed50)) +
   geom_point() +
-  geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0.2) +
-  ylim(0, 0.8) +
-  labs(y = "Change in heat tolerance from 2014 (°C)") +
-  theme_classic()
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_path(data = slice(ed50conf, c(1,3))) +
+  theme_classic() +
+  labs(x = "Year", y = "ED50 (DHW)")
 
 # # Model ∆°C vs year w/0intercept @ 2015 -- but only two data points
 # fit <- lm(ed50.degC ~ 0 + I(as.numeric(year) - 2014), data = degC)
@@ -587,33 +618,26 @@ degC %>%
 # summary(fit)
 # confint(fit)
 
-# Plot ED50 vs. year
-plot1 <- ed50conf %>%
-  slice(1:3) %>%
-  ggplot(aes(x = as.numeric(year), y = ed50)) + geom_point() +
-  geom_smooth(method = "lm", se = F) +
-  geom_path(data = filter(ed50conf, year %in% c("2014", "2023"))) +
-  theme_classic() +
-  labs(x = "Year", y = "ED50 (DHW)")
-
 mod <- ed50conf %>%
   slice(1:3) %>%
   lm(ed50 ~ as.numeric(year), data = .)
 
 # Change over time from regression on 2014-2015-2023
 (c1 <- coef(mod)[2])
-## 0.7123 DHW's per year --> 0.55°C/decade
+## 0.7308 DHW's per year --> 0.57°C/decade
 c1 * 0.0777 * 10
 
 # Change over time considering just 2014-2023
-(c2 <- ed50conf %>% filter(year == "2023-2014") %>% pull(ed50) / 9)
-## 0.8444 DHW's per year --> 0.66°C/decade
-c2 * 0.0777 * 10
+ed50conf %>%
+  filter(year == "2023-2014") %>%
+  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * 0.0777 / 9 * 10, .names = "{.col}.degC.dec"))
+
+# 0.67°C/decade [95% C.I. = 0.56-0.72°C/decade]
 ```
 
 ## Species - ED50s 2014-15-23
 
-```{r species_bleaching_by_year_dhw, fig.width = 7, fig.height = 9}
+```{r species_bleaching_by_year_dhw, fig.width = 7, fig.height = 7}
 # Model differences in bleaching severity between years with DHW
 dhw.sp.mod <- glmer(
   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
@@ -717,24 +741,12 @@ sp.ed50conf <- tibble(
 ```
 
 ## Species - ∆ED50, ∆°C
-```{r sp.changeED50, fig.width = 7, fig.height = 9}
+```{r sp.changeED50, fig.width = 7, fig.height = 8}
 # Convert ∆ED50s to degC
 sp.degC <- sp.ed50conf %>%
   filter(year %in% c("2015-2014", "2023-2014")) %>%
   mutate(across(c("ed50", "se", "lower", "upper"), ~ . * 0.077, .names = "{.col}.degC")) %>%
   separate(year, into = c("year", "2014"))
-
-# Plot ∆ED50 2014-2023 for all Species
-# sp.degC %>%
-#   filter(year == "2023") %>%
-#   mutate(Species = fct_reorder(Species, ed50.degC)) %>%
-#   ggplot(aes(x = Species, y = ed50.degC)) +
-#   geom_point() +
-#   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
-#   geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC), width = 0.2) +
-#   theme_classic() +
-#   theme(axis.text.x = element_text(angle = 90)) +
-#   labs(y = "Change in heat tolerance (°C) 2014-2023")
 
 # Plot ED50 vs. year for all Species
 sp.ed50conf %>%
@@ -778,6 +790,18 @@ out %>%
 # Choose metric for °C/decade
 fin <- out %>%
   select(Species, degC.dec = `2014-2023`, degC.dec.se = neted50.SE)
+
+# Plot ∆ED50 2014-2023 for all Species
+sp.degC %>%
+  filter(year == "2023") %>%
+  mutate(Species = fct_reorder(Species, ed50.degC)) %>%
+  ggplot(aes(x = Species, y = ed50.degC)) +
+  geom_point() +
+  #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
+  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC), width = 0.2) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(y = "Change in heat tolerance (°C) 2014-2023")
 ```
 
 ## Tolerance vs. density changes, 2014-2013
@@ -939,25 +963,35 @@ out <- reg.ed50conf %>%
 ```{r subregion_bleachthresh_vs_density}
 #densres <- readRDS("output/density.rds")
 densdiffs <- readRDS("output/dens20142023subregions.rds")
+# nmds <- cent %>%
+#   group_by(Subregion) %>%
+#   summarize(dMDS1 = MDS1[year=="2023"]-MDS1[year=="2014"],
+#             dMDS2 = MDS2[year=="2023"]-MDS2[year=="2014"])
 
 # Combine net changes in heat tolerance and density across species
 net <- out %>%
-  left_join(select(as.tibble(densdiffs), Subregion, estimate, SE))
+  left_join(select(as.tibble(densdiffs), Subregion, estimate, SE))# %>%
+  # left_join(nmds)
 
 ggplot(net, aes(x = estimate, y = ed50)) + 
   geom_label(aes(label = Subregion)) +
   theme_classic() +
-  xlim(-0.2, 1) +
-  labs(x = "Change in density (log(2023/2014))",
+  #xlim(-0.2, 1) +
+  labs(x = "Change in MDS2 2023-2014",
        y = "Change in ED50 2014-2023 (DHW)")
+
+# mod <- lm(ed50 ~ dMDS1 + dMDS2, data = net)
+# summary(mod)
+# anova(mod)
+# net
 ```
 
 
 # Size diffs
 
-## 2023 and possibly 2014 and 2015
+## 2023 - probability at 15 DHWs
 
-```{r size_effects}
+```{r size_effects_2023}
 # Model bleaching severity by Width, species, and dhw. 
 # There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
 df23.abund <- df23.abund %>%
@@ -986,7 +1020,7 @@ res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw 
 
 # Get significant species
 sig <- as.tibble(summary(res, infer = TRUE)) %>%
-  filter(p.value < 0.05)
+  filter(p.value < 0.01)
 
 # Get fitted values for bleaching probability as a function of size for significant species
 pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
@@ -1022,7 +1056,7 @@ mynames <- pred2 %>%
   geom_text(data = mynames, aes(label = name, x = maxw), y = 0, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
   #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
   ylim(0, 1) +
-  labs(x = "Colony width (cm)", y = "Probability of bleaching at 10 DHWs") +
+  labs(x = "Colony width (cm)", y = "Probability of bleaching at 15 DHWs") +
   theme_classic() +
   theme(legend.position = "none",
         strip.text = element_blank(),
@@ -1068,8 +1102,163 @@ ggsave(filename = "output/sizeplot.png", plot = sizeplot,
 #   coord_trans(y = "log2")
 ```
 
+## 2014 - probability at 8 DHWs
+
+```{r size_effects_2014}
+# Model bleaching severity by Width, species, and dhw. 
+# There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
+df14.abund <- df14 %>%
+  group_by(Species) %>%
+  dplyr::filter(n() > 30) %>%
+  ungroup() %>%
+  mutate(Width2 = case_when(Width >= 4 ~ Width,
+                            Width < 4 ~ 4)) %>%
+  droplevels()
+
+# Fit model
+mod <- glmer(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
+             family = "binomial", data = df14.abund,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
+#plot(mod, which = 1)
+#summary(mod)
+
+# Test if significant effect of width for each species at DHW = 15
+res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw = 8))
+
+# Get significant species
+sig <- as.tibble(summary(res, infer = TRUE)) %>%
+  filter(p.value < 0.01)
+
+# Get fitted values for bleaching probability as a function of size for significant species
+pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
+                          at = list(Width2 = seq(4,500,1), dhw = 8), 
+                          type = "response", rg.limit = 100000)) %>%
+  filter(Species %in% sig$Species) %>%
+  left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
+# Get actual observed size ranges for these species
+actual <- filter(df14.abund) %>%
+  drop_na(Species) %>%
+  group_by(Species) %>%
+  summarize(min = min(Width2, na.rm = T), max = max(Width2, na.rm = T)) %>%
+  mutate(ad = map(max, ~expand_grid(Width2 = seq(4, ., 1)))) %>%
+  unnest(ad)
+pred2 <- pred %>%
+  semi_join(actual, by = c("Species", "Width2"))
+  
+# Get species full names for plotting
+mynames <- pred2 %>%
+  left_join(tibble(name = abbrev_names, Species = names(abbrev_names))) %>%
+  group_by(Species, name) %>%
+  summarize(maxw = max(Width2)) %>%
+  distinct(Species, name, maxw)
+# Plot fitted probabilities within the range of observed Widths for each significant species
+(sizeplot <- ggplot(pred2, aes(x = Width2, y = response, group = Species)) +
+  coord_trans(x = "log") +
+  scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
+  facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
+  geom_line(aes(color = response)) +
+  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
+  geom_text(data = mynames, aes(label = name, x = maxw), y = 0, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
+  #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
+  ylim(0, 1) +
+  labs(x = "Colony width (cm)", y = "Probability of bleaching at 10 DHWs") +
+  theme_classic() +
+  theme(legend.position = "none",
+        strip.text = element_blank(),
+        strip.background = element_blank()))
+
+# ggsave(filename = "output/sizeplot.png", plot = sizeplot,
+#        width = 120, height = 100, units = "mm")
 
 
+# sanity check on sside size effect
+# dlab <- df14.abund %>%
+#   filter(Species == "SSID")
+# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
+#   geom_bar(position = "fill") +
+#   facet_wrap(~Subregion)
+```
+
+## 2015 - probability at 8 DHWs
+
+```{r size_effects_2015}
+# Model bleaching severity by Width, species, and dhw. 
+# There are some corals with Width < 4 -- these were included because Height should have been at least 4. In these cases change Width to 4.
+df15.abund <- df15 %>%
+  group_by(Species) %>%
+  dplyr::filter(n() > 30) %>%
+  ungroup() %>%
+  mutate(Width2 = case_when(Width >= 4 ~ Width,
+                            Width < 4 ~ 4)) %>%
+  droplevels()
+
+# Fit model
+mod <- glmer(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
+             family = "binomial", data = df15.abund,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
+#plot(mod, which = 1)
+#summary(mod)
+
+# Test if significant effect of width for each species at DHW = 15
+res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw = 8))
+
+# Get significant species
+sig <- as.tibble(summary(res, infer = TRUE)) %>%
+  filter(p.value < 0.01)
+
+# Get fitted values for bleaching probability as a function of size for significant species
+pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
+                          at = list(Width2 = seq(4,500,1), dhw = 8), 
+                          type = "response", rg.limit = 100000)) %>%
+  filter(Species %in% sig$Species) %>%
+  left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
+# Get actual observed size ranges for these species
+actual <- filter(df15.abund) %>%
+  drop_na(Species) %>%
+  group_by(Species) %>%
+  summarize(min = min(Width2, na.rm = T), max = max(Width2, na.rm = T)) %>%
+  mutate(ad = map(max, ~expand_grid(Width2 = seq(4, ., 1)))) %>%
+  unnest(ad)
+pred2 <- pred %>%
+  semi_join(actual, by = c("Species", "Width2"))
+  
+# Get species full names for plotting
+mynames <- pred2 %>%
+  left_join(tibble(name = abbrev_names, Species = names(abbrev_names))) %>%
+  group_by(Species, name) %>%
+  summarize(maxw = max(Width2)) %>%
+  distinct(Species, name, maxw)
+# Plot fitted probabilities within the range of observed Widths for each significant species
+(sizeplot <- ggplot(pred2, aes(x = Width2, y = response, group = Species)) +
+  coord_trans(x = "log") +
+  scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
+  facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
+  geom_line(aes(color = response)) +
+  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
+  geom_text(data = mynames, aes(label = name, x = maxw), y = 0, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
+  #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
+  ylim(0, 1) +
+  labs(x = "Colony width (cm)", y = "Probability of bleaching at 10 DHWs") +
+  theme_classic() +
+  theme(legend.position = "none",
+        strip.text = element_blank(),
+        strip.background = element_blank()))
+
+# ggsave(filename = "output/sizeplot.png", plot = sizeplot,
+#        width = 120, height = 100, units = "mm")
+
+
+# sanity check on sside size effect
+# dlab <- df14.abund %>%
+#   filter(Species == "SSID")
+# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
+#   geom_bar(position = "fill") +
+#   facet_wrap(~Subregion)
+```
 
 # Code scratchpad below
 
