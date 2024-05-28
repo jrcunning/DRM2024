@@ -319,11 +319,11 @@ glmer.ord <- glmer.res %>%
 # More pars = less estimable standard errors on ED50... depends how important ED50 inference is
 m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "binomial",
          logDose = NULL, fct = LL.5(
-           names = c("hill","c", "max", "ED50", "f"),
+           names = c("hill", "min", "max", "ED50", "f"),
            ## Max parameter is fixed to 1
-           fixed = c(NA, NA, 1, NA, NA)),
+           fixed = c(NA, 0, 1, NA, NA)),
     # Hill parameter must be positive (must decrease with incr. dhw)
-    lowerl = c(rep(0, 22), rep(-Inf, 22), rep(0, 22), rep(-Inf, 22)),
+    #lowerl = c(rep(0, 22), rep(-Inf, 22), rep(0, 22), rep(-Inf, 22)),
     control = drmc(relTol = 1e-7))
 nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 0.1))
 pred <- predict(m3, newdata = nd)
@@ -374,6 +374,9 @@ ggsave(filename = "output/bleaching_heatmaps.png", plot = bleaching_heatmaps, wi
 # Stats on ED50s
 # compParm(m3, "ED50", operator = "-")
 
+# Extract slopes? coef 'hill'
+# coef(m3)
+
 # # # Sanity check barplot
 # ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,21,3)), fill = Bleaching3)) +
 #   geom_bar(position = "fill") +
@@ -395,7 +398,7 @@ drc.res.ridges <- drc.res %>%
         axis.text.y = element_text(face = "italic")) +
   labs(x = "Degree Heating Weeks", y = "")
 ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
-       width = 90, height = 90, units = "mm")
+       width = 120, height = 120, units = "mm")
 
 drc.res.ridges
 ```
