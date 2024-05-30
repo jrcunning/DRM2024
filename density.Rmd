@@ -5,14 +5,14 @@ date: "2024-05-23"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
 
 library(lme4)
 library(emmeans)
 library(tidyverse)
 ```
 
-### DRM data
+### Import DRM data
 ```{r import_drm}
 # Import DRM data
 df0 <- read_csv("data/drm/export.csv") %>%
@@ -51,6 +51,7 @@ df <- df %>%
                              Species %in% c("OCUL", "ODIF") ~ "OCUL",
                              Species %in% c("SHYA", "SBOU") ~ "SOLE",
                              Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             Species %in% c("OFAV", "OANN", "OFRA") ~ "ORBI",
                              TRUE ~ Species)) %>%
   drop_na(Species)
 
@@ -68,7 +69,10 @@ dens <- df %>%
   complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
   # SUBSET FOR FASTER MODELING
   filter(Species %in% spp_to_include$Species)
+```
 
+# Changes in density of each species over time
+```{r}
 mod_1 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
                verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
 anova(mod_1)
@@ -88,8 +92,6 @@ densres <- res
 saveRDS(densres, file = "output/density.rds")
 ```
 
-
-
 ```{r}
 # Look at size distribution over time
 dff <- df %>%
@@ -104,7 +106,7 @@ ggplot(dff, aes(x = year, y = Width)) +
 
 ```
 
-
+# Changes in density of all corals by Subregion
 ```{r}
 # Density of all corals
 dens0 <- df %>%
@@ -127,22 +129,22 @@ as.tibble(res) %>%
 
 
 # Overall density
-mod_1 <- glmer(n ~ year + (year|Subregion), data = dens0, family = "poisson",
-               verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
-anova(mod_1)
-
-res <- emmeans(mod_1, specs = c("year"), type = "response")
-
-as.tibble(res) %>%
-  ggplot(aes(x = year, y = rate)) +
-  geom_point() + #aes(color = Subregion)
-  geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
-  geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
-  geom_vline(aes(xintercept = "2014")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# mod_1 <- glmer(n ~ year + (year|Subregion), data = dens0, family = "poisson",
+#                verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
+# anova(mod_1)
+# 
+# res <- emmeans(mod_1, specs = c("year"), type = "response")
+# 
+# as.tibble(res) %>%
+#   ggplot(aes(x = year, y = rate)) +
+#   geom_point() + #aes(color = Subregion)
+#   geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
+#   geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
+#   geom_vline(aes(xintercept = "2014")) +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-
+# Change in density 2014-2023 for each Species
 ```{r}
 # Model change in density from 2014-2023 for each species
 dens <- df %>%
@@ -164,6 +166,7 @@ diffs <- rbind(pairs(emmeans(mod5, specs = c("Species", "year")), by = "Species"
 saveRDS(diffs, file = "output/dens20142023.rds")
 ```
 
+# Change in density 2014-2023 for each Subregion
 ```{r}
 # Model change in density from 2014-2023 for each Subregion
 dens <- df %>%
@@ -183,3 +186,42 @@ as_tibble(emmeans(mod7, specs = c("Subregion", "year"))) %>%
 diffs <- rbind(pairs(emmeans(mod7, specs = c("Subregion", "year")), by = "Subregion", level = 0.95))
 saveRDS(diffs, file = "output/dens20142023subregions.rds")
 ```
+
+#NMDS
+```{r}
+library(vegan)
+dens <- df %>%
+  filter(year %in% c("2014", "2015", "2023")) %>%
+  mutate(year = factor(year, levels = c("2023", "2014", "2015"))) %>%
+  # Count number of colonies of each species per transect
+  count(year, Species, Site, Transect, Subregion) %>%
+  # Add zeros for all species not counted on a transect
+  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0))
+
+counts <- dens %>%
+  pivot_wider(names_from = Species, values_from = n) %>%
+  filter(Subregion %in% c("Biscayne", "Broward-Miami", "Lower Keys",
+                          "Middle Keys", "Upper Keys", "Tortugas"))
+
+nmds <- metaMDS(counts[,-(1:4)], distance = "bray")
+
+out <- bind_cols(counts[,1:4], nmds$points)
+
+out <- out %>%
+  filter(MDS1 > -1000)
+
+ggplot(out, aes(x = MDS1, y = MDS2, color = year, shape = year)) +
+  geom_point(alpha = 0.5) +
+  geom_point(data = cent, size = 5, alpha = 0.8) +
+  facet_wrap(~Subregion)
+
+cent <- out %>%
+  group_by(Subregion, year) %>%
+  summarize(MDS1 = median(MDS1),
+            MDS2 = median(MDS2))
+
+cent
+
+biplot(nmds)
+```
+
