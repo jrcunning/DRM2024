@@ -45,7 +45,7 @@ sites <- all0 %>%
 dist <- dist(sites[,c("Longitude", "Latitude")])
 hc <- hclust(dist)
 plot(hc)
-clust <- cutree(hc, k = 100)
+clust <- cutree(hc, k = 50)
 
 sites <- sites %>%
   mutate(clust = clust)
@@ -145,5 +145,105 @@ test2 %>%
   #filter(Subregion == "Broward-Miami") %>%
   droplevels() %>%
   ggpairs()
+```
+
+
+```{r}
+mydf <- all0 %>%
+  filter(Transect %in% c(1, 2)) %>%   # because only 2023 has 3 and 4
+  group_by(year, Site, Subregion, dhw, Week2) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1))
+
+ggplot(mydf, aes(x = dhw, y = BL / (NB + BL), color = year)) + 
+  geom_point() + 
+  geom_smooth(aes(group = year))
+
+mod <- glm(cbind(BL, NB) ~ year * dhw + year:Week2, family = "binomial", data = mydf)
+
+# Get residuals (raw residuals = difference between observed and predicted bleaching probability)
+res <- tibble(mydf, .resid = residuals(mod, type = "response"))
+
+# Cluster sites
+sites <- all0 %>%
+  distinct(year, Subregion, Zone, Latitude, Longitude, Site)
+dist <- dist(sites[,c("Longitude", "Latitude")])
+hc <- hclust(dist)
+
+# Choose how many cluster and assign cluster ids to each site
+sites <- sites %>%
+  mutate(clust = cutree(hc, k = 250))
+
+# Join cluster ids with residuals
+res2 <- res %>%
+  left_join(sites)
+
+# Get mean residuals for each cluster in each year
+res2 <- res2 %>%
+  group_by(year, clust) %>%
+  summarize(meanresid = mean(.resid)) %>%
+  pivot_wider(names_from = year, values_from = meanresid)
+
+ggpairs(res2, columns = 2:5,
+        lower=list(continuous="smooth"))
+```
+
+```{r}
+# Model proportion of bleached colonies in each subregion in each 2-week window of survey
+mod <- glm(cbind(BL, NB) ~ Subregion * year * Week2, family = "binomial", data = mydf)
+
+# Predict proportion of bleached colonies in each Subregion at weeks 34-35 (Week2 = "(33,35]" => (August 20-September 2))) = peak of bleaching
+## Get these Subregion probabilities at this time on the log-odds scale (NOT type = 'response')
+res <- emmeans(mod, specs = c("Subregion", "Week2", "year"))
+res <- as.tibble(res) %>%
+  filter((year == "2014" & Week2 == "(36,38]") |
+         (year == "2015" & Week2 == "(36,38]") |
+         (year == "2022" & Week2 == "(38,40]") |
+         (year == "2023" & Week2 == "(33,35]"))
+
+# Get residuals for each Site at the time it was surveyed (e.g., difference from Subregion mean at time surveyed)...
+# ...and then add these residuals to the Subregion's predicted bleaching probability at peak of bleaching
+# ...to get predicted bleaching severity at that site, if it had been surveyed at peak of bleaching
+mydf.adj <- mydf %>%
+  ungroup() %>%
+  # Get residuals on the 'working' /logit scale
+  mutate(resid = residuals(mod, type = "working")) %>%
+  # Join site residuals with logit means for Subregion at peak weeks
+  left_join(as_tibble(res), by = c("year", "Subregion")) %>%
+  # Add residuals to logit mean for Subregion peak weeks, then convert to probability scale
+  mutate(adj = emmean + resid,
+         ## Function to convert logit to probability
+         adjprob = exp(adj) / (1 + exp(adj))) %>%
+  mutate(n = BL + NB)
+
+
+mod <- glm(adjprob ~ year * dhw, weights = n, family = "quasibinomial", data = mydf.adj)
+
+# Get residuals (raw residuals = difference between observed and predicted bleaching probability)
+resid <- residuals(mod, type = "response")
+res <- bind_cols(drop_na(mydf.adj), resid)
+
+# Cluster sites
+sites <- all0 %>%
+  distinct(year, Subregion, Zone, Latitude, Longitude, Site)
+dist <- dist(sites[,c("Longitude", "Latitude")])
+hc <- hclust(dist)
+
+# Choose how many cluster and assign cluster ids to each site
+sites <- sites %>%
+  mutate(clust = cutree(hc, k = 100))
+
+# Join cluster ids with residuals
+res2 <- res %>%
+  left_join(sites)
+
+# Get mean residuals for each cluster in each year
+res2 <- res2 %>%
+  group_by(year, clust) %>%
+  summarize(meanresid = mean(resid)) %>%
+  pivot_wider(names_from = year, values_from = meanresid)
+
+ggpairs(res2, columns = 2:5,
+        lower=list(continuous="smooth"))
 ```
 
