@@ -99,7 +99,7 @@ names(abbrev_names) <- names(species_names)
 # Load all data from 2014, 2015, and 2023
 # QC'd by year
 load("output/2014.RData")
-df14 <- df14 %>% filter(!Subregion %in% c("Martin", "North Palm Beach"))
+#df14 <- df14 %>% filter(!Subregion %in% c("Martin", "North Palm Beach"))
 load("output/2015.RData")
 #load("output/2022.RData")
 load("output/2023.RData")
@@ -112,6 +112,23 @@ all0 <- bind_rows(
   .id = "year"
 ) %>%
   mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
+
+
+### Does combining North and South Palm Beach affect results? (not by much)
+### Also do not prefilter out Martin and NPB (see above)
+nsites <- all0 %>%
+  distinct(year, Subregion, Site) %>%
+  count(year, Subregion)
+
+all0 <- all0 %>%
+  mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
+                               TRUE ~ Subregion))
+
+# all0 %>%
+#   distinct(year, Subregion, Latitude, Longitude, Site) %>%
+#   ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) +
+#   geom_point() +
+#   facet_wrap(~year)
 ```
 
 # 2023 bleaching severity
@@ -290,10 +307,12 @@ cowplot::plot_grid(ukmap, semap, ncol = 2, rel_widths = c(0.6, 0.4))
 # 1. Plot curves
 # 2. Plot heatmaps
 
-# Get subsetted dataset of corals observed >100 times
+
+
+# Get subsetted dataset of corals observed >80 times
 df23.abund <- df23 %>%
   group_by(Species) %>%
-  filter(n() > 100)
+  filter(n() > 80)
 df23f <- df23.abund %>%
   group_by(Site, Subregion, Week2, Species, dhw) %>%
   summarize(BL = sum(Bleaching2 > 1),
@@ -320,7 +339,7 @@ glmer.ord <- glmer.res %>%
 m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "binomial",
          logDose = NULL, fct = LL.5(
            names = c("hill", "min", "max", "ED50", "f"),
-           ## Max parameter is fixed to 1
+           ## Max parameter is fixed to 1, min is set to 0
            fixed = c(NA, 0, 1, NA, NA)),
     # Hill parameter must be positive (must decrease with incr. dhw)
     #lowerl = c(rep(0, 22), rep(-Inf, 22), rep(0, 22), rep(-Inf, 22)),
@@ -456,7 +475,9 @@ ggsave(filename = "output/medrangeplot.png", plot = plot1090, width = 90, height
 drc.ord %>%
   left_join(span1090) %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = n_symbiont_genera, y = span)) + geom_point()
+  ggplot(aes(x = n_symbiont_genera, y = span)) + 
+  geom_point() +
+  geom_smooth(se = FALSE)
 ```
 
 # 2014-15-23 bleaching severity 
@@ -474,7 +495,7 @@ all0 <- all0 %>%
                              TRUE ~ Species)) %>%
   drop_na(Species)
 
-# Keep only those species observed at least 20 times per year
+# Keep only those species observed at least 20 times in each year
 spp_to_include <- all0 %>%
   count(Species, year) %>%
   group_by(Species) %>%
@@ -529,8 +550,8 @@ bleach50
 # Bootstrap the calculation of ED50
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-#                     parallel = "multicore", ncpus = 10)
+# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 200, seed = 123, re.form = NULL,
+#                     parallel = "multicore", ncpus = 20)
 # saveRDS(boot.out, file = "output/boot.out.rds")
 boot.out <- readRDS(file = "output/boot.out.rds")
 ## Get confidence intervals from Bootstrap
@@ -590,13 +611,17 @@ ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, widt
 
 ## All corals - ∆ED50, ∆°C
 ```{r change_degC_thresh}
+#degC.per.DHW <- 0.07770643
+degC.per.DHW <- 0.1047
+
+
 # Backcalculate change in ed50s (DHW) to change in tolerance (°C) 
 degC <- ed50conf %>%
   filter(year %in% c("2023-2014", "2015-2014")) %>%
-  mutate(ed50.degC = ed50 * 0.07770643,
-         se.degC = se * 0.07770643,
-         lower.degC = lower * 0.07770643,
-         upper.degC = upper * 0.07770643) %>%
+  mutate(ed50.degC = ed50 * degC.per.DHW,
+         se.degC = se * degC.per.DHW,
+         lower.degC = lower * degC.per.DHW,
+         upper.degC = upper * degC.per.DHW) %>%
   separate(year, into = c("year", "2014"))
 # degC %>%
 #   select(year, ed50.degC, se.degC, lower.degC, upper.degC) %>%
@@ -632,15 +657,15 @@ mod <- ed50conf %>%
 
 # Change over time from regression on 2014-2015-2023
 (c1 <- coef(mod)[2])
-## 0.7308 DHW's per year --> 0.57°C/decade
-c1 * 0.0777 * 10
+## 0.7027 DHW's per year --> 0.736°C/decade
+c1 * degC.per.DHW * 10
 
 # Change over time considering just 2014-2023
 ed50conf %>%
   filter(year == "2023-2014") %>%
-  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * 0.0777 / 9 * 10, .names = "{.col}.degC.dec"))
+  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW / 9 * 10, .names = "{.col}.degC.dec"))
 
-# 0.67°C/decade [95% C.I. = 0.56-0.72°C/decade]
+# 0.884°C/decade [95% C.I. = 0.709-0.966°C/decade]
 ```
 
 ## Species - ED50s 2014-15-23
@@ -719,8 +744,8 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 10)
+# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 20)
 # saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
 sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
@@ -753,7 +778,7 @@ sp.ed50conf <- tibble(
 # Convert ∆ED50s to degC
 sp.degC <- sp.ed50conf %>%
   filter(year %in% c("2015-2014", "2023-2014")) %>%
-  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * 0.077, .names = "{.col}.degC")) %>%
+  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC")) %>%
   separate(year, into = c("year", "2014"))
 
 # Plot ED50 vs. year for all Species
@@ -781,8 +806,8 @@ nets <- sp.ed50conf %>%
   select(Species, neted50, neted50.SE)
 
 out <- full_join(slopes, nets) %>%
-  mutate(`2014-2015-2023` = slope * 0.0777 * 10,
-         `2014-2023` = neted50/9 * 0.0777 * 10)
+  mutate(`2014-2015-2023` = slope * degC.per.DHW * 10,
+         `2014-2023` = neted50/9 * degC.per.DHW * 10)
 
 out %>%
   pivot_longer(c(`2014-2015-2023`, `2014-2023`)) %>%
@@ -838,8 +863,8 @@ PBfit <- PBfit %>%
 (tol_dens_plot <- net %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
   ggplot(aes(x = estimate, y = degC.dec)) + 
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * 0.0777, 
-                    ymax = degC.dec + degC.dec.se * 0.0777), width = 0) +
+  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * degC.per.DHW, 
+                    ymax = degC.dec + degC.dec.se * degC.per.DHW), width = 0) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
   geom_point(aes(size = n_symbiont_genera, color = reproductive_mode, shape = sexual_system)) +
   geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
