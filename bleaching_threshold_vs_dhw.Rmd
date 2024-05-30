@@ -7,6 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
 ```
 
 # Find the relationship between bleaching threshold (°C) and DHW accumulation
@@ -23,10 +24,18 @@ temp <- temp0 %>%
          yday = yday(date),
          year = year(date))
 
-# Calculate DHWs for different thresholds, and reduction in max DHW for each treshold
-# mmm <- 29.6264. # Actual MMM for FL Keys
-mmm <- 28.6 # Use a reduced MMM in order to accumulate more DHWs in more years for simulation purposes
+## Plot temperature for each year, and threshold of 28.6 used to calculate DHWs
+ggplot(temp, aes(x = yday, y = temp, color = factor(year), group = year, alpha = 0.5)) +
+  geom_line() +
+  geom_hline(aes(yintercept = 28.6), lty = 2) +
+  theme_classic() +
+  labs(x = "Day of year", y = "Temperature (°C)")
 
+# Calculate DHWs for various thresholds, and resulting reduction in max DHW for each threshold
+# mmm <- 29.6264. # Actual MMM for FL Keys
+mmm <- 29.6264 # Use a reduced MMM in order to accumulate more DHWs in more years for simulation purposes
+
+# DHWs for each threshold
 dhwout <- temp %>%
   group_by(year) %>%
   nest() %>%
@@ -34,23 +43,38 @@ dhwout <- temp %>%
   mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
          dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
          maxdhw = map_dbl(dhw, max))
-         
+
+# Resulting reduction in max DHW in each year based on each increase in threshold
 diffs <- dhwout %>%
   group_by(year) %>%
   mutate(diff = maxdhw[add==0] - maxdhw) %>%
   filter(maxdhw > 0)
-         
+
+# Plot reduction in DHW for each year afforded by X°C increase in bleaching threshold
+ggplot(diffs, aes(x = add, y = diff)) + 
+  geom_point(aes(color = factor(year))) +
+  theme_classic() +
+  labs(x = "Increase in bleaching threshold (°C)",
+       y = "Decrease in maximum DHW in each year")
+
+# Flip axes - plot increase in threshold vs. reduction in DHW
 ggplot(diffs, aes(y = add, x = diff)) + 
-  geom_point() +
+  geom_point(aes(color = factor(year))) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_classic() +
   labs(x = "Reduction of max DHW (DHW)",
        y = "Increase in bleaching threshold (°C)")
 
+# Get slope of this line as the increase in °C per reduced DHW
 mod <- lm(add ~ diff, data = diffs)
 summary(mod)
-coef(mod) # slope is 0.077
+coef(mod) # slope is the increase in °C per reduced DHW
 ## Every 1 DHW gained represents an increase in bleaching threshold of 0.077°C
 ## How to put confidence on this estimate?
 confint(mod, level = 0.95)
 
-
+# Depending on the MMM used to calculate DHW accumulation, the slope of the line changes.
+# Using the actual MMM of 29.6264 gives a slope of 0.1047°C/DHW.
+# Using a reduced MMM of 28.6 gives a slope of 0.0777°C/DHW.
+# Further reducing the MMM further reduces the estimated °C/DHW.
 ```
