@@ -804,9 +804,9 @@ sp.degC %>%
   labs(y = "Change in heat tolerance (°C) 2014-2023")
 ```
 
-## Tolerance vs. density changes, 2014-2013
+## Tolerance vs. density changes, 2014-2023
 
-```{r bleachthresh_vs_density}
+```{r bleachthresh_vs_density, fig.width = 10}
 #densres <- readRDS("output/density.rds")
 densdiffs <- readRDS("output/dens20142023.rds")
 
@@ -827,22 +827,22 @@ PBfit <- PBfit %>%
   mutate(estimate = X - 3,
          degC.dec = Y - 3)
 
-tol_dens_plot <- ggplot(net, aes(x = estimate, y = degC.dec)) + 
+(tol_dens_plot <- net %>%
+  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
+  ggplot(aes(x = estimate, y = degC.dec)) + 
   geom_errorbar(aes(ymin = degC.dec - degC.dec.se * 0.0777, 
                     ymax = degC.dec + degC.dec.se * 0.0777), width = 0) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
-  geom_point() +
+  geom_point(aes(size = n_symbiont_genera, color = reproductive_mode, shape = sexual_system)) +
   geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
   #geom_label(aes(label = Species)) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
   labs(x = "Change in density (log(2023/2014))", 
        y = "Change in heat tolerance (2014-2023, °C)") +
-  theme_classic()
+  theme_classic())
 ggsave(filename = "output/tol_dens_plot.png", plot = tol_dens_plot,
        width = 95, height = 90, units = "mm")
-
-tol_dens_plot
 ```
 
 
