@@ -93,6 +93,11 @@ dhw <- read_csv("data/dhw/2015/2015_dhw_processed.csv") %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
+# Get max. DHW value for on OR BEFORE date surveyed
+dhw <- dhw %>%
+  group_by(Site) %>%
+  mutate(cummaxdhw = cummax(dhw))
+
 # Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
 df15 <- left_join(df15, dhw, by = c("Site", "Date"))
 

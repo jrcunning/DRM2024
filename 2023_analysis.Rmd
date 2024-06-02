@@ -154,10 +154,16 @@ dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
 
 # Get max DHW experienced in 2023 for each site as of the date surveyed?
 # or something like cumulative DHW? I think there are lots of corals that already bleached and died by September onward that are not getting captured in the surveys...
+
+# Get max. DHW value for on OR BEFORE date surveyed
+dhw <- dhw %>%
+  group_by(Site) %>%
+  mutate(cummaxdhw = cummax(dhw))
   
 
 # Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
 df23 <- left_join(df23, dhw, by = c("Site", "Date"))
+
 
 # Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
 peakdhw <- dhw %>%
@@ -242,13 +248,13 @@ surveys %>%
 ```{r survey_distribution}
 # How were 2023 surveys distributed across time and space?
 surveys_by_date <- ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion)) +
-  geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
+  ggridges::geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
   labs(x = "Date", y = "") +
   theme(legend.position = "none")
 
 # How were surveys distributed across DHW accumulation?
 surveys_by_dhw <- ggplot(surveys, aes(x = dhw, y = Subregion, fill = Subregion)) +
-  geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
+  ggridges::geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
   theme(legend.position = "none") +
   theme(axis.text.y = element_blank()) +
   labs(x = "Degree Heating Weeks", y = "")
