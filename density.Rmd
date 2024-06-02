@@ -155,7 +155,9 @@ dens <- df %>%
   # Add zeros for all species not counted on a transect
   complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
   # SUBSET FOR FASTER MODELING
-  filter(Species %in% spp_to_include$Species)
+  group_by(Species, year) %>%
+  filter(sum(n) >= 40) %>%
+  ungroup()
 
 mod5 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
               verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
