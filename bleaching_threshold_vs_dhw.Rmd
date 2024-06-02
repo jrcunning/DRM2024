@@ -39,7 +39,7 @@ mmm <- 29.6264 # Use a reduced MMM in order to accumulate more DHWs in more year
 dhwout <- temp %>%
   group_by(year) %>%
   nest() %>%
-  crossing(add = seq(0, 2.5, 0.1)) %>%
+  crossing(add = seq(0, 1.5, 0.1)) %>%
   mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
          dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
          maxdhw = map_dbl(dhw, max))
@@ -66,7 +66,7 @@ ggplot(diffs, aes(y = add, x = diff)) +
        y = "Increase in bleaching threshold (°C)")
 
 # Get slope of this line as the increase in °C per reduced DHW
-mod <- lm(add ~ diff, data = diffs)
+mod <- lm(add ~ 0 + diff, data = diffs)
 summary(mod)
 coef(mod) # slope is the increase in °C per reduced DHW
 ## Every 1 DHW gained represents an increase in bleaching threshold of 0.077°C
