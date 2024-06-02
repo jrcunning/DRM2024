@@ -124,11 +124,30 @@ all0 <- all0 %>%
   mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
                                TRUE ~ Subregion))
 
+all0 <- all0 %>%
+  mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
+                                                  "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
+                                                  "Middle Keys", "Lower Keys", "Marquesas",
+                                                  "Tortugas--Dry Tortugas NP")))
+
 # all0 %>%
 #   distinct(year, Subregion, Latitude, Longitude, Site) %>%
 #   ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) +
 #   geom_point() +
 #   facet_wrap(~year)
+```
+
+```{r}
+# Plot surveys vs. DHW
+surveys.by.dhw <- all0 %>%
+  distinct(year, Site, Date, Subregion, dhw) %>%
+  ggplot(aes(x = dhw, fill = Subregion)) +
+  geom_histogram(breaks = seq(0,22,1)) +
+  facet_grid(year ~ ., scales = "free_y") +
+  theme_classic() +
+  labs(x = "Degree Heating Weeks", y = "Number of surveys")
+
+ggsave(filename = "output/surveys.by.dhw.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
 ```
 
 # 2023 bleaching severity
@@ -146,6 +165,7 @@ pctbl23 <- df23 %>%
 
 # Model proportion of bleached colonies in each subregion in each 2-week window of survey
 mod <- glm(cbind(BL, NB) ~ Subregion + Week2, family = "binomial", data = pctbl23)
+mod2 <- glm(cbind(BL, NB) ~ Week2, family = "binomial", data = pctbl23)
 
 # Predict proportion of bleached colonies in each Subregion at weeks 34-35 (Week2 = "(33,35]" => (August 20-September 2))) = peak of bleaching
 ## Get these Subregion probabilities at this time on the log-odds scale (NOT type = 'response')
@@ -613,7 +633,7 @@ dhw.res2 <- subset(dhw.res,
   # Annotate increase in heat tolerance
   annotate("segment", x = 3.9, xend = 11.5, y = 0.05, lwd = 0.2, 
            arrow = arrow(type = "closed", length = unit(3, "mm"))) +
-  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, label = "Bleaching threshold\n+0.89°C/decade") +
+  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, label = "Bleaching threshold\n+1.08°C/decade") +
   # Annotate extreme bleaching in 2023
   annotate("point", x = 21.4, y = 0.906, pch = 1, stroke = 0.2) +
   annotate("segment", x = 21.4, y = 0.9, yend = 0.47, lty = 2, lwd = 0.2) +
@@ -640,7 +660,7 @@ ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, widt
 ## All corals - ∆ED50, ∆°C
 ```{r change_degC_thresh}
 #degC.per.DHW <- 0.07770643
-degC.per.DHW <- 0.1047
+degC.per.DHW <- 0.1273714
 
 
 # Backcalculate change in ed50s (DHW) to change in tolerance (°C) 
@@ -693,7 +713,7 @@ ed50conf %>%
   filter(year == "2023-2014") %>%
   mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW / 9 * 10, .names = "{.col}.degC.dec"))
 
-# 0.884°C/decade [95% C.I. = 0.709-0.966°C/decade]
+# 1.08°C/decade [95% C.I. = 0.863-1.17°C/decade]
 ```
 
 ## Species - ED50s 2014-15-23
@@ -854,19 +874,19 @@ out %>%
 
 # Choose metric for °C/decade
 fin <- out %>%
-  select(Species, degC.dec = `2014-2023`, degC.dec.se = neted50.SE)
+  mutate(degC.dec.se = neted50.SE * degC.per.DHW) %>%
+  select(Species, degC.dec = `2014-2023`, degC.dec.se)
 
-# Plot ∆ED50 2014-2023 for all Species
-sp.degC %>%
-  filter(year == "2023") %>%
-  mutate(Species = fct_reorder(Species, ed50.degC)) %>%
-  ggplot(aes(x = Species, y = ed50.degC)) +
+# Plot change in tolerance per deacde for all Species
+fin %>%
+  mutate(Species = fct_reorder(Species, degC.dec)) %>%
+  ggplot(aes(x = Species, y = degC.dec)) +
   geom_point() +
   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
-  geom_errorbar(aes(ymin = ed50.degC - se.degC, ymax = ed50.degC + se.degC), width = 0.2) +
+  geom_errorbar(aes(ymin = degC.dec - degC.dec.se, ymax = degC.dec + degC.dec.se), width = 0.2) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90)) +
-  labs(y = "Change in heat tolerance (°C) 2014-2023")
+  labs(y = "Change in heat tolerance (°C/decade)")
 ```
 
 ## Tolerance vs. density changes, 2014-2023
@@ -884,7 +904,7 @@ net <- fin %>%
 # Passing Bablok regression
 PBreg <- mcr::mcreg(net$estimate+3, net$degC.dec+3,
                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
-#summary(PBreg)
+summary(PBreg)
 
 PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
                       alpha = 0.1) %>% as_tibble()
@@ -895,8 +915,8 @@ PBfit <- PBfit %>%
 (tol_dens_plot <- net %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
   ggplot(aes(x = estimate, y = degC.dec)) + 
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * degC.per.DHW, 
-                    ymax = degC.dec + degC.dec.se * degC.per.DHW), width = 0) +
+  geom_errorbar(aes(ymin = degC.dec - degC.dec.se, 
+                    ymax = degC.dec + degC.dec.se), width = 0) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
   geom_point(aes(size = n_symbiont_genera, color = reproductive_mode, shape = sexual_system)) +
   geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
@@ -912,8 +932,8 @@ myticks2 <- log(myticks + 1)
 (tol_dens_plot2 <- net %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
   ggplot(aes(x = estimate, y = degC.dec)) + 
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se * degC.per.DHW, 
-                    ymax = degC.dec + degC.dec.se * degC.per.DHW), width = 0, alpha = 0.7) +
+  geom_errorbar(aes(ymin = degC.dec - degC.dec.se, 
+                    ymax = degC.dec + degC.dec.se), width = 0, alpha = 0.7) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7) +
   geom_point(aes(size = (n_symbiont_genera)^2), alpha = 0.7) +
   geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
