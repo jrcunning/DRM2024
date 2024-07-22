@@ -119,6 +119,25 @@ df23 <- df23 %>%
 ## A site at Molassess is the biggest outlier -- >100 PAST observed and most healthy?! is this legit??
 # res %>% filter(Site == "Y3042")
 # df23 %>% filter(Site == "Y3042", Species == "PAST") %>% print(n = nrow(.))
+
+# Who did the most surveys?
+teams <- df23 %>%
+  distinct(Site, Team, Date) %>%
+  count(Team) %>%
+  arrange(-n)
+
+teams
+# Shedd did 76 surveys in total
+sites <- df23 %>%
+  distinct(Site, Subregion, Team, Date, dhw)
+sites %>%
+  filter(dhw > 12)
+
+drto <- sites %>% filter(Subregion == "Tortugas--Dry Tortugas NP")
+
+
+#399 surveys @ DHW > 12
+#76 / 399 = 19%
 ```
 
 ```{r qc_drm, include = FALSE}

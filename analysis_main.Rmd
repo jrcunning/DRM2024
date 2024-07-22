@@ -517,6 +517,29 @@ drc.ord %>%
   theme(legend.position = "none"))
 
 ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
+
+
+# Prevalence of bleaching at 22 DHW
+pbleach <- drc.res %>%
+  filter(dhw == 22) %>%
+  mutate(pBL = 1 - prob,
+         pNB = prob) %>%
+  arrange(-pNB)
+
+View(pbleach)
+
+
+# P50 vs. P90?
+testy <- drc.res %>%
+  group_by(Species) %>%
+  slice(which.min(abs(prob - 0.2))) %>%
+  select(Species, dhw90 = dhw, prob90 = prob) %>%
+  left_join(drc.ord)
+
+ggplot(testy, aes(x = Estimate, y = dhw90)) +
+  geom_point() +
+  ggrepel::geom_label_repel(aes(label = Species)) +
+  geom_abline(aes(intercept = 0, slope = 1))
 ```
 
 # 2014-15-23 bleaching severity 
@@ -635,9 +658,9 @@ dhw.res2 <- subset(dhw.res,
            arrow = arrow(type = "closed", length = unit(3, "mm"))) +
   annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, label = "Bleaching threshold\n+1.08°C/decade") +
   # Annotate extreme bleaching in 2023
-  annotate("point", x = 21.4, y = 0.906, pch = 1, stroke = 0.2) +
-  annotate("segment", x = 21.4, y = 0.9, yend = 0.47, lty = 2, lwd = 0.2) +
-  annotate("text", x = 21.2, y = 0.51, hjust = 1, size = 3, label = "Extreme bleaching\n>2x threshold") +
+  # annotate("point", x = 21.4, y = 0.906, pch = 1, stroke = 0.2) +
+  # annotate("segment", x = 21.4, y = 0.9, yend = 0.47, lty = 2, lwd = 0.2) +
+  # annotate("text", x = 21.2, y = 0.51, hjust = 1, size = 3, label = "Extreme bleaching\n>2x threshold") +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
