@@ -130,6 +130,14 @@ all0 <- all0 %>%
                                                   "Middle Keys", "Lower Keys", "Marquesas",
                                                   "Tortugas--Dry Tortugas NP")))
 
+df23 <- df23 %>%
+  mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
+                               TRUE ~ Subregion))
+df23 <- df23 %>%
+  mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
+                                                  "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
+                                                  "Middle Keys", "Lower Keys", "Marquesas",
+                                                  "Tortugas--Dry Tortugas NP")))
 # all0 %>%
 #   distinct(year, Subregion, Latitude, Longitude, Site) %>%
 #   ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) +
@@ -163,6 +171,9 @@ pctbl23 <- df23 %>%
             pctbl = BL / (BL + NB)) %>%
   ungroup()
 
+pctbl23 <- pctbl23 %>%
+  mutate(n = BL + NB)
+
 # Model proportion of bleached colonies in each subregion in each 2-week window of survey
 mod <- glm(cbind(BL, NB) ~ Subregion + Week2, family = "binomial", data = pctbl23)
 mod2 <- glm(cbind(BL, NB) ~ Week2, family = "binomial", data = pctbl23)
@@ -184,6 +195,25 @@ pctbl23.adj <- pctbl23 %>%
          ## Function to convert logit to probability
          adjprob = exp(adj) / (1 + exp(adj)))
 
+ggplot(pctbl23.adj, aes(x = Subregion, y = adjprob)) +
+  geom_jitter(width = 0.1, height = 0) +
+  geom_boxplot()
+
+# Get confidence intervals on site-level bleaching prevalence by subregion and for all keys/drto
+pctbl23.adj <- pctbl23.adj %>%
+  mutate(biscdown = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
+                              TRUE ~ "south"))
+pctbl23.adj %>%
+  group_by(biscdown) %>%
+  summarize(mean = mean(adj),
+            sd = sd(adj),
+            lower = mean - 2*sd,
+            upper = mean + 2*sd) %>%
+  mutate(meanprob = exp(mean) / (1 + exp(mean)),
+         lowerprob = exp(lower) / (1 + exp(lower)),
+         upperprob = exp(upper) / (1 + exp(upper)))
+
+
 # Interpolate percent bleaching for whole reef tract
 # https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
 
@@ -200,7 +230,7 @@ spdat <- sp::SpatialPointsDataFrame(
 samplegrid <- raster::raster(spdat, res = c(0.005, 0.005))
 raster::crs(samplegrid) <- raster::crs(spdat) <- sp::CRS("+init=epsg:4326")
 # Run interpolation
-idw.model <- gstat(formula=spdat$adjprob~1, locations=spdat)
+idw.model <- gstat(formula=spdat$adjprob~1, locations=spdat, weights = pctbl23.adj$n)
 idw.spp <- raster::interpolate(samplegrid, idw.model)
 
 # Clip interpolated raster to just area of hull/polygon surrounding the reef tract
@@ -239,6 +269,16 @@ rasterplot <- basemap +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
 
 ggsave(filename = "output/pctbleach2023.png", plot = rasterplot, width = 90, height = 90, units = "mm")
+
+# Just raster to put on satellite map for USF seminar?
+justrast <- ggplot() + geom_spatraster(data = x) +
+  scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
+                       midpoint = 0.5, limits = c(0, 1), na.value = NA,
+                       labels = scales::label_percent(), name = "Corals\nbleached") +
+  theme_void() +
+  theme(text = element_text(color = "white"))
+
+ggsave(justrast, filename = "justrastleg.png", width = 200, height = 200, units = "mm")
 ```
 
 ## Map DHWs
@@ -299,6 +339,14 @@ rasterplot_rect <- rasterplot +
 sitesplot <- rasterplot +
   geom_point(data = pctbl23.adj, aes(x = Longitude, y = Latitude, fill = adjprob),
              alpha = 1, stroke = 0.1, pch = 21)
+
+
+#### Plot of DRM site locations for USF seminar
+alldrmpts <- ggplot(pctbl23.adj, aes(x = Longitude, y = Latitude)) +
+  geom_point(aes(color = Subregion), alpha = 0.6) +
+  theme_void() +
+  theme(legend.position = "none")
+ggsave(alldrmpts, filename = "alldrmpts.png", width = 110, height = 100, units = "mm")
 
 # Subregion plots
 dtmap <- sitesplot + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE) + theme(legend.position = "none")
@@ -443,6 +491,17 @@ ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
        width = 100, height = 120, units = "mm")
 
 drc.res.ridges
+
+
+
+#ED90
+ed90 <- ED(m3, 0.1, type = "absolute", display = FALSE) %>%
+  as_tibble() %>%
+  mutate(Species = levels(df23f$Species)) %>%
+  filter(Estimate <= 25)
+
+drc.res.ridges +
+  geom_point(data = ed90, aes(x = Estimate), pch = 5, size = 0.5)
 ```
 
 
@@ -549,6 +608,10 @@ allg <- allf %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
+
+
+# How many observations including 2014/2015/2023 filtered?
+nrow(allf)
 ```
 
 ## All corals - ED50s (glmer)
@@ -566,7 +629,7 @@ dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + 
 ed50s.fun <- function(dhw.mod) {
   dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
-                     rg.limit = 20000)
+                     rg.limit = 20000, level = 0.84)
   dhw.res2 <- subset(dhw.res,
                      (year == "2014" & Week2 == "(36,38]") |
                      (year == "2015" & Week2 == "(36,38]") |
@@ -612,7 +675,7 @@ all0 %>% group_by(year) %>%
   summarize(maxdhw = max(dhw),
             mindhw = min(dhw))
 dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.1)), rg.limit = 20000)
+                   at = list(dhw = seq(0, 23, 0.1)), rg.limit = 20000, level = 0.84)
 dhw.res2 <- subset(dhw.res,
   (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.48) |
   (year == "2015" & Week2 == "(36,38]" & dhw <= 8.90 & dhw > 0) |
@@ -635,16 +698,17 @@ dhw.res2 <- subset(dhw.res,
            arrow = arrow(type = "closed", length = unit(3, "mm"))) +
   annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, label = "Bleaching threshold\n+1.08°C/decade") +
   # Annotate extreme bleaching in 2023
-  annotate("point", x = 21.4, y = 0.906, pch = 1, stroke = 0.2) +
-  annotate("segment", x = 21.4, y = 0.9, yend = 0.47, lty = 2, lwd = 0.2) +
-  annotate("text", x = 21.2, y = 0.51, hjust = 1, size = 3, label = "Extreme bleaching\n>2x threshold") +
+  # annotate("point", x = 21.4, y = 0.906, pch = 1, stroke = 0.2) +
+  # annotate("segment", x = 21.4, y = 0.9, yend = 0.47, lty = 2, lwd = 0.2) +
+  # annotate("text", x = 21.2, y = 0.51, hjust = 1, size = 3, label = "Extreme bleaching\n>2x threshold") +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1), 
+                     labels = scales::label_percent()) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
   theme(legend.position = "none") +
-  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Probability of bleaching") +
+  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off"))
 
 # dhw.bleach.plot +
@@ -654,6 +718,44 @@ dhw.res2 <- subset(dhw.res,
 
 # Save plot
 ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
+
+# What levels of heat stress caused 90% bleaching in all species?
+bleach90 <- as.tibble(dhw.res) %>%
+  filter(year == "2023", dhw == 22.3, Week2 == "(33,35]")
+
+
+
+
+##### Plots for USF seminar
+myplot1 <- as.tibble(dhw.res2) %>% filter(year == 2023) %>%
+ggplot(aes(x = dhw, y = prob, group = year)) +
+  geom_text(data = slice(ed50conf, 3), 
+            aes(x = c(20.5), y = c(0.97), label = year)) +
+  # Add lines and conf intervals for each year
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
+  geom_line(aes(color = prob), lwd = 2) +
+  scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1), 
+                     labels = scales::label_percent()) +
+  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+                        limits = c(0, 1), midpoint = 0.5) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
+  coord_cartesian(clip = "off")
+myplot1
+ggsave(filename = "plot1.png", width = 125, height = 100, units = "mm")
+myplot1 %+% (as.tibble(dhw.res2) %>% filter(year %in% c(2015, 2023))) +
+  geom_text(data = slice(ed50conf, 2:3), 
+            aes(x = c(9.5,20.5), y = c(0.65, 0.97), label = year)) 
+ggsave(filename = "plot2.png", width = 125, height = 100, units = "mm")
+myplot1 %+% as.tibble(dhw.res2) +
+  geom_text(data = slice(ed50conf, 1:3), 
+            aes(x = c(8,9.5,20.5), y = c(0.8, 0.65, 0.97), label = year)) 
+ggsave(filename = "plot3.png", width = 125, height = 100, units = "mm")
+
+dhw.bleach.plot
+ggsave(filename = "plot4.png", width = 125, height = 100, units = "mm")
 ```
 
 
@@ -734,7 +836,8 @@ dhw.sp.mod <- glmer(
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
 dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), rg.limit = 200000, level = 0.84)
+                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                      rg.limit = 200000, level = 0.84)
 dhw.sp.res2 <- subset(dhw.sp.res,
   (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.48) |
   (year == "2015" & Week2 == "(36,38]" & dhw <= 8.90 & dhw > 0) |
@@ -749,26 +852,34 @@ dhw.sp.res22 <- subset(dhw.sp.res,
 # Plot
 (dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
   geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
-  geom_hline(aes(yintercept = 0.5), lty = 2) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25)) +
+  geom_hline(aes(yintercept = 0.5), lty = 2, lwd = 0.25) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
+                     labels = scales::label_percent()) +
   # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
   #                       limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
   theme(legend.position = c(0.8, 0.04),
+        legend.direction = "horizontal",
         strip.background = element_blank(),
         strip.text = element_text(face = "italic")) +
-  labs(x = "DHWs", y = "Probability of bleaching"))
+  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
+  coord_cartesian(clip = "off"))
 
 ggsave(filename = "output/dhw.sp.bleach.plot.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
+
+
+### SUBSET THIS FIGURE FOR BIOTA PROPOSAL
+biota.1 <- dhw.sp.bleach.plot %+% filter(as.tibble(dhw.sp.res2), Species %in% c("CNAT", "DLAB", "SINT", "MCAV", "PAST", "PSTR", "SSID"))
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
 ## change in ED50s from 2014-2015, and 2014-2023
 sp.ed50s.fun <- function(dhw.sp.mod) {
   dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), rg.limit = 200000, level = 0.84)
+                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                   rg.limit = 200000, level = 0.84)
   dhw.sp.res22 <- subset(dhw.sp.res,
     (year == "2014" & Week2 == "(36,38]") |
     (year == "2015" & Week2 == "(36,38]") |
@@ -823,10 +934,14 @@ sp.ed50conf <- tibble(
 #     theme_classic()
 
 
+# What levels of heat stress caused 90% bleaching in all species?
+bleach90 <- as.tibble(dhw.sp.res22) %>%
+  filter(year == "2023", dhw == 22.3)
 ```
 
 ## Species - ∆ED50, ∆°C
 ```{r sp.changeED50, fig.width = 7, fig.height = 8}
+degC.per.DHW <- 0.127
 # Convert ∆ED50s to degC
 sp.degC <- sp.ed50conf %>%
   filter(year %in% c("2015-2014", "2023-2014")) %>%
@@ -867,7 +982,7 @@ out %>%
   geom_boxplot(alpha = 0.5, outliers = FALSE) +
   geom_jitter(height = 0, width = 0.1) +
   scale_color_manual(values = c("blue", "black")) +
-  scale_y_continuous(breaks = seq(-0.5, 1.2, 0.1)) +
+  scale_y_continuous(breaks = seq(-0.5, 2, 0.25)) +
   labs(y = "Change in heat tolerance (°C/decade)") +
   theme_classic() +
   theme(legend.position = "none")
@@ -878,15 +993,33 @@ fin <- out %>%
   select(Species, degC.dec = `2014-2023`, degC.dec.se)
 
 # Plot change in tolerance per deacde for all Species
-fin %>%
-  mutate(Species = fct_reorder(Species, degC.dec)) %>%
+findat <- fin %>%
+  mutate(Species = fct_reorder(Species, degC.dec)) 
+
+finplot <- findat %>%
   ggplot(aes(x = Species, y = degC.dec)) +
   geom_point() +
   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
   geom_errorbar(aes(ymin = degC.dec - degC.dec.se, ymax = degC.dec + degC.dec.se), width = 0.2) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90)) +
-  labs(y = "Change in heat tolerance (°C/decade)")
+  labs(y = "Change in heat tolerance (°C/decade)        ")
+
+ggsave(finplot, filename = "sppthresh.png", width = 100, height = 100, units = "mm")
+
+
+
+# Figure for Biota
+mydf <- findat %>%
+  filter(Species %in% c("CNAT", "SINT", "MCAV", "PAST", "PSTR", "SSID")) %>%
+  mutate(Species = factor(Species, levels = c("SINT", "MCAV", "PSTR", "PAST", "SSID", "CNAT")))
+
+biota.2 <- finplot %+% mydf +
+  scale_x_discrete(labels = c("S. intersepta", "M. cavernosa", "P. strigosa", "P. astreoides",
+                   "S. siderea", "C. natans")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
+
+ggsave(filename = "biota_tolerance_short.png", width = 100, height = 80, units = "mm")
 ```
 
 ## Tolerance vs. density changes, 2014-2023
@@ -929,15 +1062,16 @@ PBfit <- PBfit %>%
 
 myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
 myticks2 <- log(myticks + 1)
+set.seed(5)
 (tol_dens_plot2 <- net %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
   ggplot(aes(x = estimate, y = degC.dec)) + 
   geom_errorbar(aes(ymin = degC.dec - degC.dec.se, 
-                    ymax = degC.dec + degC.dec.se), width = 0, alpha = 0.7) +
-  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7) +
-  geom_point(aes(size = (n_symbiont_genera)^2), alpha = 0.7) +
+                    ymax = degC.dec + degC.dec.se), width = 0, alpha = 0.7, lwd = 0.3) +
+  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
+  geom_point(size = 4, alpha = 0.7, stroke = 0) + # aes(size = (n_symbiont_genera)^2)
   geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
-  #geom_label(aes(label = Species)) +
+  #geom_smooth(method = "lm", se = FALSE) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
@@ -948,6 +1082,25 @@ myticks2 <- log(myticks + 1)
 
 ggsave(filename = "output/tol_dens_plot2.png", plot = tol_dens_plot2,
        width = 110, height = 100, units = "mm")
+
+
+
+# Retest relationship without Orbicella or branching Porites, since these may have "increased in density" due to partial mortality causing them to be recorded as separate colonies
+# Model change in tolerance vs. change in density
+# Passing Bablok regression
+net2 <- net %>% filter(!Species %in% c("ORBI", "PDIV", "PFUR"))
+PBreg2 <- mcr::mcreg(net2$estimate+3, net2$degC.dec+3,
+               method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
+summary(PBreg2)
+
+PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
+                      alpha = 0.1) %>% as_tibble()
+PBfit <- PBfit %>%
+  mutate(estimate = X - 3,
+         degC.dec = Y - 3)
+
+# It is not significant if you take out ORBI, PDIV, PFUR, PPOR...
+# But genets separating into ramets is still the same as not losing genets from the population, so even if that is mechanism of increase in density, still consistent with inference of loss of genotypes driving tolerance increase...
 ```
 
 
@@ -1119,6 +1272,10 @@ mod <- glmer(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion),
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
 #plot(mod, which = 1)
 #summary(mod)
+# Fit model
+modr <- glmer(Bleaching2 <= 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
+             family = "binomial", data = df23.abund,
+             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
 
 # Test if significant effect of width for each species at DHW = 15
 res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw = 15))
@@ -1128,9 +1285,20 @@ sig <- as.tibble(summary(res, infer = TRUE)) %>%
   filter(p.value < 0.01)
 
 # Get fitted values for bleaching probability as a function of size for significant species
-pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
+pred0 <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
                           at = list(Width2 = seq(4,500,1), dhw = 15), 
-                          type = "response", rg.limit = 103000)) %>%
+                          type = "response", rg.limit = 103000)) 
+
+predr <- as.tibble(emmeans(modr, specs = c("Width2", "dhw"), by = "Species", 
+                          at = list(Width2 = seq(4,250,1), dhw = 15), 
+                          type = "response", rg.limit = 103000)) 
+predodds %>% filter(Species == "PAST", Width2 == 4)
+# 1.06 = log odds of being bleached
+# exp(1.06) = 2.88, so odds of being bleaching are 2.88 to 1. 1 in 3.88 are resistant.
+pred0 %>% filter(Species == "PAST", Width2 == 4)
+1/(1-0.744)
+
+pred <- pred0 %>%
   filter(Species %in% sig$Species) %>%
   left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
 # Get actual observed size ranges for these species
@@ -1169,6 +1337,44 @@ mynames <- pred2 %>%
 
 ggsave(filename = "output/sizeplot.png", plot = sizeplot,
        width = 120, height = 100, units = "mm")
+
+# SUBSET FIGURE FOR BIOTA
+tdf <- filter(predr, Species %in% c("CNAT", "SINT", "MCAV", "PAST", "PSTR", "SSID")) %>%
+  mutate(Species = factor(Species, levels = c("PAST", "SINT", "CNAT", "MCAV", "SSID", "PSTR"))) %>%
+  rename(asymp.LCL.x = asymp.LCL) %>%
+  semi_join(actual, by = c("Species", "Width2"))
+# Get species full names for plotting
+mynames2 <- tdf %>%
+  left_join(tibble(name = abbrev_names, Species = names(abbrev_names))) %>%
+  mutate(Species = factor(Species, levels = c("PAST", "SINT", "CNAT", "MCAV", "SSID", "PSTR"))) %>%
+  group_by(Species, name) %>%
+  summarize(maxw = max(Width2)) %>%
+  distinct(Species, name, maxw)
+
+ggplot(tdf, aes(x = Width2, y = response, group = Species)) +
+  coord_trans(x = "log") +
+  scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
+  facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
+  geom_line()+#aes(color = response)) +
+  #scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+  #                      limits = c(0, 1), midpoint = 0.5) +
+  #geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
+  #geom_text(data = mynames2, aes(label = name, x = maxw), y = 0.6, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
+  #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
+  #ylim(0, 1) +
+  labs(x = "Colony width (cm)", y = "Resistance to bleaching (prevalence)") +
+  theme_classic() +
+  theme(legend.position = "none",
+        strip.text = element_text(face = "italic"),
+        strip.background = element_blank())
+
+tdf %>%
+  filter(Width2 %in% c(4, 40)) %>%
+  group_by(Species) %>%
+  summarize(relprob = response[Width2==4] / response[Width2==40]) %>%
+  mutate(pctdiff = round((relprob - 1) * 100))
+
+ggsave(filename = "biota_sizediffs_short.png", width = 100, height = 80, units = "mm")
 
 
 # Ridges?
