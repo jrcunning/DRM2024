@@ -576,6 +576,29 @@ drc.ord %>%
   theme(legend.position = "none"))
 
 ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
+
+
+# Prevalence of bleaching at 22 DHW
+pbleach <- drc.res %>%
+  filter(dhw == 22) %>%
+  mutate(pBL = 1 - prob,
+         pNB = prob) %>%
+  arrange(-pNB)
+
+View(pbleach)
+
+
+# P50 vs. P90?
+testy <- drc.res %>%
+  group_by(Species) %>%
+  slice(which.min(abs(prob - 0.2))) %>%
+  select(Species, dhw90 = dhw, prob90 = prob) %>%
+  left_join(drc.ord)
+
+ggplot(testy, aes(x = Estimate, y = dhw90)) +
+  geom_point() +
+  ggrepel::geom_label_repel(aes(label = Species)) +
+  geom_abline(aes(intercept = 0, slope = 1))
 ```
 
 # 2014-15-23 bleaching severity 
