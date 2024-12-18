@@ -1,9 +1,11 @@
 ---
 title: "DRM bleaching analysis"
 author: "R. Cunning"
-date: "2024-05-26"
+date: "2024-12-18"
 output: html_document
 ---
+
+### After this commit, I'm trimming this document down to include only the analyses that are part of the manuscript in preparation.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
