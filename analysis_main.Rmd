@@ -1,9 +1,11 @@
 ---
 title: "DRM bleaching analysis"
 author: "R. Cunning"
-date: "2024-05-26"
+date: "2024-12-18"
 output: html_document
 ---
+
+### After this commit, I'm trimming this document down to include only the analyses that are part of the manuscript in preparation.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
@@ -601,6 +603,7 @@ drc.ord %>%
 ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
 
 
+<<<<<<< HEAD
 # Shayle symbiont review - updated
 syms <- read_csv("symb.genera.20241002.xlsx - Sheet1.csv") %>%
   full_join(span1090) %>%
@@ -617,14 +620,34 @@ mod <- lm(span ~ ngen, data = syms)
 anova(mod)
 mod <- lm(span ~ factor(ngen), data = syms)
 anova(mod)
+=======
+
+# Shayle symbiont review
+syms0 <- read_csv("data/symb.genera.20241002.xlsx - Sheet1.csv")
+syms <- syms0 %>%
+  mutate(ngen = nchar(Florida)) %>%
+  dplyr::select(Species, syms = Florida, ngen) %>%
+  full_join(span1090)
+
+ggplot(syms, aes(x = ngen, y = span)) +
+  geom_point() +
+  geom_label(aes(label = Species)) +
+  geom_smooth(method = "lm", se = FALSE)
+
+mod <- lm(span ~ ngen, data = syms)
+anova(mod)
+>>>>>>> f54138e6ce907766fa00ed9e8b4e53ebff41b336
 emms <- emmeans(mod, specs = "ngen")
 pairs(emms)
 
 
 
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> f54138e6ce907766fa00ed9e8b4e53ebff41b336
 # Prevalence of bleaching at 22 DHW
 pbleach <- drc.res %>%
   filter(dhw == 22) %>%
@@ -682,6 +705,8 @@ allg <- allf %>%
 
 # How many observations including 2014/2015/2023 filtered?
 nrow(allf)
+allf %>% count(year)
+all0 %>% count(year)
 ```
 
 ## All corals - ED50s (glmer)
@@ -1036,11 +1061,11 @@ mod <- sp.ed50conf %>%
 
 slopes <- as.tibble(emtrends(mod, specs = "Species", var = "year")) %>%
   mutate(slope = year.trend, slope.SE = SE) %>%
-  select(Species, slope, slope.SE)
+  dplyr::select(Species, slope, slope.SE)
 nets <- sp.ed50conf %>%
   filter(year == "2023-2014") %>%
   mutate(neted50 = ed50, neted50.SE = se) %>%
-  select(Species, neted50, neted50.SE)
+  dplyr::select(Species, neted50, neted50.SE)
 
 out <- full_join(slopes, nets) %>%
   mutate(`2014-2015-2023` = slope * degC.per.DHW * 10,
@@ -1060,7 +1085,7 @@ out %>%
 # Choose metric for °C/decade
 fin <- out %>%
   mutate(degC.dec.se = neted50.SE * degC.per.DHW) %>%
-  select(Species, degC.dec = `2014-2023`, degC.dec.se)
+  dplyr::select(Species, degC.dec = `2014-2023`, degC.dec.se)
 
 # Plot change in tolerance per deacde for all Species
 findat <- fin %>%
@@ -1082,6 +1107,32 @@ syms <- syms %>% add_row(Species = "ORBI", Florida = "ABCD", ngen = 4, D = TRUE,
 findat %>% left_join(syms) %>%
   ggplot(aes(x = ngen, y = degC.dec)) +
   geom_label(aes(label = Species, color = D))
+
+finsym <- findat %>%
+  left_join(syms) %>%
+  mutate(D = grepl("D", syms))
+mod <- lm(degC.dec ~ ngen + D, data = filter(finsym, ngen > 1))
+anova(mod)
+emmeans(mod, specs = c("ngen", "D"), at = list(ngen = c(1,2,3,4)))
+mod <- lm(degC.dec ~ factor(ngen) + D, data = finsym)
+anova(mod)
+emms <- emmeans(mod, specs = "ngen")
+pairs(emms)
+
+library(ggrepel)
+ggplot(finsym, aes(x = ngen, y = degC.dec, color = D)) +
+  geom_point(size = 5, alpha = 0.6) +
+  geom_text_repel(aes(label = abbrev_names[Species]), fontface = 3) +
+  
+  geom_smooth(se = F, color = "gray40") +
+  theme_classic() +
+  labs(x = "Number of symbiont genera", y = "Change in heat tolerance (°C/decade)")
+
+
+
+
+
+
 
 # Figure for Biota
 mydf <- findat %>%

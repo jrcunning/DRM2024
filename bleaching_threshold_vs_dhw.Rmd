@@ -82,17 +82,59 @@ confint(mod, level = 0.95)
 # Further reducing the MMM further reduces the estimated °C/DHW.
 
 
+
+# Making figs for presentations
 mydhw <- dhwout %>% filter(add == 0) %>% unnest(data, dhw) %>%
   distinct(year, yday, temp, dhw) %>%
   filter(year < 2023) %>%
   pivot_longer(cols = c(temp, dhw)) %>%
-  mutate(name = factor(name, levels = c("temp", "dhw"))) %>%
-  ggplot(aes(x = yday, y = value, color = factor(year), group = year)) +
+  mutate(name = factor(name, levels = c("temp", "dhw")))
+
+ggplot(mydhw, aes(x = yday, y = value, color = factor(year), group = year)) +
   facet_grid(name~., scales = "free") +
   geom_line(alpha = 0.4) +
   theme_classic() +
   theme(legend.position = "none") +
   labs(x = "", y = "")
 
-cowplot::plot_grid(mytemp, mydhw, ncol = 1)
+tempsumm <- mydhw %>%
+  group_by(yday) %>%
+  summarize(temp = quantile(value[name == "temp"], 0.85))
+
+dhwsumm999 <- mydhw %>%
+  group_by(yday) %>%
+  summarize(dhw = quantile(value[name == "dhw"], 0.999999))
+
+dhwsumm5 <- mydhw %>%
+  group_by(yday) %>%
+  summarize(dhw = quantile(value[name == "dhw"], 0.5))
+
+templot1 <- ggplot(tempsumm, aes(x = yday, y = temp)) +
+  geom_line() +
+  theme_classic() +
+  labs(x = "", y = "Temperature (°C)") +
+  geom_hline(yintercept = 29.6, lty = 2)
+
+templot2 <- templot1 +
+  geom_hline(yintercept = 30.7, lty = 2, color = "red")
+
+dhwplot1 <- ggplot(dhwsumm999, aes(x = yday, y = dhw)) +
+  geom_line() +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "", y = "DHW")
+
+dhwplot2 <- dhwplot1 +
+  geom_line(data = dhwsumm5, color = "red")
+
+plot1 <- cowplot::plot_grid(templot1, dhwplot1, ncol = 1, align = "v")
+plot2 <- cowplot::plot_grid(templot2, dhwplot2, ncol = 1, align = "v")
+
+ggsave(plot1, filename = "dhwplot1.png", width = 90, height = 90, units = "mm")
+ggsave(plot2, filename = "dhwplot2.png", width = 90, height = 90, units = "mm")
 ```
+
+```{r}
+
+```
+
