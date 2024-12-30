@@ -271,6 +271,11 @@ surveys_by_date <- ggplot(surveys, aes(x = Date, y = Subregion, fill = Subregion
   labs(x = "Date", y = "") +
   theme(legend.position = "none")
 
+ggplot(surveys, aes(x = dhw, fill = Subregion)) +
+  geom_histogram(binwidth = 1) +
+  theme_classic() +
+  theme(legend.position = "none")
+
 # How were surveys distributed across DHW accumulation?
 surveys_by_dhw <- ggplot(surveys, aes(x = dhw, y = Subregion, fill = Subregion)) +
   ggridges::geom_density_ridges(alpha = 0.6, stat = "binline", bins = 20) +
