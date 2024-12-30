@@ -156,6 +156,28 @@ surveys.by.dhw <- all0 %>%
   labs(x = "Degree Heating Weeks", y = "Number of surveys")
 
 ggsave(filename = "output/surveys.by.dhw.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
+
+surveys.by.dhw2 <- surveys.by.dhw +
+  theme(panel.background = element_blank(),
+        plot.background = element_blank(),
+        text = element_text(color = "white")) +
+  theme(
+    plot.title = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(color = "white"),
+    axis.text.y = element_text(color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    axis.line = element_line(color = "white"),
+    axis.ticks = element_line(color = "white")
+  )
+ggsave(filename = "output/surveys.by.dhw2.png", plot = surveys.by.dhw2, width = 183, height = 90, units = "mm")
+```
+
+```{r}
+ggplot(df23, aes(x = dhw, fill = Subregion)) +
+  geom_histogram(binwidth = 1)
 ```
 
 # 2023 bleaching severity
@@ -573,9 +595,34 @@ drc.ord %>%
   labs(x = "Median tolerance (DHW ED50)",
        y = "Range in tolerance (DHW ED90 - ED10)") +
   theme_classic() +
+  scale_size_continuous(breaks = c(1^4,2^4,3^4,4^4)) +
   theme(legend.position = "none"))
 
 ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
+
+
+# Shayle symbiont review - updated
+syms <- read_csv("symb.genera.20241002.xlsx - Sheet1.csv") %>%
+  full_join(span1090) %>%
+  mutate(ngen = nchar(Florida)) %>%
+  mutate(D = grepl("D", Florida)) %>%
+  select(Species, Florida, ngen, D, span)
+
+syms %>%
+  ggplot(aes(x = ngen, y = span)) +
+  geom_label(aes(label = Species, color = D)) +
+  geom_smooth(se = F)
+
+mod <- lm(span ~ ngen, data = syms)
+anova(mod)
+mod <- lm(span ~ factor(ngen), data = syms)
+anova(mod)
+emms <- emmeans(mod, specs = "ngen")
+pairs(emms)
+
+
+
+
 
 
 # Prevalence of bleaching at 22 DHW
@@ -1030,7 +1077,11 @@ finplot <- findat %>%
 
 ggsave(finplot, filename = "sppthresh.png", width = 100, height = 100, units = "mm")
 
-
+###########
+syms <- syms %>% add_row(Species = "ORBI", Florida = "ABCD", ngen = 4, D = TRUE, span = NA)
+findat %>% left_join(syms) %>%
+  ggplot(aes(x = ngen, y = degC.dec)) +
+  geom_label(aes(label = Species, color = D))
 
 # Figure for Biota
 mydf <- findat %>%
