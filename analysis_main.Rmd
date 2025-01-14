@@ -5,8 +5,6 @@ date: "2024-12-18"
 output: html_document
 ---
 
-### After this commit, I'm trimming this document down to include only the analyses that are part of the manuscript in preparation.
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
 ```
@@ -98,88 +96,69 @@ names(abbrev_names) <- names(species_names)
 
 # Import DRM and DHW data (2014, 2015, 2023)
 ```{r import_data}
-# Load all data from 2014, 2015, and 2023
-# QC'd by year
+# Load all QC'd data from 2014, 2015, and 2023
 load("output/2014.RData")
-#df14 <- df14 %>% filter(!Subregion %in% c("Martin", "North Palm Beach"))
 load("output/2015.RData")
-#load("output/2022.RData")
 load("output/2023.RData")
 df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
+
+# Combine all years
 all0 <- bind_rows(
   `2014` = df14,
   `2015` = df15,
-  #`2022` = df22,
   `2023` = df23,
   .id = "year"
 ) %>%
   mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
 
-
-### Does combining North and South Palm Beach affect results? (not by much)
-### Also do not prefilter out Martin and NPB (see above)
+# Count number of sites per subregion per year
 nsites <- all0 %>%
   distinct(year, Subregion, Site) %>%
-  count(year, Subregion)
+  count(year, Subregion) %>%
+  pivot_wider(names_from = year, values_from = n)
 
+# Combine North and South Palm Beach subregions due to low survey numbers
 all0 <- all0 %>%
   mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
                                TRUE ~ Subregion))
 
+# Reorder subregion factor levels from north to south
 all0 <- all0 %>%
   mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
                                                   "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
                                                   "Middle Keys", "Lower Keys", "Marquesas",
                                                   "Tortugas--Dry Tortugas NP")))
+# 
+# df23 <- df23 %>%
+#   mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
+#                                TRUE ~ Subregion))
+# df23 <- df23 %>%
+#   mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
+#                                                   "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
+#                                                   "Middle Keys", "Lower Keys", "Marquesas",
+#                                                   "Tortugas--Dry Tortugas NP")))
 
-df23 <- df23 %>%
-  mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
-                               TRUE ~ Subregion))
-df23 <- df23 %>%
-  mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
-                                                  "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
-                                                  "Middle Keys", "Lower Keys", "Marquesas",
-                                                  "Tortugas--Dry Tortugas NP")))
-# all0 %>%
-#   distinct(year, Subregion, Latitude, Longitude, Site) %>%
-#   ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) +
-#   geom_point() +
-#   facet_wrap(~year)
+df23 <- all0 %>% filter(year == 2023)
+
+# Plot sites surveyed in each year
+all0 %>%
+  distinct(year, Subregion, Latitude, Longitude, Site) %>%
+  ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) +
+  geom_point() +
+  facet_wrap(~year)
 ```
 
 ```{r}
 # Plot surveys vs. DHW
-surveys.by.dhw <- all0 %>%
+(surveys.by.dhw <- all0 %>%
   distinct(year, Site, Date, Subregion, dhw) %>%
   ggplot(aes(x = dhw, fill = Subregion)) +
   geom_histogram(breaks = seq(0,22,1)) +
   facet_grid(year ~ ., scales = "free_y") +
   theme_classic() +
-  labs(x = "Degree Heating Weeks", y = "Number of surveys")
+  labs(x = "Degree Heating Weeks", y = "Number of surveys"))
 
 ggsave(filename = "output/surveys.by.dhw.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
-
-surveys.by.dhw2 <- surveys.by.dhw +
-  theme(panel.background = element_blank(),
-        plot.background = element_blank(),
-        text = element_text(color = "white")) +
-  theme(
-    plot.title = element_text(color = "white"),
-    axis.title.x = element_text(color = "white"),
-    axis.title.y = element_text(color = "white"),
-    axis.text.x = element_text(color = "white"),
-    axis.text.y = element_text(color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    axis.line = element_line(color = "white"),
-    axis.ticks = element_line(color = "white")
-  )
-ggsave(filename = "output/surveys.by.dhw2.png", plot = surveys.by.dhw2, width = 183, height = 90, units = "mm")
-```
-
-```{r}
-ggplot(df23, aes(x = dhw, fill = Subregion)) +
-  geom_histogram(binwidth = 1)
 ```
 
 # 2023 bleaching severity
@@ -188,7 +167,6 @@ ggplot(df23, aes(x = dhw, fill = Subregion)) +
 ```{r map_bleaching}
 # Get percent of colonies surveyed that were bleached at each site 
 pctbl23 <- df23 %>%
-  #filter(Date >= as.Date("2023-08-01"), Date <= as.Date("2023-09-30")) %>%
   group_by(Site, Subregion, Latitude, Longitude, Week2) %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1),
@@ -200,7 +178,7 @@ pctbl23 <- pctbl23 %>%
 
 # Model proportion of bleached colonies in each subregion in each 2-week window of survey
 mod <- glm(cbind(BL, NB) ~ Subregion + Week2, family = "binomial", data = pctbl23)
-mod2 <- glm(cbind(BL, NB) ~ Week2, family = "binomial", data = pctbl23)
+#mod2 <- glm(cbind(BL, NB) ~ Week2, family = "binomial", data = pctbl23)
 
 # Predict proportion of bleached colonies in each Subregion at weeks 34-35 (Week2 = "(33,35]" => (August 20-September 2))) = peak of bleaching
 ## Get these Subregion probabilities at this time on the log-odds scale (NOT type = 'response')
@@ -219,28 +197,36 @@ pctbl23.adj <- pctbl23 %>%
          ## Function to convert logit to probability
          adjprob = exp(adj) / (1 + exp(adj)))
 
+# Plot adjusted bleaching probabilities by subregion
 ggplot(pctbl23.adj, aes(x = Subregion, y = adjprob)) +
-  geom_jitter(width = 0.1, height = 0) +
-  geom_boxplot()
+  geom_violin() +
+  geom_jitter(width = 0.15, height = 0)
 
-# Get confidence intervals on site-level bleaching prevalence by subregion and for all keys/drto
-pctbl23.adj <- pctbl23.adj %>%
-  mutate(biscdown = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
-                              TRUE ~ "south"))
+# Get median adjusted bleaching prevalence by subregion
 pctbl23.adj %>%
-  group_by(biscdown) %>%
-  summarize(mean = mean(adj),
-            sd = sd(adj),
-            lower = mean - 2*sd,
-            upper = mean + 2*sd) %>%
-  mutate(meanprob = exp(mean) / (1 + exp(mean)),
-         lowerprob = exp(lower) / (1 + exp(lower)),
-         upperprob = exp(upper) / (1 + exp(upper)))
+  group_by(Subregion) %>%
+  summarize(medpctbl23.adj = median(adjprob))
+  
+# # Get confidence intervals on site-level bleaching prevalence by subregion and for all keys/drto
+# pctbl23.adj <- pctbl23.adj %>%
+#   mutate(biscdown = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
+#                               TRUE ~ "south"))
+# pctbl23.adj %>%
+#   group_by(biscdown) %>%
+#   summarize(mean = mean(adj),
+#             sd = sd(adj),
+#             lower = mean - 2*sd,
+#             upper = mean + 2*sd) %>%
+#   mutate(meanprob = exp(mean) / (1 + exp(mean)),
+#          lowerprob = exp(lower) / (1 + exp(lower)),
+#          upperprob = exp(upper) / (1 + exp(upper)))
 
 
 # Interpolate percent bleaching for whole reef tract
 # https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
+```
 
+```{r interpolation}
 # Create SpatialPointsDataFrame of survey sites
 sites23 <- pctbl23.adj %>%
   distinct(Site, Longitude, Latitude, adjprob)
@@ -293,16 +279,6 @@ rasterplot <- basemap +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
 
 ggsave(filename = "output/pctbleach2023.png", plot = rasterplot, width = 90, height = 90, units = "mm")
-
-# Just raster to put on satellite map for USF seminar?
-justrast <- ggplot() + geom_spatraster(data = x) +
-  scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
-                       midpoint = 0.5, limits = c(0, 1), na.value = NA,
-                       labels = scales::label_percent(), name = "Corals\nbleached") +
-  theme_void() +
-  theme(text = element_text(color = "white"))
-
-ggsave(justrast, filename = "justrastleg.png", width = 200, height = 200, units = "mm")
 ```
 
 ## Map DHWs
@@ -350,61 +326,12 @@ ggsave(filename = "output/dhw_bleach.png", plot = dhw_bleach, width = 180, heigh
 ```
 ![](./output/dhw_bleach.png)
 
-## Map subregions
-```{r map_subregions, fig.width = 6, fig.height = 6}
-# Raster plot with rectangles for Subregions
-rasterplot_rect <- rasterplot +
-  geom_rect(aes(xmin = -83, xmax = -82, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.05) +
-  geom_rect(aes(xmin = -82, xmax = -81, ymin = 24.4, ymax = 24.75), fill = NA, color = "black", lwd = 0.05) +
-  geom_rect(aes(xmin = -81, xmax = -80, ymin = 24.65, ymax = 25.65), fill = NA, color = "black", lwd = 0.05) +
-  geom_rect(aes(xmin = -80.4, xmax = -79.8, ymin = 25.65, ymax = 26.8), fill = NA, color = "black", lwd = 0.05)
-
-# Raster plot with points for each surveyed site
-sitesplot <- rasterplot +
-  geom_point(data = pctbl23.adj, aes(x = Longitude, y = Latitude, fill = adjprob),
-             alpha = 1, stroke = 0.1, pch = 21)
-
-
-#### Plot of DRM site locations for USF seminar
-alldrmpts <- ggplot(pctbl23.adj, aes(x = Longitude, y = Latitude)) +
-  geom_point(aes(color = Subregion), alpha = 0.6) +
-  theme_void() +
-  theme(legend.position = "none")
-ggsave(alldrmpts, filename = "alldrmpts.png", width = 110, height = 100, units = "mm")
-
-# Subregion plots
-dtmap <- sitesplot + coord_sf(xlim = c(-83, -82), ylim = c(24.4, 24.75), expand = FALSE) + theme(legend.position = "none")
-lkmap <- sitesplot + coord_sf(xlim = c(-82, -81), ylim = c(24.4, 24.75), expand = FALSE) + theme(legend.position = "none")
-ukmap <- sitesplot + coord_sf(xlim = c(-81, -80), ylim = c(24.65, 25.65), expand = FALSE) + theme(legend.position = "none")
-semap <- sitesplot + coord_sf(xlim = c(-80.4, -79.8), ylim = c(25.65, 26.8), expand = FALSE) + theme(legend.position = "none")
-
-# Create and save multipanel plot
-maps_multipanel <- gridExtra::arrangeGrob(
-  rasterplot_rect, lkmap, dtmap, ukmap, semap, 
-  layout_matrix = matrix(c(1,1,1,1,2,3,2,3,4,4,4,4,5,5), nrow=2))
-ggsave(filename = "output/2023_bleaching_maps_multipanel.png", 
-       plot = maps_multipanel, width = 16, height = 4, unit = "in")
-
-# Display subregion panels
-cowplot::plot_grid(dtmap, lkmap, ncol = 1)
-cowplot::plot_grid(ukmap, semap, ncol = 2, rel_widths = c(0.6, 0.4))
-```
-
-
 ## Species variation in bleaching
 
 ### Species ED50s, DRCs, GLMERs
 ```{r bleaching_by_species, fig.width = 5, fig.height = 6}
-## Ways of modeling species-level bleaching susceptibility vs. dhw
-# 1. GLMER (+random effects, -no constraining at 0 DHW, -no ED50)
-# 2. DRC (+constrain at 0 DHW, +ED50 stats, -no random effects)
-## Get results of both and compare
-# 1. Plot curves
-# 2. Plot heatmaps
-
-
-
-# Get subsetted dataset of corals observed >80 times
+## Modeling species-level bleaching susceptibility vs. dhw
+# Get subsetted dataset of coral species observed >80 times
 df23.abund <- df23 %>%
   group_by(Species) %>%
   filter(n() > 80)
@@ -416,18 +343,6 @@ df23f <- df23.abund %>%
             n = n()) %>%
   drop_na() %>%
   droplevels()
-
-#### GLMER
-m2 <- glmer(cbind(NB, BL) ~ Species * dhw + Week2 + (1|Subregion), family = "binomial", data = df23f,
-            nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
-res2 <- emmeans(m2, specs = c("Species", "dhw"), rg.limit = 20000, type = "response",
-               at = list(Week2 = factor("(33,35]"), dhw = seq(0, 23, 0.1)))
-glmer.res <- as.tibble(res2)
-glmer.ord <- glmer.res %>%
-  group_by(Species) %>%
-  slice(which.min(abs(prob - 0.5))) %>%
-  ungroup() %>%
-  mutate(Species = fct_reorder(Species, dhw))
 
 #### DRC (tried 3par, 4par, and 5par -- all work, just slight diffs. )
 # More pars = less estimable standard errors on ED50... depends how important ED50 inference is
@@ -446,44 +361,6 @@ drc.ord <- ED(m3, 0.5, type = "absolute", display = FALSE) %>%
   as_tibble() %>%
   mutate(Species = levels(df23f$Species),
          Species = fct_reorder(Species, Estimate))
-
-# Combine GLMER and DRC results for comparison
-allres <- bind_rows(
-  glmer = glmer.res,
-  drc = drc.res,
-  .id = "method"
-)
-# Plot as response curves
-ggplot(allres, aes(x = dhw, y = prob)) +
-         geom_line(aes(linetype = method)) +
-         facet_wrap(~Species) +
-  theme_classic()
-
-
-# Plot as heatmap
-glmer.heatmap <- glmer.res %>%
-  mutate(Species = factor(Species, levels = levels(glmer.ord$Species))) %>%
-  ggplot(aes(x = dhw, y = Species)) +
-  geom_tile(aes(fill = prob)) +
-  scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
-                       limits = c(0, 1), midpoint = 0.5) +
-  geom_point(data = glmer.ord, aes(x = dhw), pch = 5) +
-  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse") +
-  theme(legend.position = "none")
-
-
-drc.heatmap <- drc.res %>%
-  mutate(Species = factor(Species, levels = levels(drc.ord$Species))) %>%
-  ggplot(aes(x = dhw, y = Species)) +
-  geom_tile(aes(fill = prob)) +
-  scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
-                       limits = c(0, 1), midpoint = 0.5) +
-  geom_point(data = drc.ord, aes(x = Estimate), pch = 5) +
-  labs(x = "Degree Heating Weeks", y = "", fill = "Proportion\nof colonies\nPB or worse") +
-  theme(legend.position = "none")
-
-bleaching_heatmaps <- cowplot::plot_grid(glmer.heatmap, drc.heatmap, ncol = 2)
-ggsave(filename = "output/bleaching_heatmaps.png", plot = bleaching_heatmaps, width = 200, height = 70, units = "mm")
 
 # Stats on ED50s
 # compParm(m3, "ED50", operator = "-")
@@ -515,23 +392,12 @@ ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
        width = 100, height = 120, units = "mm")
 
 drc.res.ridges
-
-
-
-#ED90
-ed90 <- ED(m3, 0.1, type = "absolute", display = FALSE) %>%
-  as_tibble() %>%
-  mutate(Species = levels(df23f$Species)) %>%
-  filter(Estimate <= 25)
-
-drc.res.ridges +
-  geom_point(data = ed90, aes(x = Estimate), pch = 5, size = 0.5)
 ```
 
 
 ### Within-species variation (ED90-ED10) vs. ED50
 ```{r within_spp_bleaching_variability, fig.width = 8, fig.height = 5}
-# Distance from 10% to 75% bleaching (90% to 25% not bleached) by Species
+# Distance from 10% to 90% bleaching (90% to 10% not bleached) by Species
 span1090 <- drc.res %>%
   group_by(Species) %>%
   slice(which.min(abs(prob - 0.9)),
@@ -540,43 +406,10 @@ span1090 <- drc.res %>%
   mutate(span = max - min) %>%
   arrange(-span)
 
-# span2575 <- drc.res %>%
-#   group_by(Species) %>%
-#   slice(which.min(abs(prob - 0.75)),
-#         which.min(abs(prob - 0.25))) %>%
-#   summarize(min = min(dhw), max = max(dhw)) %>%
-#   mutate(span = max - min) %>%
-#   arrange(-span)
-
+# Calculate percent of colonies of each species bleached at 23 DHW
 pbleach <- drc.res %>%
   filter(dhw == 23) %>%
   mutate(pbleach = 1 - prob)
-
-(plot1090 <- drc.ord %>%
-  left_join(span1090) %>%
-  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = Estimate, y = span)) +
-  geom_point(aes(size = n_symbiont_genera, color = reproductive_mode,
-                 shape = sexual_system)) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
-  labs(x = "Median tolerance (DHW ED50)",
-       y = "Range in tolerance (DHW ED90 - ED10)") +
-  theme_classic())
-
-# (plot2575 <- drc.ord %>%
-#   left_join(span2575) %>%
-#   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-#   ggplot(aes(x = Estimate, y = span)) +
-#   geom_point(aes(size = n_symbiont_genera, color = reproductive_mode,
-#                  shape = sexual_system)) +
-#   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-#                            fontface = "italic", size = 3, lineheight = 0.75) +
-#   labs(x = "Median tolerance (DHW ED50)",
-#        y = "Range in tolerance (DHW ED75 - ED25)") +
-#   theme_classic())
-
-ggsave(filename = "output/medrangeplot.png", plot = plot1090, width = 90, height = 90, units = "mm")
 
 drc.ord %>%
   left_join(span1090) %>%
@@ -603,72 +436,24 @@ drc.ord %>%
 ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
 
 
-<<<<<<< HEAD
-# Shayle symbiont review - updated
-syms <- read_csv("symb.genera.20241002.xlsx - Sheet1.csv") %>%
-  full_join(span1090) %>%
-  mutate(ngen = nchar(Florida)) %>%
-  mutate(D = grepl("D", Florida)) %>%
-  select(Species, Florida, ngen, D, span)
+# Combine tolerance range (span10-90) with symbiont data from Florida
+library(gsheet)
+sheet_url <- "https://docs.google.com/spreadsheets/d/1r1MyUA4Vk50SMjkuRM4XfLcv2-Ve1afp/edit?usp=sharing&ouid=100793581009007740691&rtpof=true&sd=true"
 
-syms %>%
-  ggplot(aes(x = ngen, y = span)) +
-  geom_label(aes(label = Species, color = D)) +
-  geom_smooth(se = F)
-
-mod <- lm(span ~ ngen, data = syms)
-anova(mod)
-mod <- lm(span ~ factor(ngen), data = syms)
-anova(mod)
-=======
-
-# Shayle symbiont review
-syms0 <- read_csv("data/symb.genera.20241002.xlsx - Sheet1.csv")
-syms <- syms0 %>%
-  mutate(ngen = nchar(Florida)) %>%
-  dplyr::select(Species, syms = Florida, ngen) %>%
-  full_join(span1090)
-
-ggplot(syms, aes(x = ngen, y = span)) +
-  geom_point() +
-  geom_label(aes(label = Species)) +
-  geom_smooth(method = "lm", se = FALSE)
-
-mod <- lm(span ~ ngen, data = syms)
-anova(mod)
->>>>>>> f54138e6ce907766fa00ed9e8b4e53ebff41b336
-emms <- emmeans(mod, specs = "ngen")
-pairs(emms)
-
-
-
-
-<<<<<<< HEAD
-
-
-=======
->>>>>>> f54138e6ce907766fa00ed9e8b4e53ebff41b336
-# Prevalence of bleaching at 22 DHW
-pbleach <- drc.res %>%
-  filter(dhw == 22) %>%
-  mutate(pBL = 1 - prob,
-         pNB = prob) %>%
-  arrange(-pNB)
-
-View(pbleach)
-
-
-# P50 vs. P90?
-testy <- drc.res %>%
+syms <- gsheet2tbl(sheet_url)
+symsumm <- syms %>% 
+  filter(location == "FL") %>%
   group_by(Species) %>%
-  slice(which.min(abs(prob - 0.2))) %>%
-  select(Species, dhw90 = dhw, prob90 = prob) %>%
-  left_join(drc.ord)
+  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
+  mutate(ngen = nchar(domsyms))
 
-ggplot(testy, aes(x = Estimate, y = dhw90)) +
+# Plot relationship between number of symbiont genera and tolerance range
+span1090 %>%
+  full_join(symsumm) %>%
+  ggplot(aes(x = ngen, y = span)) +
   geom_point() +
-  ggrepel::geom_label_repel(aes(label = Species)) +
-  geom_abline(aes(intercept = 0, slope = 1))
+  geom_label(aes(label = Species))
+
 ```
 
 # 2014-15-23 bleaching severity 
