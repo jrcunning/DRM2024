@@ -933,9 +933,18 @@ net <- findat %>%
   left_join(symsumm.ag)
 net
 
+mod <- lm(degC ~ estimate, data = filter(net, ngen > 1))
+anova(mod)
+
+mod <- lm(degC ~ ngen, data = filter(net, ngen > 1))
+anova(mod)
+
+
 mod <- lm(degC ~ estimate + ngen, data = filter(net, ngen > 1))
 anova(mod)
 
+ggplot(filter(net, ngen > 1), aes(x = estimate, y = ngen)) +
+  geom_point()
 ```
 
 
