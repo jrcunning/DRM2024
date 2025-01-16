@@ -146,6 +146,9 @@ all0 %>%
   ggplot(aes(x = Longitude, y = Latitude, color = Subregion)) +
   geom_point() +
   facet_wrap(~year)
+
+# Number of corals surveyed each year
+all0 %>% count(year)
 ```
 
 ```{r}
@@ -440,8 +443,8 @@ ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 9
 library(gsheet)
 sheet_url <- "https://docs.google.com/spreadsheets/d/1r1MyUA4Vk50SMjkuRM4XfLcv2-Ve1afp/edit?usp=sharing&ouid=100793581009007740691&rtpof=true&sd=true"
 
-syms <- gsheet2tbl(sheet_url)
-symsumm <- syms %>% 
+sym0 <- gsheet2tbl(sheet_url)
+symsumm <- sym0 %>% 
   filter(location == "FL") %>%
   group_by(Species) %>%
   summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
@@ -452,15 +455,22 @@ span1090 %>%
   full_join(symsumm) %>%
   ggplot(aes(x = ngen, y = span)) +
   geom_point() +
-  geom_label(aes(label = Species))
+  geom_label(aes(label = Species)) +
+  geom_smooth(method = "lm")
 
+test <- span1090 %>% full_join(symsumm)
+mod <- lm(span ~ ngen, data = test)
+anova(mod)
 ```
 
 # 2014-15-23 bleaching severity 
 
 ```{r aggregate_subset_data}
+counts <- all0 %>% count(Species, year)
+
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
-all0 <- all0 %>%
+
+all1 <- all0 %>%
   mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
                              Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
                              Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
@@ -472,12 +482,12 @@ all0 <- all0 %>%
   drop_na(Species)
 
 # Keep only those species observed at least 20 times in each year
-spp_to_include <- all0 %>%
+spp_to_include <- all1 %>%
   count(Species, year) %>%
   group_by(Species) %>%
   dplyr::filter(min(n) >= 20)  # 20 is a good cutoff
 
-allf <- all0 %>%
+allf <- all1 %>%
   filter(Species %in% spp_to_include$Species)
 
 ## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
@@ -491,19 +501,14 @@ allg <- allf %>%
 # How many observations including 2014/2015/2023 filtered?
 nrow(allf)
 allf %>% count(year)
-all0 %>% count(year)
 ```
 
 ## All corals - ED50s (glmer)
 ```{r bleaching_by_dhw_across_years}
 # Model differences in bleaching severity between years with DHW as continuous predictor
-dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion),  
+dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                      family = "binomial", data = allg, verbose = FALSE,
-                     nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-# Best formula: cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw+year|Species) + (year|Subregion)
-#### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
-#### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-#anova(dhw.mod)
+                     nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 
 # Function to get DHW's that cause 50% bleaching for each year
 ed50s.fun <- function(dhw.mod) {
@@ -591,61 +596,23 @@ dhw.res2 <- subset(dhw.res,
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off"))
 
+# Add error bars (± SE) around ED50 estimates
 # dhw.bleach.plot +
-#   geom_errorbar(data = slice(ed50conf, 1:3), 
-#                aes(x = ed50, y = 0.5, xmin = ed50-se, xmax = ed50+se), 
+#   geom_errorbar(data = slice(ed50conf, 1:3),
+#                aes(x = ed50, y = 0.5, xmin = ed50 - se, xmax = ed50 + se),
 #                width = 0.02, alpha = 0.5)
 
 # Save plot
 ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
-
-# What levels of heat stress caused 90% bleaching in all species?
-bleach90 <- as.tibble(dhw.res) %>%
-  filter(year == "2023", dhw == 22.3, Week2 == "(33,35]")
-
-
-
-
-##### Plots for USF seminar
-myplot1 <- as.tibble(dhw.res2) %>% filter(year == 2023) %>%
-ggplot(aes(x = dhw, y = prob, group = year)) +
-  geom_text(data = slice(ed50conf, 3), 
-            aes(x = c(20.5), y = c(0.97), label = year)) +
-  # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
-  geom_line(aes(color = prob), lwd = 2) +
-  scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1), 
-                     labels = scales::label_percent()) +
-  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-                        limits = c(0, 1), midpoint = 0.5) +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
-  coord_cartesian(clip = "off")
-myplot1
-ggsave(filename = "plot1.png", width = 125, height = 100, units = "mm")
-myplot1 %+% (as.tibble(dhw.res2) %>% filter(year %in% c(2015, 2023))) +
-  geom_text(data = slice(ed50conf, 2:3), 
-            aes(x = c(9.5,20.5), y = c(0.65, 0.97), label = year)) 
-ggsave(filename = "plot2.png", width = 125, height = 100, units = "mm")
-myplot1 %+% as.tibble(dhw.res2) +
-  geom_text(data = slice(ed50conf, 1:3), 
-            aes(x = c(8,9.5,20.5), y = c(0.8, 0.65, 0.97), label = year)) 
-ggsave(filename = "plot3.png", width = 125, height = 100, units = "mm")
-
-dhw.bleach.plot
-ggsave(filename = "plot4.png", width = 125, height = 100, units = "mm")
 ```
 
 
 ## All corals - ∆ED50, ∆°C
 ```{r change_degC_thresh}
-#degC.per.DHW <- 0.07770643
+# Specify degC per DHW
 degC.per.DHW <- 0.1273714
 
-
-# Backcalculate change in ed50s (DHW) to change in tolerance (°C) 
+# Back-calculate change in ed50s (DHW) to change in tolerance (°C) 
 degC <- ed50conf %>%
   filter(year %in% c("2023-2014", "2015-2014")) %>%
   mutate(ed50.degC = ed50 * degC.per.DHW,
@@ -653,44 +620,18 @@ degC <- ed50conf %>%
          lower.degC = lower * degC.per.DHW,
          upper.degC = upper * degC.per.DHW) %>%
   separate(year, into = c("year", "2014"))
-# degC %>%
-#   select(year, ed50.degC, se.degC, lower.degC, upper.degC) %>%
-#   ggplot(aes(x = year, y = ed50.degC)) +
-#   geom_point() +
-#   geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0.2) +
-#   ylim(0, 0.8) +
-#   labs(y = "Change in heat tolerance from 2014 (°C)") +
-#   theme_classic()
 
-# Plot ED50 vs. year
-ed50conf %>%
-  slice(1:3) %>%
-  ggplot(aes(x = as.numeric(year), y = ed50)) +
+# Plot overall change in heat tolerance relative to 2014 in degC
+degC %>%
+  select(year, ed50.degC, se.degC, lower.degC, upper.degC) %>%
+  ggplot(aes(x = year, y = ed50.degC)) +
   geom_point() +
-  geom_smooth(method = "lm", se = FALSE) +
-  geom_path(data = slice(ed50conf, c(1,3))) +
-  theme_classic() +
-  labs(x = "Year", y = "ED50 (DHW)")
+  geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0.2) +
+  ylim(0, 1.2) +
+  labs(y = "Change in heat tolerance from 2014 (°C)") +
+  theme_classic()
 
-# # Model ∆°C vs year w/0intercept @ 2015 -- but only two data points
-# fit <- lm(ed50.degC ~ 0 + I(as.numeric(year) - 2014), data = degC)
-# plot(as.numeric(degC$year), degC$ed50.degC, xlim = c(2010, 2025), ylim = c(-0.1, 1))
-# newdat <- data.frame(year = seq(2010, 2025, 1))
-# pred <- predict(fit, newdat)
-# lines(newdat$year, pred)
-# summary(fit)
-# confint(fit)
-
-mod <- ed50conf %>%
-  slice(1:3) %>%
-  lm(ed50 ~ as.numeric(year), data = .)
-
-# Change over time from regression on 2014-2015-2023
-(c1 <- coef(mod)[2])
-## 0.7027 DHW's per year --> 0.736°C/decade
-c1 * degC.per.DHW * 10
-
-# Change over time considering just 2014-2023
+# Change over time from 2014-2023 in degC
 ed50conf %>%
   filter(year == "2023-2014") %>%
   mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW / 9 * 10, .names = "{.col}.degC.dec"))
@@ -750,10 +691,6 @@ dhw.sp.res22 <- subset(dhw.sp.res,
 ggsave(filename = "output/dhw.sp.bleach.plot.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
 
 
-### SUBSET THIS FIGURE FOR BIOTA PROPOSAL
-biota.1 <- dhw.sp.bleach.plot %+% filter(as.tibble(dhw.sp.res2), Species %in% c("CNAT", "DLAB", "SINT", "MCAV", "PAST", "PSTR", "SSID"))
-
-
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
 ## change in ED50s from 2014-2015, and 2014-2023
 sp.ed50s.fun <- function(dhw.sp.mod) {
@@ -785,10 +722,10 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 20)
+sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
+                       parallel = "multicore", ncpus = 20)
 # saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
-sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
+#sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -812,11 +749,6 @@ sp.ed50conf <- tibble(
 #     facet_wrap(~Species, scales = "free_y") +
 #     labs(y = "ED50 (DHWs to 50% bleaching)") +
 #     theme_classic()
-
-
-# What levels of heat stress caused 90% bleaching in all species?
-bleach90 <- as.tibble(dhw.sp.res22) %>%
-  filter(year == "2023", dhw == 22.3)
 ```
 
 ## Species - ∆ED50, ∆°C
@@ -838,98 +770,77 @@ sp.ed50conf %>%
   facet_wrap(~Species) +
   theme_classic()
 
-# Get slopes for ∆DHW/year from regressions on 2014-2015-2023
-mod <- sp.ed50conf %>%
-  filter(year %in% c("2014", "2015", "2023")) %>%
-  mutate(year = as.numeric(year)) %>%
-  lm(ed50 ~ year * Species, data = .)
-
-slopes <- as.tibble(emtrends(mod, specs = "Species", var = "year")) %>%
-  mutate(slope = year.trend, slope.SE = SE) %>%
-  dplyr::select(Species, slope, slope.SE)
+# Get net change in ∆DHW/year from 2014 - 2023, convert to degC
 nets <- sp.ed50conf %>%
   filter(year == "2023-2014") %>%
   mutate(neted50 = ed50, neted50.SE = se) %>%
-  dplyr::select(Species, neted50, neted50.SE)
-
-out <- full_join(slopes, nets) %>%
-  mutate(`2014-2015-2023` = slope * degC.per.DHW * 10,
-         `2014-2023` = neted50/9 * degC.per.DHW * 10)
-
-out %>%
-  pivot_longer(c(`2014-2015-2023`, `2014-2023`)) %>%
-  ggplot(aes(x = name, y = value, color = name)) +
-  geom_boxplot(alpha = 0.5, outliers = FALSE) +
-  geom_jitter(height = 0, width = 0.1) +
-  scale_color_manual(values = c("blue", "black")) +
-  scale_y_continuous(breaks = seq(-0.5, 2, 0.25)) +
-  labs(y = "Change in heat tolerance (°C/decade)") +
-  theme_classic() +
-  theme(legend.position = "none")
-
-# Choose metric for °C/decade
-fin <- out %>%
-  mutate(degC.dec.se = neted50.SE * degC.per.DHW) %>%
-  dplyr::select(Species, degC.dec = `2014-2023`, degC.dec.se)
+  dplyr::select(Species, neted50, neted50.SE) %>%
+  mutate(degC = neted50 * degC.per.DHW, degC.se = neted50.SE * degC.per.DHW) %>%
+  dplyr::select(Species, degC, degC.se)
 
 # Plot change in tolerance per deacde for all Species
-findat <- fin %>%
-  mutate(Species = fct_reorder(Species, degC.dec)) 
+findat <- nets %>%
+  mutate(Species = fct_reorder(Species, degC)) 
 
-finplot <- findat %>%
-  ggplot(aes(x = Species, y = degC.dec)) +
+(finplot <- findat %>%
+  ggplot(aes(x = Species, y = degC)) +
   geom_point() +
   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se, ymax = degC.dec + degC.dec.se), width = 0.2) +
+  geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0.2) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90)) +
-  labs(y = "Change in heat tolerance (°C/decade)        ")
+  labs(y = "Change in heat tolerance (°C/decade)        "))
 
 ggsave(finplot, filename = "sppthresh.png", width = 100, height = 100, units = "mm")
+```
 
-###########
-syms <- syms %>% add_row(Species = "ORBI", Florida = "ABCD", ngen = 4, D = TRUE, span = NA)
-findat %>% left_join(syms) %>%
-  ggplot(aes(x = ngen, y = degC.dec)) +
+## Species - ∆°C vs. symbiont genera
+```{r spp_degC_syms}
+# In symbiont dataset, aggregate coral taxa to match aggregation in DRM dataset
+symsumm.ag <- sym0  %>%
+  filter(location == "FL") %>%
+  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
+                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
+                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
+                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
+                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
+                             Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             Species %in% c("OFAV", "OFRA", "OANN") ~ "ORBI",
+                             TRUE ~ Species)) %>%
+  drop_na(Species) %>% 
+  group_by(Species) %>%
+  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
+  mutate(ngen = nchar(domsyms)) %>%
+  print(n = nrow(.)) %>%
+  mutate(D = grepl("D", domsyms)) 
+
+# Join aggregated symbiont dataset with ∆°C data for coral taxa
+symsumm.ag <- symsumm.ag %>%
+  full_join(findat)
+
+
+# Plot ∆°C vs. number of symbiont genera
+ggplot(symsumm.ag, aes(x = ngen, y = degC)) +
   geom_label(aes(label = Species, color = D))
 
-finsym <- findat %>%
-  left_join(syms) %>%
-  mutate(D = grepl("D", syms))
-mod <- lm(degC.dec ~ ngen + D, data = filter(finsym, ngen > 1))
+# Test for statistical significance
+mod <- lm(degC ~ ngen + D, data = filter(symsumm.ag, ngen > 1))
 anova(mod)
 emmeans(mod, specs = c("ngen", "D"), at = list(ngen = c(1,2,3,4)))
-mod <- lm(degC.dec ~ factor(ngen) + D, data = finsym)
+mod <- lm(degC ~ factor(ngen) + D, data = symsumm.ag)
 anova(mod)
 emms <- emmeans(mod, specs = "ngen")
 pairs(emms)
 
+# Make prettier plot
 library(ggrepel)
-ggplot(finsym, aes(x = ngen, y = degC.dec, color = D)) +
+ggplot(symsumm.ag, aes(x = ngen, y = degC, color = D)) +
   geom_point(size = 5, alpha = 0.6) +
   geom_text_repel(aes(label = abbrev_names[Species]), fontface = 3) +
   
   geom_smooth(se = F, color = "gray40") +
   theme_classic() +
   labs(x = "Number of symbiont genera", y = "Change in heat tolerance (°C/decade)")
-
-
-
-
-
-
-
-# Figure for Biota
-mydf <- findat %>%
-  filter(Species %in% c("CNAT", "SINT", "MCAV", "PAST", "PSTR", "SSID")) %>%
-  mutate(Species = factor(Species, levels = c("SINT", "MCAV", "PSTR", "PAST", "SSID", "CNAT")))
-
-biota.2 <- finplot %+% mydf +
-  scale_x_discrete(labels = c("S. intersepta", "M. cavernosa", "P. strigosa", "P. astreoides",
-                   "S. siderea", "C. natans")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
-
-ggsave(filename = "biota_tolerance_short.png", width = 100, height = 80, units = "mm")
 ```
 
 ## Tolerance vs. density changes, 2014-2023
@@ -937,15 +848,16 @@ ggsave(filename = "biota_tolerance_short.png", width = 100, height = 80, units =
 ```{r bleachthresh_vs_density, fig.width = 10}
 #densres <- readRDS("output/density.rds")
 densdiffs <- readRDS("output/dens20142023.rds")
+# TRY REDOING DENSDIFFS WITH ORBICELLA SPP SEPARATE - not better, go back to aggregated ORBI
 
 # Combine net changes in heat tolerance and density across species
-net <- fin %>%
+net <- findat %>%
   left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   drop_na()
 
 # Model change in tolerance vs. change in density
 # Passing Bablok regression
-PBreg <- mcr::mcreg(net$estimate+3, net$degC.dec+3,
+PBreg <- mcr::mcreg(net$estimate+3, net$degC+3,
                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
 summary(PBreg)
 
@@ -953,13 +865,13 @@ PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1),
                       alpha = 0.1) %>% as_tibble()
 PBfit <- PBfit %>%
   mutate(estimate = X - 3,
-         degC.dec = Y - 3)
+         degC = Y - 3)
 
 (tol_dens_plot <- net %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = estimate, y = degC.dec)) + 
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se, 
-                    ymax = degC.dec + degC.dec.se), width = 0) +
+  ggplot(aes(x = estimate, y = degC)) + 
+  geom_errorbar(aes(ymin = degC - degC.se, 
+                    ymax = degC + degC.se), width = 0) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
   geom_point(aes(size = n_symbiont_genera, color = reproductive_mode, shape = sexual_system)) +
   geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
@@ -1011,6 +923,19 @@ PBfit <- PBfit %>%
 
 # It is not significant if you take out ORBI, PDIV, PFUR, PPOR...
 # But genets separating into ramets is still the same as not losing genets from the population, so even if that is mechanism of increase in density, still consistent with inference of loss of genotypes driving tolerance increase...
+
+
+# Test ngen syms AND densdiffs together?
+# Combine net changes in heat tolerance and density across species
+net <- findat %>%
+  left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
+  drop_na() %>%
+  left_join(symsumm.ag)
+net
+
+mod <- lm(degC ~ estimate + ngen, data = filter(net, ngen > 1))
+anova(mod)
+
 ```
 
 
