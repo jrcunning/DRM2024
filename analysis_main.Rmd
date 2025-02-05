@@ -94,7 +94,9 @@ abbrev_names <- c(abbrev_names$name)
 names(abbrev_names) <- names(species_names)
 ```
 
-# Import DRM and DHW data (2014, 2015, 2023)
+# Import data
+
+## DRM and DHW data (2014, 2015, 2023)
 ```{r import_data}
 # Load all QC'd data from 2014, 2015, and 2023
 load("output/2014.RData")
@@ -151,6 +153,39 @@ all0 %>%
 all0 %>% count(year)
 ```
 
+## Symbiont metadata for Florida corals
+```{r}
+# Import symbiont metadata
+library(gsheet)
+sheet_url <- "https://docs.google.com/spreadsheets/d/1r1MyUA4Vk50SMjkuRM4XfLcv2-Ve1afp/edit?usp=sharing&ouid=100793581009007740691&rtpof=true&sd=true"
+sym0 <- gsheet2tbl(sheet_url)
+
+# Summarize symbiont data (get all genera detected in each spp in Florida)
+symsumm <- sym0 %>% 
+  filter(location == "FL") %>%
+  group_by(Species) %>%
+  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
+  mutate(ngen = nchar(domsyms))
+
+# Aggregate symbiont metadata to match coral taxa to match aggregation in DRM dataset
+symsumm.ag <- sym0  %>%
+  filter(location == "FL") %>%
+  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
+                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
+                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
+                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
+                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
+                             Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             Species %in% c("OFAV", "OFRA", "OANN") ~ "ORBI",
+                             TRUE ~ Species)) %>%
+  drop_na(Species) %>% 
+  group_by(Species) %>%
+  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
+  mutate(ngen = nchar(domsyms)) %>%
+  print(n = nrow(.)) %>%
+  mutate(D = grepl("D", domsyms)) 
+```
+
 ```{r}
 # Plot surveys vs. DHW
 (surveys.by.dhw <- all0 %>%
@@ -159,9 +194,10 @@ all0 %>% count(year)
   geom_histogram(breaks = seq(0,22,1)) +
   facet_grid(year ~ ., scales = "free_y") +
   theme_classic() +
-  labs(x = "Degree Heating Weeks", y = "Number of surveys"))
+  labs(x = "Degree Heating Weeks", y = "Number of surveys",
+       title = "Timing of surveys relative to heat stress accumulation"))
 
-ggsave(filename = "output/surveys.by.dhw.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
+ggsave(filename = "figures/FigS1.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
 ```
 
 # 2023 bleaching severity
@@ -209,20 +245,44 @@ ggplot(pctbl23.adj, aes(x = Subregion, y = adjprob)) +
 pctbl23.adj %>%
   group_by(Subregion) %>%
   summarize(medpctbl23.adj = median(adjprob))
-  
+
+# Summarize bleaching prevalence for north (miami up) and south (biscayne to drto) regions
 # # Get confidence intervals on site-level bleaching prevalence by subregion and for all keys/drto
-# pctbl23.adj <- pctbl23.adj %>%
-#   mutate(biscdown = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
-#                               TRUE ~ "south"))
-# pctbl23.adj %>%
-#   group_by(biscdown) %>%
-#   summarize(mean = mean(adj),
-#             sd = sd(adj),
-#             lower = mean - 2*sd,
-#             upper = mean + 2*sd) %>%
-#   mutate(meanprob = exp(mean) / (1 + exp(mean)),
-#          lowerprob = exp(lower) / (1 + exp(lower)),
-#          upperprob = exp(upper) / (1 + exp(upper)))
+pctbl23.adj <- pctbl23.adj %>%
+  mutate(region = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
+                              TRUE ~ "south"))
+north <- filter(pctbl23.adj, region == "north") %>% pull(adjprob)
+south <- filter(pctbl23.adj, region == "south") %>% pull(adjprob)
+
+ggplot(pctbl23.adj, aes(x = region, y = adjprob)) + geom_violin()
+#ggplot(pctbl23.adj, aes(x = region, y = pctbl)) + geom_violin()
+
+# Test if bleaching prevalence data are normally distributed
+shapiro.test(north) # not normal
+shapiro.test(south) # not normal
+
+median(north)
+quantile(north, c(0.25, 0.75))
+IQR(north)
+mad(north)
+
+median(south)
+quantile(south, c(0.25, 0.75))
+mad(south)
+
+
+
+
+# Mean
+pctbl23.adj %>%
+  group_by(biscdown) %>%
+  summarize(mean = mean(adj),
+            sd = sd(adj),
+            lower = mean - 2*sd,
+            upper = mean + 2*sd) %>%
+  mutate(meanprob = exp(mean) / (1 + exp(mean)),
+         lowerprob = exp(lower) / (1 + exp(lower)),
+         upperprob = exp(upper) / (1 + exp(upper)))
 
 
 # Interpolate percent bleaching for whole reef tract
@@ -439,16 +499,7 @@ drc.ord %>%
 ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
 
 
-# Combine tolerance range (span10-90) with symbiont data from Florida
-library(gsheet)
-sheet_url <- "https://docs.google.com/spreadsheets/d/1r1MyUA4Vk50SMjkuRM4XfLcv2-Ve1afp/edit?usp=sharing&ouid=100793581009007740691&rtpof=true&sd=true"
 
-sym0 <- gsheet2tbl(sheet_url)
-symsumm <- sym0 %>% 
-  filter(location == "FL") %>%
-  group_by(Species) %>%
-  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
-  mutate(ngen = nchar(domsyms))
 
 # Plot relationship between number of symbiont genera and tolerance range
 span1090 %>%
@@ -796,28 +847,9 @@ ggsave(finplot, filename = "sppthresh.png", width = 100, height = 100, units = "
 
 ## Species - ∆°C vs. symbiont genera
 ```{r spp_degC_syms}
-# In symbiont dataset, aggregate coral taxa to match aggregation in DRM dataset
-symsumm.ag <- sym0  %>%
-  filter(location == "FL") %>%
-  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
-                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
-                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
-                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
-                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
-                             Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
-                             Species %in% c("OFAV", "OFRA", "OANN") ~ "ORBI",
-                             TRUE ~ Species)) %>%
-  drop_na(Species) %>% 
-  group_by(Species) %>%
-  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
-  mutate(ngen = nchar(domsyms)) %>%
-  print(n = nrow(.)) %>%
-  mutate(D = grepl("D", domsyms)) 
-
 # Join aggregated symbiont dataset with ∆°C data for coral taxa
 symsumm.ag <- symsumm.ag %>%
   full_join(findat)
-
 
 # Plot ∆°C vs. number of symbiont genera
 ggplot(symsumm.ag, aes(x = ngen, y = degC)) +
@@ -933,18 +965,32 @@ net <- findat %>%
   left_join(symsumm.ag)
 net
 
-mod <- lm(degC ~ estimate, data = filter(net, ngen > 1))
+mod <- lm(degC ~ estimate, data = filter(net, ngen > 0))
 anova(mod)
 
-mod <- lm(degC ~ ngen, data = filter(net, ngen > 1))
+mod <- lm(degC ~ ngen, data = filter(net, ngen > 0))
 anova(mod)
 
 
-mod <- lm(degC ~ estimate + ngen, data = filter(net, ngen > 1))
+mod <- lm(degC ~ estimate + ngen, data = filter(net, ngen > 0))
 anova(mod)
 
-ggplot(filter(net, ngen > 1), aes(x = estimate, y = ngen)) +
+ggplot(filter(net, ngen > 0), aes(x = estimate, y = ngen)) +
   geom_point()
+
+emm_ngen <- emmeans(mod, ~ ngen)
+adj_values <- as.data.frame(emmeans(mod, ~ ngen))
+
+net_filtered <- filter(net, ngen > 0)
+residuals_adj <- residuals(lm(degC ~ estimate, data = net_filtered))
+
+ggplot(net_filtered, aes(x = ngen, y = residuals_adj)) +
+  geom_point() +
+  geom_label_repel(aes(label = Species)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "ngen", y = "Residual degC (adjusted for estimate)", 
+       title = "Relationship between ngen and degC after removing estimate effect") +
+  theme_minimal()
 ```
 
 
