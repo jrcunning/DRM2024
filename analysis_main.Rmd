@@ -773,10 +773,10 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
+#sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
                        parallel = "multicore", ncpus = 20)
 # saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
-#sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
+sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -829,7 +829,7 @@ nets <- sp.ed50conf %>%
   mutate(degC = neted50 * degC.per.DHW, degC.se = neted50.SE * degC.per.DHW) %>%
   dplyr::select(Species, degC, degC.se)
 
-# Plot change in tolerance per deacde for all Species
+# Plot change in tolerance for all Species
 findat <- nets %>%
   mutate(Species = fct_reorder(Species, degC)) 
 
