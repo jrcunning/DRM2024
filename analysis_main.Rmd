@@ -130,15 +130,6 @@ all0 <- all0 %>%
                                                   "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
                                                   "Middle Keys", "Lower Keys", "Marquesas",
                                                   "Tortugas--Dry Tortugas NP")))
-# 
-# df23 <- df23 %>%
-#   mutate(Subregion = case_when(Subregion %in% c("North Palm Beach", "South Palm Beach") ~ "Palm Beach",
-#                                TRUE ~ Subregion))
-# df23 <- df23 %>%
-#   mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
-#                                                   "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
-#                                                   "Middle Keys", "Lower Keys", "Marquesas",
-#                                                   "Tortugas--Dry Tortugas NP")))
 
 df23 <- all0 %>% filter(year == 2023)
 
@@ -269,27 +260,12 @@ mad(north)
 median(south)
 quantile(south, c(0.25, 0.75))
 mad(south)
-
-
-
-
-# Mean
-pctbl23.adj %>%
-  group_by(biscdown) %>%
-  summarize(mean = mean(adj),
-            sd = sd(adj),
-            lower = mean - 2*sd,
-            upper = mean + 2*sd) %>%
-  mutate(meanprob = exp(mean) / (1 + exp(mean)),
-         lowerprob = exp(lower) / (1 + exp(lower)),
-         upperprob = exp(upper) / (1 + exp(upper)))
-
-
-# Interpolate percent bleaching for whole reef tract
-# https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
 ```
 
 ```{r interpolation}
+# Interpolate percent bleaching for whole reef tract
+# https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
+
 # Create SpatialPointsDataFrame of survey sites
 sites23 <- pctbl23.adj %>%
   distinct(Site, Longitude, Latitude, adjprob)
@@ -341,7 +317,7 @@ rasterplot <- basemap +
   geom_sf(data = world, lwd = 0.1, fill = "gray90") +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
 
-ggsave(filename = "output/pctbleach2023.png", plot = rasterplot, width = 90, height = 90, units = "mm")
+ggsave(filename = "figures/Fig1.png", plot = rasterplot, width = 90, height = 90, units = "mm")
 ```
 
 ## Map DHWs
@@ -383,15 +359,14 @@ dhwmap <- basemap +
                        limits = c(0, 23), na.value = NA,
                        name = "Max.\nDHW      ")
 
-dhw_bleach <- cowplot::plot_grid(dhwmap, rasterplot, ncol = 2)
-ggsave(filename = "output/dhw_bleach.png", plot = dhw_bleach, width = 180, height = 80, units = "mm")
+# Save DHW map as supplementary figure
+ggsave(filename = "figures/FigS2.png", plot = dhwmap, width = 90, height = 90, units = "mm")
 
 ```
-![](./output/dhw_bleach.png)
 
 ## Species variation in bleaching
 
-### Species ED50s, DRCs, GLMERs
+### Species ED50s
 ```{r bleaching_by_species, fig.width = 5, fig.height = 6}
 ## Modeling species-level bleaching susceptibility vs. dhw
 # Get subsetted dataset of coral species observed >80 times
@@ -417,6 +392,9 @@ m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "bin
     # Hill parameter must be positive (must decrease with incr. dhw)
     #lowerl = c(rep(0, 22), rep(-Inf, 22), rep(0, 22), rep(-Inf, 22)),
     control = drmc(relTol = 1e-7))
+AIC(m3)
+
+# Get fitted values
 nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 0.1))
 pred <- predict(m3, newdata = nd)
 drc.res <- as_tibble(bind_cols(nd, prob = pred))
@@ -451,16 +429,16 @@ drc.res.ridges <- drc.res %>%
   theme(legend.position = "none",
         axis.text.y = element_text(face = "italic")) +
   labs(x = "Degree Heating Weeks", y = "")
-ggsave(filename = "output/bleaching_ridges.png", plot = drc.res.ridges,
-       width = 100, height = 120, units = "mm")
 
-drc.res.ridges
+# Save as Figure2
+ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
+       width = 100, height = 120, units = "mm")
 ```
 
 
-### Within-species variation (ED90-ED10) vs. ED50
+### Within-species variation (ED90-ED10)
 ```{r within_spp_bleaching_variability, fig.width = 8, fig.height = 5}
-# Distance from 10% to 90% bleaching (90% to 10% not bleached) by Species
+# Tolerance range within species - from 10% to 90% of colonies bleached, by Species
 span1090 <- drc.res %>%
   group_by(Species) %>%
   slice(which.min(abs(prob - 0.9)),
@@ -469,24 +447,19 @@ span1090 <- drc.res %>%
   mutate(span = max - min) %>%
   arrange(-span)
 
-# Calculate percent of colonies of each species bleached at 23 DHW
-pbleach <- drc.res %>%
-  filter(dhw == 23) %>%
-  mutate(pbleach = 1 - prob)
+# # Calculate percent of colonies of each species bleached at 23 DHW
+# pbleach <- drc.res %>%
+#   filter(dhw == 23) %>%
+#   mutate(pbleach = 1 - prob)
 
-drc.ord %>%
+# Join within-species variation with symbiont metadata
+out <- drc.ord %>%
   left_join(span1090) %>%
-  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = n_symbiont_genera, y = span)) + 
-  geom_point() +
-  geom_smooth(se = FALSE)
+  left_join(symsumm)
 
-
-(plot1090 <- drc.ord %>%
-  left_join(span1090) %>%
-  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = Estimate, y = span)) +
-  geom_point(aes(size = n_symbiont_genera^4), alpha = 0.7) + #, color = most_dom_sym)) +
+# Plot species' range vs. ed50, size points by number of symbiont genera
+plot1090 <- ggplot(out, aes(x = Estimate, y = span)) +
+  geom_point(aes(size = ngen^4), alpha = 0.7) + #, color = most_dom_sym)) +
   #geom_point(aes(color = factor(n_symbiont_genera))) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
@@ -494,33 +467,35 @@ drc.ord %>%
        y = "Range in tolerance (DHW ED90 - ED10)") +
   theme_classic() +
   scale_size_continuous(breaks = c(1^4,2^4,3^4,4^4)) +
-  theme(legend.position = "none"))
+  theme(legend.position = "none")
 
-ggsave(filename = "output/plot1090.png", plot = plot1090, width = 90, height = 90, units = "mm")
-
-
+ggsave(filename = "figures/Fig3.png", plot = plot1090, width = 90, height = 90, units = "mm")
 
 
-# Plot relationship between number of symbiont genera and tolerance range
-span1090 %>%
-  full_join(symsumm) %>%
-  ggplot(aes(x = ngen, y = span)) +
+
+
+# Test relationship between number of symbiont genera and tolerance range
+mod <- lm(span ~ ngen, data = out)
+p_value <- summary(mod)$coefficients[2, 4]
+
+set.seed(1238)
+ngen <- ggplot(out, aes(x = ngen, y = span)) +
   geom_point() +
-  geom_label(aes(label = Species)) +
-  geom_smooth(method = "lm")
+  stat_smooth(geom = "line", method = "lm", se = FALSE, alpha = 0.3, linewidth = 1) +
+  ggpubr::stat_cor() +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 4, lineheight = 0.75) +
+  labs(x = "Number of Symbiodiniaceae genera", y = "Intraspecific bleaching variability (ED90-ED10)") +
+  theme_classic()
 
-test <- span1090 %>% full_join(symsumm)
-mod <- lm(span ~ ngen, data = test)
-anova(mod)
+ggsave(filename = "figures/FigS3.png", plot = ngen, width = 140, height = 120, units = "mm")
 ```
+
 
 # 2014-15-23 bleaching severity 
 
 ```{r aggregate_subset_data}
-counts <- all0 %>% count(Species, year)
-
 # Aggregate Agaricia spp. other than AAGA, Mycetophyllia spp., Isophyllia spp., Oculina spp., Solenastrea spp., Scolymia spp.
-
 all1 <- all0 %>%
   mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
                              Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
@@ -548,7 +523,6 @@ allg <- allf %>%
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
 
-
 # How many observations including 2014/2015/2023 filtered?
 nrow(allf)
 allf %>% count(year)
@@ -564,7 +538,7 @@ dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species
 # Function to get DHW's that cause 50% bleaching for each year
 ed50s.fun <- function(dhw.mod) {
   dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
-                     at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                     at = list(dhw = seq(0, 23, 0.01), Week2 = c("(36,38]", "(33,35]")), 
                      rg.limit = 20000, level = 0.84)
   dhw.res2 <- subset(dhw.res,
                      (year == "2014" & Week2 == "(36,38]") |
@@ -632,7 +606,7 @@ dhw.res2 <- subset(dhw.res,
   # Annotate increase in heat tolerance
   annotate("segment", x = 3.9, xend = 11.5, y = 0.05, lwd = 0.2, 
            arrow = arrow(type = "closed", length = unit(3, "mm"))) +
-  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, label = "Bleaching threshold\n+1.08°C/decade") +
+  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, label = "Bleaching threshold\n+7.6 DHW = +0.97°C") +
   # Annotate extreme bleaching in 2023
   # annotate("point", x = 21.4, y = 0.906, pch = 1, stroke = 0.2) +
   # annotate("segment", x = 21.4, y = 0.9, yend = 0.47, lty = 2, lwd = 0.2) +
@@ -654,7 +628,7 @@ dhw.res2 <- subset(dhw.res,
 #                width = 0.02, alpha = 0.5)
 
 # Save plot
-ggsave(filename = "output/dhw_bleach_allyears.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
+ggsave(filename = "figures/Fig4.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
 ```
 
 
@@ -685,9 +659,9 @@ degC %>%
 # Change over time from 2014-2023 in degC
 ed50conf %>%
   filter(year == "2023-2014") %>%
-  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW / 9 * 10, .names = "{.col}.degC.dec"))
+  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC"))
 
-# 1.08°C/decade [95% C.I. = 0.863-1.17°C/decade]
+# 0.97°C [95% C.I. = 0.777-1.06°C]
 ```
 
 ## Species - ED50s 2014-15-23
@@ -698,17 +672,12 @@ dhw.sp.mod <- glmer(
   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
   family = "binomial", data = allg, verbose = FALSE,
   nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-
-# Best formula: cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion)
-#### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
 #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-#anova(dhw.sp.mod)
-
 
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
 dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                      at = list(dhw = seq(0, 23, 0.05), Week2 = c("(36,38]", "(33,35]")), 
                       rg.limit = 200000, level = 0.84)
 dhw.sp.res2 <- subset(dhw.sp.res,
   (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.48) |
@@ -739,14 +708,14 @@ dhw.sp.res22 <- subset(dhw.sp.res,
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
   coord_cartesian(clip = "off"))
 
-ggsave(filename = "output/dhw.sp.bleach.plot.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
+ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
 ## change in ED50s from 2014-2015, and 2014-2023
 sp.ed50s.fun <- function(dhw.sp.mod) {
   dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
+                   at = list(dhw = seq(0, 23, 0.05), Week2 = c("(36,38]", "(33,35]")), 
                    rg.limit = 200000, level = 0.84)
   dhw.sp.res22 <- subset(dhw.sp.res,
     (year == "2014" & Week2 == "(36,38]") |
@@ -773,9 +742,9 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-#sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
+sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
                        parallel = "multicore", ncpus = 20)
-# saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
+saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
 sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -802,24 +771,25 @@ sp.ed50conf <- tibble(
 #     theme_classic()
 ```
 
-## Species - ∆ED50, ∆°C
+### ∆ED50 -> ∆°C
 ```{r sp.changeED50, fig.width = 7, fig.height = 8}
-degC.per.DHW <- 0.127
+degC.per.DHW <- 0.1273714
 # Convert ∆ED50s to degC
 sp.degC <- sp.ed50conf %>%
   filter(year %in% c("2015-2014", "2023-2014")) %>%
   mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC")) %>%
   separate(year, into = c("year", "2014"))
 
-# Plot ED50 vs. year for all Species
-sp.ed50conf %>%
-  filter(year %in% c("2014", "2015", "2023")) %>%
-  ggplot(aes(x = as.numeric(year), y = ed50)) + 
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE) +
-  geom_path(data = filter(sp.ed50conf, year != "2015")) +
-  facet_wrap(~Species) +
-  theme_classic()
+# # Plot ED50 vs. year for all Species
+# sp.ed50conf %>%
+#   filter(year %in% c("2014", "2015", "2023")) %>%
+#   ggplot(aes(x = as.numeric(year), y = ed50)) + 
+#   geom_point() +
+#   #geom_errorbar(aes(ymin = lower, ymax = upper)) +
+#   #geom_smooth(method = "lm", se = FALSE) +
+#   geom_path(data = filter(sp.ed50conf, year != "2015")) +
+#   facet_wrap(~Species) +
+#   theme_classic()
 
 # Get net change in ∆DHW/year from 2014 - 2023, convert to degC
 nets <- sp.ed50conf %>%
@@ -840,42 +810,33 @@ findat <- nets %>%
   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0.2) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90)) +
-  labs(y = "Change in heat tolerance (°C/decade)        "))
+  labs(y = "Change in heat tolerance (°C)        "))
 
-ggsave(finplot, filename = "sppthresh.png", width = 100, height = 100, units = "mm")
+ggsave(finplot, filename = "figures/FigS5.png", width = 100, height = 100, units = "mm")
 ```
 
-## Species - ∆°C vs. symbiont genera
+### ∆°C vs. symbionts
 ```{r spp_degC_syms}
 # Join aggregated symbiont dataset with ∆°C data for coral taxa
 symsumm.ag <- symsumm.ag %>%
   full_join(findat)
 
-# Plot ∆°C vs. number of symbiont genera
+# # Plot ∆°C vs. number of symbiont genera
+library(ggrepel)
 ggplot(symsumm.ag, aes(x = ngen, y = degC)) +
-  geom_label(aes(label = Species, color = D))
+  geom_point(size = 2, alpha = 0.6) +
+  geom_text_repel(aes(label = abbrev_names[Species]), fontface = 3) +
+  geom_smooth(method = "lm", se = F, color = "gray40") +
+  theme_classic() +
+  labs(x = "Number of symbiont genera", y = "Change in heat tolerance (°C)")
 
 # Test for statistical significance
-mod <- lm(degC ~ ngen + D, data = filter(symsumm.ag, ngen > 1))
+mod <- lm(degC ~ ngen + D, data = filter(symsumm.ag, ngen > 0))
 anova(mod)
-emmeans(mod, specs = c("ngen", "D"), at = list(ngen = c(1,2,3,4)))
-mod <- lm(degC ~ factor(ngen) + D, data = symsumm.ag)
-anova(mod)
-emms <- emmeans(mod, specs = "ngen")
-pairs(emms)
-
-# Make prettier plot
-library(ggrepel)
-ggplot(symsumm.ag, aes(x = ngen, y = degC, color = D)) +
-  geom_point(size = 5, alpha = 0.6) +
-  geom_text_repel(aes(label = abbrev_names[Species]), fontface = 3) +
-  
-  geom_smooth(se = F, color = "gray40") +
-  theme_classic() +
-  labs(x = "Number of symbiont genera", y = "Change in heat tolerance (°C/decade)")
+# No significant effect of number of symbiont genera on overall change in heat tolerance
 ```
 
-## Tolerance vs. density changes, 2014-2023
+### ∆°C vs. density changes
 
 ```{r bleachthresh_vs_density, fig.width = 10}
 #densres <- readRDS("output/density.rds")
@@ -899,29 +860,15 @@ PBfit <- PBfit %>%
   mutate(estimate = X - 3,
          degC = Y - 3)
 
-(tol_dens_plot <- net %>%
-  left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = estimate, y = degC)) + 
-  geom_errorbar(aes(ymin = degC - degC.se, 
-                    ymax = degC + degC.se), width = 0) +
-  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0) +
-  geom_point(aes(size = n_symbiont_genera, color = reproductive_mode, shape = sexual_system)) +
-  geom_line(data = PBfit, color = "blue", lwd = 2, alpha = 0.4) +
-  #geom_label(aes(label = Species)) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
-  labs(x = "Change in density (log(2023/2014))", 
-       y = "Change in heat tolerance (2014-2023, °C)") +
-  theme_classic())
-
+# Plot
 myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
 myticks2 <- log(myticks + 1)
 set.seed(5)
 (tol_dens_plot2 <- net %>%
   left_join(readxl::read_xlsx("data/species_metadata.xlsx")) %>%
-  ggplot(aes(x = estimate, y = degC.dec)) + 
-  geom_errorbar(aes(ymin = degC.dec - degC.dec.se, 
-                    ymax = degC.dec + degC.dec.se), width = 0, alpha = 0.7, lwd = 0.3) +
+  ggplot(aes(x = estimate, y = degC)) + 
+  geom_errorbar(aes(ymin = degC - degC.se, 
+                    ymax = degC + degC.se), width = 0, alpha = 0.7, lwd = 0.3) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
   geom_point(size = 4, alpha = 0.7, stroke = 0) + # aes(size = (n_symbiont_genera)^2)
   geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
@@ -930,66 +877,72 @@ set.seed(5)
                            fontface = "italic", size = 3, lineheight = 0.75) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
   labs(x = "Change in abundance (2014-2023)", 
-       y = "Change in bleaching threshold (°C/decade)") +
+       y = "Change in bleaching threshold (°C)") +
   theme_classic() +
   theme(legend.position = "none"))
 
-ggsave(filename = "output/tol_dens_plot2.png", plot = tol_dens_plot2,
+ggsave(filename = "figures/Fig5.png", plot = tol_dens_plot2,
        width = 110, height = 100, units = "mm")
 
+# # Retest relationship without Orbicella or branching Porites, since these may have "increased in density" due to partial mortality causing them to be recorded as separate colonies
+# # Model change in tolerance vs. change in density
+# # Passing Bablok regression
+# net2 <- net %>% filter(!Species %in% c("ORBI", "PDIV", "PFUR"))
+# PBreg2 <- mcr::mcreg(net2$estimate+3, net2$degC+3,
+#                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
+# summary(PBreg2)
+# 
+# PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
+#                       alpha = 0.1) %>% as_tibble()
+# PBfit <- PBfit %>%
+#   mutate(estimate = X - 3,
+#          degC.dec = Y - 3)
+# 
+# # It is not significant if you take out ORBI, PDIV, PFUR, PPOR...
+# # But genets separating into ramets is still the same as not losing genets from the population, so even if that is mechanism of increase in density, still consistent with inference of loss of genotypes driving tolerance increase...
+# 
+```
 
-
-# Retest relationship without Orbicella or branching Porites, since these may have "increased in density" due to partial mortality causing them to be recorded as separate colonies
-# Model change in tolerance vs. change in density
-# Passing Bablok regression
-net2 <- net %>% filter(!Species %in% c("ORBI", "PDIV", "PFUR"))
-PBreg2 <- mcr::mcreg(net2$estimate+3, net2$degC.dec+3,
-               method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
-summary(PBreg2)
-
-PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
-                      alpha = 0.1) %>% as_tibble()
-PBfit <- PBfit %>%
-  mutate(estimate = X - 3,
-         degC.dec = Y - 3)
-
-# It is not significant if you take out ORBI, PDIV, PFUR, PPOR...
-# But genets separating into ramets is still the same as not losing genets from the population, so even if that is mechanism of increase in density, still consistent with inference of loss of genotypes driving tolerance increase...
-
-
-# Test ngen syms AND densdiffs together?
+### ∆°C vs. density + symbionts
+```{r}
 # Combine net changes in heat tolerance and density across species
 net <- findat %>%
   left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   drop_na() %>%
   left_join(symsumm.ag)
-net
 
-mod <- lm(degC ~ estimate, data = filter(net, ngen > 0))
-anova(mod)
-
-mod <- lm(degC ~ ngen, data = filter(net, ngen > 0))
-anova(mod)
+# Multiple regression:  ∆°C vs. density changes and number of symbiont genera
+mod <- lm(degC ~ estimate + ngen, data = net)
+anova(mod) # Both are significant
 
 
-mod <- lm(degC ~ estimate + ngen, data = filter(net, ngen > 0))
-anova(mod)
+# Partial residuals plots
+residuals_est <- residuals(lm(degC ~ estimate, data = net))
+residuals_ngen <- residuals(lm(degC ~ ngen, data = net))
 
-ggplot(filter(net, ngen > 0), aes(x = estimate, y = ngen)) +
-  geom_point()
-
-emm_ngen <- emmeans(mod, ~ ngen)
-adj_values <- as.data.frame(emmeans(mod, ~ ngen))
-
-net_filtered <- filter(net, ngen > 0)
-residuals_adj <- residuals(lm(degC ~ estimate, data = net_filtered))
-
-ggplot(net_filtered, aes(x = ngen, y = residuals_adj)) +
+ggplot(net, aes(x = ngen, y = residuals_est)) +
   geom_point() +
   geom_label_repel(aes(label = Species)) +
   geom_smooth(method = "lm", se = TRUE) +
-  labs(x = "ngen", y = "Residual degC (adjusted for estimate)", 
-       title = "Relationship between ngen and degC after removing estimate effect") +
+  labs(x = "Number of symbiont genera", y = "Residual degC (adjusted for estimate)") +
+  theme_classic()
+
+
+ggplot(drop_na(net), aes(x = estimate, y = residuals_ngen)) +
+  geom_point() +
+  geom_label_repel(aes(label = Species)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Change in abundance (2014-2023)", y = "Residual degC (adjusted for ngen)") +
+  theme_classic()
+
+
+net$partial_res_ngen <- residuals(mod) + coef(mod)["ngen"] * net$ngen
+
+ggplot(net, aes(x = ngen, y = partial_res_ngen)) +
+  geom_point() +
+  geom_label_repel(aes(label = Species)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "ngen", y = "Adjusted degC") +
   theme_minimal()
 ```
 
