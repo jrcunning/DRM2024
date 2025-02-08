@@ -458,6 +458,7 @@ out <- drc.ord %>%
   left_join(symsumm)
 
 # Plot species' range vs. ed50, size points by number of symbiont genera
+set.seed(12344)
 plot1090 <- ggplot(out, aes(x = Estimate, y = span)) +
   geom_point(aes(size = ngen^4), alpha = 0.7) + #, color = most_dom_sym)) +
   #geom_point(aes(color = factor(n_symbiont_genera))) +
@@ -478,7 +479,7 @@ ggsave(filename = "figures/Fig3.png", plot = plot1090, width = 90, height = 90, 
 mod <- lm(span ~ ngen, data = out)
 p_value <- summary(mod)$coefficients[2, 4]
 
-set.seed(1238)
+set.seed(1231)
 ngen <- ggplot(out, aes(x = ngen, y = span)) +
   geom_point() +
   stat_smooth(geom = "line", method = "lm", se = FALSE, alpha = 0.3, linewidth = 1) +
@@ -742,9 +743,9 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
-                       parallel = "multicore", ncpus = 20)
-saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
+# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 20)
+# saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
 sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -841,7 +842,6 @@ anova(mod)
 ```{r bleachthresh_vs_density, fig.width = 10}
 #densres <- readRDS("output/density.rds")
 densdiffs <- readRDS("output/dens20142023.rds")
-# TRY REDOING DENSDIFFS WITH ORBICELLA SPP SEPARATE - not better, go back to aggregated ORBI
 
 # Combine net changes in heat tolerance and density across species
 net <- findat %>%
@@ -905,46 +905,114 @@ ggsave(filename = "figures/Fig5.png", plot = tol_dens_plot2,
 
 ### ∆°C vs. density + symbionts
 ```{r}
+# Partial residuals approach
 # Combine net changes in heat tolerance and density across species
 net <- findat %>%
   left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   drop_na() %>%
   left_join(symsumm.ag)
+net_clean <- na.omit(net[, c("Species", "degC", "estimate", "ngen")])
 
 # Multiple regression:  ∆°C vs. density changes and number of symbiont genera
-mod <- lm(degC ~ estimate + ngen, data = net)
-anova(mod) # Both are significant
+mod <- lm(degC ~ estimate + ngen, data = net_clean)
+anova(mod)
+summary(mod)
 
+# Adjusted degC for estimate (holding ngen = 1)
+net_clean$adj_degC_est_fixed <- predict(mod, newdata = data.frame(
+  estimate = net_clean$estimate,
+  ngen = 1
+)) + residuals(mod)
 
-# Partial residuals plots
-residuals_est <- residuals(lm(degC ~ estimate, data = net))
-residuals_ngen <- residuals(lm(degC ~ ngen, data = net))
-
-ggplot(net, aes(x = ngen, y = residuals_est)) +
+# Plot for estimate (holding ngen = 1)
+ggplot(net_clean, aes(x = estimate, y = adj_degC_est_fixed)) +
   geom_point() +
-  geom_label_repel(aes(label = Species)) +
   geom_smooth(method = "lm", se = TRUE) +
-  labs(x = "Number of symbiont genera", y = "Residual degC (adjusted for estimate)") +
-  theme_classic()
+  geom_label_repel(aes(label = Species)) +
+  labs(x = "Density Changes (estimate)", 
+       y = "Adjusted degC (ngen fixed at 1)",
+       title = "Effect of Estimate on degC (Adjusted for ngen = 1)") +
+  theme_minimal()
 
 
-ggplot(drop_na(net), aes(x = estimate, y = residuals_ngen)) +
+# Adjusted degC for ngen (holding estimate = 0)
+net_clean$adj_degC_ngen_fixed <- predict(mod, newdata = data.frame(
+  estimate = 0,
+  ngen = net_clean$ngen
+)) + residuals(mod)
+
+# Plot for ngen (holding estimate = 0)
+ggplot(net_clean, aes(x = ngen, y = adj_degC_ngen_fixed)) +
   geom_point() +
-  geom_label_repel(aes(label = Species)) +
   geom_smooth(method = "lm", se = TRUE) +
-  labs(x = "Change in abundance (2014-2023)", y = "Residual degC (adjusted for ngen)") +
-  theme_classic()
-
-
-net$partial_res_ngen <- residuals(mod) + coef(mod)["ngen"] * net$ngen
-
-ggplot(net, aes(x = ngen, y = partial_res_ngen)) +
-  geom_point() +
   geom_label_repel(aes(label = Species)) +
-  geom_smooth(method = "lm", se = TRUE) +
-  labs(x = "ngen", y = "Adjusted degC") +
+  labs(x = "Number of Symbiont Genera (ngen)", 
+       y = "Adjusted degC (estimate fixed at 0)",
+       title = "Effect of ngen on degC (Adjusted for Estimate = 0)") +
   theme_minimal()
 ```
+
+```{r}
+# TOTAL LEAST SQUARES (ASSUMES UNIFORM ERROR IN X AND Y)
+# Remove rows with missing values in relevant columns
+net_clean <- na.omit(net[, c("Species", "degC", "degC.se", "estimate", "SE", "ngen")])
+
+# Extract predictors and response for Total Least Squares (TLS)
+X <- as.matrix(net_clean[, c("estimate", "ngen")])
+y <- as.matrix(net_clean$degC)
+
+# Stack predictors and response for TLS (Principal Component Analysis approach)
+XY <- cbind(X, y)
+
+# Perform Principal Component Analysis (PCA) for TLS
+pca <- prcomp(XY, center = TRUE, scale. = TRUE)
+
+# TLS regression coefficients (derived from last principal component)
+tls_slope <- -pca$rotation[, ncol(pca$rotation)][1:2] / pca$rotation[, ncol(pca$rotation)][3]
+tls_intercept <- mean(y) - colMeans(X) %*% tls_slope
+
+# Compute adjusted degC values for visualization
+net_clean$adj_degC_est_tls <- tls_intercept + 
+  tls_slope[1] * net_clean$estimate + 
+  tls_slope[2] * 1 + 
+  (net_clean$degC - mean(net_clean$degC))
+
+net_clean$adj_degC_ngen_tls <- tls_intercept + 
+  tls_slope[1] * 0 + 
+  tls_slope[2] * net_clean$ngen + 
+  (net_clean$degC - mean(net_clean$degC))
+
+# Add jittered ngen values for visualization
+net_clean$jittered_ngen <- jitter(net_clean$ngen, amount = 0.15)
+
+# ✅ Plot for estimate (holding ngen = 1) with properly aligned error bars
+plot_est <- ggplot(net_clean, aes(x = estimate, y = adj_degC_est_tls)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_errorbar(aes(ymin = adj_degC_est_tls - degC.se, ymax = adj_degC_est_tls + degC.se), width = 0.02) +
+  geom_errorbarh(aes(xmin = estimate - SE, xmax = estimate + SE), height = 0.02) +
+  geom_label_repel(aes(label = Species)) +
+  labs(x = "Density Changes (estimate)", 
+       y = "Adjusted degC (ngen fixed at 1)", 
+       title = "Total Least Squares: Effect of Estimate on degC (Adjusted for ngen = 1)") +
+  theme_minimal()
+
+# ✅ Plot for ngen (holding estimate = 0) with properly aligned error bars
+plot_ngen <- ggplot(net_clean, aes(x = jittered_ngen, y = adj_degC_ngen_tls)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_errorbar(aes(x = jittered_ngen, ymin = adj_degC_ngen_tls - degC.se, ymax = adj_degC_ngen_tls + degC.se), width = 0.2) +
+  geom_label_repel(aes(label = Species)) +
+  labs(x = "Number of Symbiont Genera (ngen) (Jittered)", 
+       y = "Adjusted degC (estimate fixed at 0)", 
+       title = "Total Least Squares: Effect of ngen on degC (Adjusted for Estimate = 0)") +
+  theme_minimal()
+
+# Arrange plots together
+ggpubr::ggarrange(plot_est, plot_ngen, ncol = 2, nrow = 1)
+```
+
+
 
 
 ## Subregions - ED50s
