@@ -985,7 +985,7 @@ summary(ols_model)
 ols_residuals <- residuals(ols_model)
 
 # ✅ Compute adjusted degC while preserving species-level variation
-net_clean$OLS_Adj_degC_Estimate <- predict(ols_model, newdata = data.frame(estimate = net_clean$estimate, ngen = 2)) + ols_residuals
+net_clean$OLS_Adj_degC_Estimate <- predict(ols_model, newdata = data.frame(estimate = net_clean$estimate, ngen = 1)) + ols_residuals
 net_clean$OLS_Adj_degC_Ngen <- predict(ols_model, newdata = data.frame(estimate = 0, ngen = net_clean$ngen)) + ols_residuals
 
 # ✅ Add jitter to ngen to prevent overlap
@@ -1001,29 +1001,171 @@ ggplot(net_clean, aes(x = estimate, y = OLS_Adj_degC_Estimate)) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
-  geom_smooth(method = "lm", se = FALSE, color = "black") +
-  ggpubr::stat_cor() +
+  geom_line(stat = "smooth", method = "lm", se = FALSE, color = "black", linewidth = 1.5, alpha = 0.3) +
   labs(x = "Change in abundance (2014-2023)", 
-       y = "Change in bleaching threshold (°C)") +
+       y = "Change in bleaching threshold (°C)\n(adjusted for symbiont genera = 1)") +
   theme_classic()
 
 # ✅ Plot 2: Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
+set.seed(123)
 ggplot(net_clean, aes(x = Jittered_Ngen, y = OLS_Adj_degC_Ngen)) +
   geom_point(size = 4, alpha = 0.7, color = "black", stroke = 0) +
   geom_errorbar(aes(ymin = OLS_Adj_degC_Ngen - degC.se, 
                     ymax = OLS_Adj_degC_Ngen + degC.se), width = 0, alpha = 0.7, lwd = 0.3) +
-  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  geom_line(stat = "smooth", method = "lm", se = FALSE, color = "black", alpha = 0.3, linewidth = 1.5) +
   #geom_text_repel(aes(label = Species), size = 3, max.overlaps = 15) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, lineheight = 0.75) +
   #ggpubr::stat_cor() +
   labs(x = "Number of symbiont genera", 
-       y = "Change in bleaching threshold (°C)") +
+       y = "Change in bleaching threshold (°C)\n(adjusted for density change = 0)") +
   theme_classic()
 
 ggsave(filename = "figures/FigS6.png", plot = last_plot(),
        width = 110, height = 100, units = "mm")
 ```
+
+
+```{r}
+# ✅ Extract model coefficients
+ols_intercept <- coef(ols_model)[1]
+ols_slope_estimate <- coef(ols_model)[2]
+ols_slope_ngen <- coef(ols_model)[3]
+
+# ✅ Compute contributions of each predictor
+net_clean$Intercept_Contribution <- ols_intercept  # Baseline degC when predictors are zero
+net_clean$Estimate_Contribution <- ols_slope_estimate * net_clean$estimate
+net_clean$Ngen_Contribution <- ols_slope_ngen * net_clean$ngen
+
+# ✅ Compute predicted degC using all components
+net_clean$Predicted_degC <- net_clean$Intercept_Contribution + 
+                            net_clean$Estimate_Contribution + 
+                            net_clean$Ngen_Contribution
+
+# ✅ Compute residual variation (observed - predicted)
+net_clean$Residual_Variation <- net_clean$degC - net_clean$Predicted_degC
+
+# ✅ Check that the sum matches the observed degC
+net_clean$Check_Sum <- net_clean$Intercept_Contribution + 
+                       net_clean$Estimate_Contribution + 
+                       net_clean$Ngen_Contribution + 
+                       net_clean$Residual_Variation
+net_clean$Unexplained <- net_clean$Intercept_Contribution + net_clean$Residual_Variation
+
+# ✅ Print first few rows to verify
+out <- net_clean[, c("Species", "degC", "Estimate_Contribution", "Ngen_Contribution", "Unexplained")]
+
+out2 <- out %>% pivot_longer(cols = 3:5) %>%
+  arrange(degC) %>%
+  mutate(Species = fct_reorder(Species, degC))
+
+ggplot(out2, aes(x = Species, y = value, fill = name)) +
+  geom_col(position = "stack") +
+  geom_point(aes(y = degC))
+out2
+```
+
+# Force intercept zero when estimate = 0 and ngen = 1
+```{r}
+# ✅ Remove missing values
+net_clean <- na.omit(net[, c("Species", "degC", "estimate", "ngen", "degC.se", "SE")])
+
+# ✅ Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
+net_clean$ngen_centered <- net_clean$ngen - 1
+
+# ✅ Fit the adjusted OLS model
+ols_model_adjusted <- lm(degC ~ estimate + ngen_centered, data = net_clean)
+
+# ✅ Check model summary
+summary(ols_model_adjusted)
+
+# ✅ Extract new model coefficients
+ols_slope_estimate <- coef(ols_model_adjusted)["estimate"]
+ols_slope_ngen <- coef(ols_model_adjusted)["ngen_centered"]
+
+# ✅ Compute contributions of each predictor
+net_clean$Estimate_Contribution <- ols_slope_estimate * net_clean$estimate
+net_clean$Ngen_Contribution <- ols_slope_ngen * (net_clean$ngen - 1)
+
+# ✅ Compute residual variation (unexplained variation)
+net_clean$Unexplained_Variation <- net_clean$degC - (net_clean$Estimate_Contribution + net_clean$Ngen_Contribution)
+
+# ✅ Verify that the sum now matches degC exactly
+net_clean$Check_Sum <- net_clean$Estimate_Contribution + net_clean$Ngen_Contribution + net_clean$Unexplained_Variation
+all.equal(net_clean$Check_Sum, net_clean$degC)  # Should return TRUE
+
+# ✅ Stacked Bar Chart Showing Contribution of Each Component
+out <- net_clean[, c("Species", "degC", "Estimate_Contribution", "Ngen_Contribution", "Unexplained_Variation")]
+
+out2 <- out %>% pivot_longer(cols = 3:5) %>%
+  arrange(degC) %>%
+  mutate(Species = fct_reorder(Species, degC))
+
+ggplot(out2, aes(x = Species, y = value, fill = name)) +
+  geom_col(position = "stack") +
+  geom_point(aes(y = degC))
+
+
+# ✅ Compute residuals from the centered model
+ols_residuals_centered <- residuals(ols_model_adjusted)
+
+# ✅ Compute adjusted degC while preserving species-level variation
+net_clean$Adj_degC_Estimate <- (ols_slope_estimate * net_clean$estimate) + ols_residuals_centered
+net_clean$Adj_degC_Ngen <- (ols_slope_ngen * (net_clean$ngen - 1)) + ols_residuals_centered
+
+
+# ✅ Add jitter to ngen to prevent overlap
+set.seed(42)
+net_clean$Jittered_Ngen <- jitter(net_clean$ngen, amount = 0.1)
+
+# ✅ Extract model coefficients
+ols_slope_estimate <- coef(ols_model_adjusted)["estimate"]
+ols_slope_ngen <- coef(ols_model_adjusted)["ngen_centered"]
+
+# ✅ Generate regression line data using correct centering
+estimate_seq <- seq(min(net_clean$estimate), max(net_clean$estimate), length.out = 100)
+ngen_seq <- seq(min(net_clean$ngen), max(net_clean$ngen), length.out = 100)
+
+regression_line_estimate <- data.frame(
+  estimate = estimate_seq,
+  predicted_degC = ols_slope_estimate * estimate_seq
+)
+
+regression_line_ngen <- data.frame(
+  ngen = ngen_seq,
+  predicted_degC = ols_slope_ngen * (ngen_seq - 1)
+)
+
+# ✅ Plot 1: Effect of Estimate on Adjusted degC (Holding ngen = 1, with residuals)
+ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
+  geom_point(size = 4, alpha = 0.7, color = "black", stroke = 0) +
+  geom_errorbar(aes(ymin = Adj_degC_Estimate - degC.se, ymax = Adj_degC_Estimate + degC.se), 
+                width = 0, alpha = 0.7, lwd = 0.3) +
+  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, lineheight = 0.75) +
+  scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
+  geom_line(data = regression_line_estimate, aes(x = estimate, y = predicted_degC), 
+            color = "black", linewidth = 1.5, alpha = 0.5) +
+  labs(x = "Change in abundance (2014-2023)", 
+       y = "Change in bleaching threshold (°C)\n(adjusted for symbiont genera = 1)") +
+  theme_classic()
+
+# ✅ Plot 2: Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
+ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
+  geom_point(size = 4, alpha = 0.7, color = "black", stroke = 0) +
+  geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
+                width = 0, alpha = 0.7, lwd = 0.3) +
+  geom_line(data = regression_line_ngen, aes(x = ngen, y = predicted_degC), 
+            color = "black", linewidth = 1.5, alpha = 0.5) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, lineheight = 0.75) +
+  labs(x = "Number of symbiont genera", 
+       y = "Change in bleaching threshold (°C)\n(adjusted for density change = 0)") +
+  theme_classic()
+
+```
+
 
 ```{r}
 # ✅ Remove missing values
