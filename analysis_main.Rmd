@@ -1047,152 +1047,6 @@ ggsave(filename = "figures/Fig5.png", plot = fig5,
        width = 110, height = 100, units = "mm")
 ```
 
-
-
-
-
-
-## Subregions - ED50s
-
-```{r subregion_bleaching_by_year_dhw}
-# Model differences in bleaching severity between years with DHW
-dhw.reg.mod <- glmer(
-  cbind(BL, NB) ~ Subregion + dhw + Subregion:dhw + year + Subregion:year + year:Week2 + (dhw+year|Species),  
-  family = "binomial", data = allg, verbose = FALSE,
-  nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-
-# Best formula: cbind(BL, NB) ~ dhw * year + year:Week2 + (dhw+year|Species) + (year|Subregion)
-#### Or DHW + year may be better.....DHW * Year or DHW + YEAR???
-#### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-anova(dhw.reg.mod)
-
-
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-# And select just the range of peak DHWs experienced across sites in each year
-dhw.reg.res <- emmeans(dhw.reg.mod, specs = c("Subregion", "dhw", "year", "Week2"), 
-                       type = "response",
-                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), 
-                   rg.limit = 200000, level = 0.84)
-dhw.reg.res2 <- subset(dhw.reg.res,
-  (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.97) |
-  (year == "2015" & Week2 == "(36,38]" & dhw <= 8.9 & dhw > 0) |
-  (year == "2022" & Week2 == "(37,39]" & dhw <= 8.07 & dhw > 0) |
-  (year == "2023" & Week2 == "(33,35]" & dhw <= 22.1 & dhw > 1.53) 
-)
-dhw.reg.res22 <- subset(dhw.reg.res,
-  (year == "2014" & Week2 == "(36,38]") |
-  (year == "2015" & Week2 == "(36,38]") |
-  (year == "2022" & Week2 == "(37,39]") |
-  (year == "2023" & Week2 == "(33,35]")
-)
-
-# Plot
-(dhw.reg.bleach.plot <- ggplot(as.tibble(dhw.reg.res2), aes(x = dhw, y = prob, group = year)) +
-  facet_wrap(~Subregion) +
-  #geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.4) +
-  geom_line(aes(color = year), lwd = 1, alpha = 0.9) +
-  geom_hline(aes(yintercept = 0.5), lty = 2) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1)) +
-  # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-  #                       limits = c(0, 1), midpoint = 0.5) +
-  theme_classic() +
-  #theme(legend.position = "none") +
-  labs(x = "DHWs", y = "Probability of bleaching"))
-
-
-# Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
-## change in ED50s from 2014-2015, and 2014-2023
-reg.ed50s.fun <- function(dhw.reg.mod) {
-  dhw.reg.res <- emmeans(dhw.reg.mod, specs = c("Subregion", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.1), Week2 = c("(36,38]", "(33,35]")), rg.limit = 200000, level = 0.84)
-  dhw.reg.res22 <- subset(dhw.reg.res,
-    (year == "2014" & Week2 == "(36,38]") |
-    (year == "2015" & Week2 == "(36,38]") |
-    (year == "2023" & Week2 == "(33,35]") 
-  )
-  bleach50 <- as.tibble(dhw.reg.res22) %>%
-    group_by(Subregion, year) %>%
-    slice(which.min(abs(prob - 0.5)))
-  bleachdiffs <- bleach50 %>%
-    group_by(Subregion) %>%
-    summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
-              "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
-    pivot_longer(2:3)
-  names <- c(paste(bleach50$Subregion, bleach50$year), paste(bleachdiffs$Subregion, bleachdiffs$name))
-  vals <- c(bleach50$dhw, bleachdiffs$value)
-  vals <- setNames(vals, names)
-  return(vals)
-}
-
-# Get point estimates for ED50s and ∆ED50s
-reg.bleach50 <- reg.ed50s.fun(dhw.reg.mod)
-
-# Bootstrap ED50s for SE/confidence intervals
-## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
-## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# reg.boot.out <- bootMer(dhw.reg.mod, FUN = reg.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 10)
-# saveRDS(reg.boot.out, file = "output/reg.boot.out.rds")
-reg.boot.out <- readRDS(file = "output/reg.boot.out.rds")
-## Get confidence intervals from Bootstrap
-reg.lower <- apply(reg.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
-reg.upper <- apply(reg.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
-## Get standard error from Bootstrap
-reg.se <- apply(reg.boot.out$t, 2, sd)
-
-reg.ed50conf <- tibble(
-  name = names(reg.bleach50), 
-  ed50 = reg.bleach50,
-  se = reg.se,
-  lower = reg.lower,
-  upper = reg.upper) %>%
-  mutate(year = gsub("\\D+", "", name),
-         Subregion = gsub("\\d+", "", name)) %>%
-  mutate(Subregion = gsub("\\ -", " ", Subregion)) %>%
-  mutate(Subregion = trimws(Subregion, "right"))
-
-# # Plot ED50s for each subregion for each year
-reg.ed50conf %>%
-  filter(year %in% c("2014", "2015", "2023")) %>%
-  ggplot(aes(x = year, y = ed50)) +
-    geom_point() +
-    geom_errorbar(aes(ymin = ed50 - se, ymax = ed50 + se), width = 0.2) +
-    facet_wrap(~Subregion, scales = "free_y") +
-    labs(y = "ED50 (DHWs to 50% bleaching)") +
-    theme_classic()
-
-# Changes in heat tolerance for each region
-out <- reg.ed50conf %>%
-  filter(year == "20232014")
-```
-
-```{r subregion_bleachthresh_vs_density}
-#densres <- readRDS("output/density.rds")
-densdiffs <- readRDS("output/dens20142023subregions.rds")
-# nmds <- cent %>%
-#   group_by(Subregion) %>%
-#   summarize(dMDS1 = MDS1[year=="2023"]-MDS1[year=="2014"],
-#             dMDS2 = MDS2[year=="2023"]-MDS2[year=="2014"])
-
-# Combine net changes in heat tolerance and density across species
-net <- out %>%
-  left_join(select(as.tibble(densdiffs), Subregion, estimate, SE))# %>%
-  # left_join(nmds)
-
-ggplot(net, aes(x = estimate, y = ed50)) + 
-  geom_label(aes(label = Subregion)) +
-  theme_classic() +
-  #xlim(-0.2, 1) +
-  labs(x = "Change in MDS2 2023-2014",
-       y = "Change in ED50 2014-2023 (DHW)")
-
-# mod <- lm(ed50 ~ dMDS1 + dMDS2, data = net)
-# summary(mod)
-# anova(mod)
-# net
-```
-
-
 # Size diffs
 
 ## 2023 - probability at 15 DHWs
@@ -1205,28 +1059,14 @@ df23.abund <- df23.abund %>%
                             Width < 4 ~ 4)) %>%
   droplevels()
 
-# mod <- glm(Bleaching2 > 1 ~ Width2 * Species, family = "binomial", data = df23.abund)
-# summary(emtrends(mod, specs = "Species", var = "Width2"), infer = TRUE) %>% arrange(p.value)
-# nd <- expand.grid(Width2 = seq(4,200,1), Species = levels(df23.abund$Species))
-# pred <- predict(mod, newdata = nd, re.form = NA, type = "response")
-# bind_cols(nd, pred) %>%
-#   ggplot(aes(x = Width2, y = ...3)) +
-#   geom_line() +
-#   facet_wrap(~Species)
-
 # Fit model
 mod <- glmer(Bleaching2 > 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
              family = "binomial", data = df23.abund,
              nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
-#plot(mod, which = 1)
-#summary(mod)
-# Fit model
-modr <- glmer(Bleaching2 <= 1 ~ Species * Width2 * dhw + Week2 + (1|Subregion), 
-             family = "binomial", data = df23.abund,
-             nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"), verbose = FALSE)
 
-# Test if significant effect of width for each species at DHW = 15
-res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", at = list(dhw = 15))
+# Test for significant effect of width for each species at DHW = 15
+res <- emtrends(mod, specs = c("Species", "dhw"), var = "Width2", 
+                at = list(dhw = 15))
 
 # Get significant species
 sig <- as.tibble(summary(res, infer = TRUE)) %>%
@@ -1236,19 +1076,10 @@ sig <- as.tibble(summary(res, infer = TRUE)) %>%
 pred0 <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species", 
                           at = list(Width2 = seq(4,500,1), dhw = 15), 
                           type = "response", rg.limit = 103000)) 
-
-predr <- as.tibble(emmeans(modr, specs = c("Width2", "dhw"), by = "Species", 
-                          at = list(Width2 = seq(4,250,1), dhw = 15), 
-                          type = "response", rg.limit = 103000)) 
-predodds %>% filter(Species == "PAST", Width2 == 4)
-# 1.06 = log odds of being bleached
-# exp(1.06) = 2.88, so odds of being bleaching are 2.88 to 1. 1 in 3.88 are resistant.
-pred0 %>% filter(Species == "PAST", Width2 == 4)
-1/(1-0.744)
-
 pred <- pred0 %>%
   filter(Species %in% sig$Species) %>%
   left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
+
 # Get actual observed size ranges for these species
 actual <- filter(df23.abund) %>%
   drop_na(Species) %>%
@@ -1265,12 +1096,30 @@ mynames <- pred2 %>%
   group_by(Species, name) %>%
   summarize(maxw = max(Width2)) %>%
   distinct(Species, name, maxw)
+
+# Calculate relative risk of large (90th percentile) and small (4cm) colonies of each species
+p90 <- actual %>%
+  group_by(Species) %>%
+  summarize(Width2 = round(quantile(Width2, 0.90))) %>%
+  bind_rows(filter(actual, Width2 == 4)) %>%
+  filter(Species %in% sig$Species)
+p90andsmall <- pred2 %>%
+  right_join(p90, by = c("Species", "Width2"))
+RR <- p90andsmall %>%
+  group_by(Species) %>%
+  summarize(max = max(response),
+            RR = max(response) / response[Width2 == 4]) %>%
+  inner_join(p90 %>% filter(Width2 != 4), by = "Species")
+
+
 # Plot fitted probabilities within the range of observed Widths for each significant species
 (sizeplot <- ggplot(pred2, aes(x = Width2, y = response, group = Species)) +
   coord_trans(x = "log") +
   scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
   facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
   geom_line(aes(color = response)) +
+  geom_text(aes(x = Width2, y = max.x - 0.2, label = paste0(round(RR, 1), "x")), data = RR, 
+            hjust = 0.5, fontface = "italic") +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
   geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
@@ -1283,82 +1132,19 @@ mynames <- pred2 %>%
         strip.text = element_blank(),
         strip.background = element_blank()))
 
-ggsave(filename = "output/sizeplot.png", plot = sizeplot,
+ggsave(filename = "figures/FigS8.png", plot = sizeplot,
        width = 120, height = 100, units = "mm")
 
-# SUBSET FIGURE FOR BIOTA
-tdf <- filter(predr, Species %in% c("CNAT", "SINT", "MCAV", "PAST", "PSTR", "SSID")) %>%
-  mutate(Species = factor(Species, levels = c("PAST", "SINT", "CNAT", "MCAV", "SSID", "PSTR"))) %>%
-  rename(asymp.LCL.x = asymp.LCL) %>%
-  semi_join(actual, by = c("Species", "Width2"))
-# Get species full names for plotting
-mynames2 <- tdf %>%
-  left_join(tibble(name = abbrev_names, Species = names(abbrev_names))) %>%
-  mutate(Species = factor(Species, levels = c("PAST", "SINT", "CNAT", "MCAV", "SSID", "PSTR"))) %>%
-  group_by(Species, name) %>%
-  summarize(maxw = max(Width2)) %>%
-  distinct(Species, name, maxw)
-
-ggplot(tdf, aes(x = Width2, y = response, group = Species)) +
-  coord_trans(x = "log") +
-  scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
-  facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
-  geom_line()+#aes(color = response)) +
-  #scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-  #                      limits = c(0, 1), midpoint = 0.5) +
-  #geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
-  #geom_text(data = mynames2, aes(label = name, x = maxw), y = 0.6, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
-  #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
-  #ylim(0, 1) +
-  labs(x = "Colony width (cm)", y = "Resistance to bleaching (prevalence)") +
-  theme_classic() +
-  theme(legend.position = "none",
-        strip.text = element_text(face = "italic"),
-        strip.background = element_blank())
-
-tdf %>%
-  filter(Width2 %in% c(4, 40)) %>%
-  group_by(Species) %>%
-  summarize(relprob = response[Width2==4] / response[Width2==40]) %>%
-  mutate(pctdiff = round((relprob - 1) * 100))
-
-ggsave(filename = "biota_sizediffs_short.png", width = 100, height = 80, units = "mm")
-
-
-# Ridges?
-# ggplot(pred2, aes(x = log(Width2), y = Species)) +
-#   #coord_trans(x = "log") +
-#   scale_x_continuous(breaks = log(c(4, 16, 64, 256))) +
-#   ggridges::geom_ridgeline_gradient(aes(height = response, fill = response), alpha = 0.5) +
-#   scale_fill_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-#                         limits = c(0, 1), midpoint = 0.5) +
-#   theme_classic()
 
 # Sanity checks for size effects
 # Plot actual proportions binned by size class a confirmation
 # filter(df23.abund) %>%
 #   filter(Species %in% sig$Species) %>%
 #   group_by(Species) %>%
-#   mutate(Width.bin = cut(log(Width), breaks = 5)) %>%
+#   mutate(Width.bin = cut(log(Width), breaks = 10)) %>%
 #   ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
 #   geom_bar(position = "fill") +
 #   facet_wrap(~Species, scales = "free")
-
-# sanity check on dlab size effect
-# dlab <- df23.abund %>%
-#   filter(Species == "DLAB")
-# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
-#   geom_bar(position = "stack") +
-#   facet_wrap(~Subregion)
-
-# filter(df23.abund) %>%
-#   filter(Species %in% sig$Species) %>%
-#   ggplot(aes(x = Bleaching2 > 1, y = Width2)) +
-#   geom_jitter(width = 0.1, alpha = 0.1) +
-#   geom_violin(draw_quantiles = 0.5, alpha = 0.5) +
-#   facet_wrap(~Species, scales = "free_y") +
-#   #scale_y_continuous(trans = "log10") +
-#   coord_trans(y = "log2")
 ```
 
 ## 2014 - probability at 8 DHWs
@@ -1394,6 +1180,7 @@ pred <- as.tibble(emmeans(mod, specs = c("Width2", "dhw"), by = "Species",
                           type = "response", rg.limit = 100000)) %>%
   filter(Species %in% sig$Species) %>%
   left_join(dplyr::select(sig, dhw, Species, asymp.LCL), by = c("dhw", "Species"))
+
 # Get actual observed size ranges for these species
 actual <- filter(df14.abund) %>%
   drop_na(Species) %>%
@@ -1511,12 +1298,12 @@ mynames <- pred2 %>%
 #        width = 120, height = 100, units = "mm")
 
 
-# sanity check on sside size effect
-# dlab <- df14.abund %>%
-#   filter(Species == "SSID")
-# ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
-#   geom_bar(position = "fill") +
-#   facet_wrap(~Subregion)
+# sanity check on ssid size effect
+dlab <- df14.abund %>%
+  filter(Species == "SSID")
+ggplot(dlab, aes(x = (Width2 > 25), fill = (Bleaching2 > 1))) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Subregion)
 ```
 
 # Code scratchpad below
