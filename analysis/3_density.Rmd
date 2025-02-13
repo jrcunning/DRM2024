@@ -111,7 +111,7 @@ dens <- df %>%
   filter(sum(n) >= 40) %>%
   ungroup()
 
-mod5 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
+mod5 <- glmer(n ~ Species * year + (1|Species:Subregion), data = dens, family = "poisson",
               verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
 anova(mod5)
 
@@ -121,13 +121,4 @@ diffs <- rbind(pairs(emmeans(mod5, specs = c("Species", "year")), by = "Species"
 saveRDS(diffs, file = "data/processed/dens20142023.rds")
 ```
 
-
-```{r}
-mod6 <- glmer(n ~ Species * year + (1|Species:Subregion), data = dens, family = "poisson",
-              verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
-
-diffs2 <- rbind(pairs(emmeans(mod6, specs = c("Species", "year")), by = "Species", level = 0.95))
-
-saveRDS(diffs2, file = "data/processed/dens20142023updated.rds")
-```
 
