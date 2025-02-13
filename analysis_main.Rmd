@@ -865,7 +865,7 @@ library(RColorBrewer)
        y = "Change in bleaching threshold (°C)") +
   theme_classic() +
   theme(legend.position = c(0.075,0.1),
-        legend.key.spacing.x = unit(1, "mm"),
+        legend.key.width = unit(-10, "mm"),
         legend.key.spacing.y = unit(-3, "mm"), 
         legend.spacing.y = unit(-5, "mm"),
         legend.text = element_text(size = 8),
@@ -1047,9 +1047,9 @@ ggsave(filename = "figures/Fig5.png", plot = fig5,
        width = 110, height = 100, units = "mm")
 ```
 
-# Size diffs
+# Coral colony size analyses
 
-## 2023 - probability at 15 DHWs
+## Bleaching in large vs. small colonies in 2023
 
 ```{r size_effects_2023}
 # Model bleaching severity by Width, species, and dhw. 
@@ -1118,18 +1118,16 @@ RR <- p90andsmall %>%
   scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
   facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
   geom_line(aes(color = response)) +
-  geom_text(aes(x = Width2, y = max.x - 0.2, label = paste0(round(RR, 1), "x")), data = RR, 
-            hjust = 0.5, fontface = "italic") +
+  geom_text(aes(x = Width2, y = max.x - 0.2, label = paste0(round(RR, 1), "x")), data = RR,
+            hjust = 0.5, fontface = "italic", size = 3) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
   geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
-  geom_text(data = mynames, aes(label = name, x = maxw), y = 0, hjust = 1, vjust = 0, size = 3, fontface = "italic") +
-  #geom_errorbar(aes(ymin = response - SE, ymax = response + SE)) +
   ylim(0, 1) +
   labs(x = "Colony width (cm)", y = "Probability of bleaching at 15 DHWs") +
   theme_classic() +
   theme(legend.position = "none",
-        strip.text = element_blank(),
+        strip.text = element_text(face = "italic", hjust = 0),
         strip.background = element_blank()))
 
 ggsave(filename = "figures/FigS8.png", plot = sizeplot,
@@ -1145,5 +1143,83 @@ ggsave(filename = "figures/FigS8.png", plot = sizeplot,
 #   ggplot(aes(x = Width.bin, fill = Bleaching2 > 1)) +
 #   geom_bar(position = "fill") +
 #   facet_wrap(~Species, scales = "free")
+```
+
+## Temporal change in size-frequency
+```{r}
+# Combine 2014 and 2015 data and compare to 2023 size-frequency
+allw <- allf %>%
+  mutate(Width2 = case_when(Width >= 4 ~ Width,
+                            Width < 4 ~ 4)) %>%
+  mutate(year = case_when(year %in% c("2014", "2015") ~ "2014/15",
+                         TRUE ~ year))
+
+
+sizefreq <- ggplot(allw, aes(x = log(Width2), fill = factor(year), color = factor(year))) + 
+  #geom_histogram(aes(y = ..density..), alpha = 0.4, position = "identity") +
+  geom_density(alpha = 0.4) + 
+  facet_wrap(~Species, scales = "free",  labeller = labeller(Species = abbrev_names)) + 
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_continuous(breaks = log(c(4, 16, 64, 256)), expand = expansion(mult = c(0.05, 0.1)),
+                     labels = c(4, 16, 64, 256)) +
+  labs(x = "Log Colony Width (cm)", y = "Density", fill = "Year", color = "Year") +
+  theme_classic() +
+  theme(legend.position = "none",
+        strip.text = element_text(face = "italic", hjust = 0),
+        strip.background = element_blank())
+
+# Fit model
+wmod <- lmer(log(Width2) ~ year * Species + (1|Species:Subregion), data = allw)
+
+# Get EMMs
+emms <- emmeans(wmod, specs = "year", by = "Species")
+
+# Test for significant difference in 2023
+sigs <- rbind(contrast(emms, "pairwise")) %>%
+  as_tibble() %>%
+  filter(p.value < 0.01)
+
+
+# Convert from log scale to actual size
+emms_size <- summary(emms) %>%
+  mutate(Estimated_Size = exp(emmean)) %>%
+  select(Species, year, Estimated_Size)
+
+# Calculate the difference between 2023 and 2014-2015
+size_change0 <- emms_size %>%
+  pivot_wider(names_from = year, values_from = Estimated_Size) %>%
+  mutate(Change = `2023` - `2014/15`,
+         pct = (`2023` - `2014/15`) / `2014/15`)# %>% # Change in mean size
+  #filter(Species %in% sigs$Species)
+
+pos <- allw %>%
+  group_by(Species, year) %>%
+  summarize(max.y = max(density(Width2)$y),
+            max.x = max(log(Width2))) %>%
+  group_by(Species) %>%
+  summarize(max.y = max(max.y),
+            max.x = max.x)
+
+size_change1 <- full_join(pos, size_change0)
+
+size_change2 <- size_change1 %>%
+  pivot_longer(cols = c("2014/15", "2023"), names_to = "year", values_to = "Estimated_Size") %>%
+  mutate(log_size = log(Estimated_Size))
+
+sizefreq <- sizefreq +
+  geom_text(data = size_change1, inherit.aes = FALSE,
+            aes(x = Inf, y = Inf, label = paste0("avg.=", round(`2014/15`, 1), "cm")), 
+            vjust = 1, hjust = 1, color = "#F8766D", size = 3) +
+  geom_text(data = size_change1, inherit.aes = FALSE,
+            aes(x = Inf, y = Inf, label = paste0("avg.=", round(`2023`, 1), "cm")), 
+            vjust = 2.5, hjust = 1, color = "#619CFF", size = 3) +
+  geom_text(data = sigs, inherit.aes = FALSE,
+            aes(x = Inf, y = Inf, label = paste0("p=", signif(p.value,2))),
+            vjust = 4, hjust = 1, color = "black", size = 3, fontface = "bold") +
+  theme(legend.position = c(0.7, 0.1))
+
+ggsave("figures/FigS9.png", plot = sizefreq, width = 220, height = 220, units = "mm")
+
 ```
 
