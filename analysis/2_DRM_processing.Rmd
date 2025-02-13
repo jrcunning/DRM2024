@@ -70,7 +70,7 @@ dead <- df14 %>%
 ### 2014 DHW data
 ```{r 2014_dhw}
 # Import 2014 DHW data
-dhw <- read_csv("data/dhw/2014/2014_dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2014_dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
@@ -160,7 +160,7 @@ df15 <- df15 %>%
 ### 2015 DHW data
 ```{r 2015_dhw}
 # Import 2015 DHW data
-dhw <- read_csv("data/dhw/2015/2015_dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2015_dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
@@ -279,7 +279,7 @@ df23 <- df23 %>%
 ### 2023 DHW data
 ```{r 2023_dhw}
 # Import 2023 DHW data
-dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
