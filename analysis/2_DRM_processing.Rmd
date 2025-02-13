@@ -1,0 +1,320 @@
+---
+title: "2_DRM_processing"
+author: "R. Cunning"
+date: "2025-02-13"
+output: html_document
+---
+
+# 2014
+
+### 2014 DRM data
+```{r 2014_drm}
+# Import DRM data
+df <- read_csv("data/drm/export.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+
+# Get day of the year number, week, and month for some model fitting
+df <- df %>%
+  mutate(Day = yday(Date),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week = factor(Week),
+         Month = factor(month(Date)))
+
+# Subset just 2014 surveys
+df14 <- filter(df, year(Date) == "2014")
+
+# Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
+df14[df14$Subregion == "Deerfield" & df14$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
+df14[df14$Subregion == "Deerfield" & df14$Latitude < 26.32825, "Subregion"] <- "Broward-Miami"
+
+# Order Subregions from south to north
+df14 <- df14 %>%
+  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
+                                              "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
+                                              "Biscayne", "Broward-Miami", "South Palm Beach", 
+                                              "North Palm Beach", "Martin")))
+
+# Order Species alphabetically
+df14 <- df14 %>%
+  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+
+# Are there any dead corals?
+# dead <- df14 %>% filter(Old + Recent >= 100)
+# There are recently dead corals that do not have the TRS code -- assume these ARE dead from thermal stress and add TRS code
+df14[df14$Recent == 100 & !grepl("TRS", df14$`Other Conditions`), "Other Conditions"] <- "TRS"
+# Remove other completely dead corals (Old Mort)
+df14 <- df14 %>%
+  filter(!((Old + Recent) >= 100 & !grepl("TRS", `Other Conditions`)))
+
+# Create ordinal variables and factors for bleaching severity
+df14 <- df14 %>%
+  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
+                                Bleaching == "P" ~ 1,
+                                Bleaching == "PB" ~ 2,
+                                Bleaching == "BL" ~ 3,
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4),
+         Bleaching3 = factor(case_match(Bleaching2, 
+                                 0 ~ "Healthy",
+                                 1 ~ "Pale",
+                                 2 ~ "Partially Bleached",
+                                 3 ~ "Bleached",
+                                 4 ~ "Dead"),
+                             levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
+
+dead <- df14 %>%
+  filter(Bleaching3 == "Dead")
+```
+
+### 2014 DHW data
+```{r 2014_dhw}
+# Import 2014 DHW data
+dhw <- read_csv("data/dhw/2014/2014_dhw_processed.csv") %>%
+  mutate(across(where(is.character), as_factor)) %>%
+  rename(Date = date) %>%
+  dplyr::select(Site, Date, dhw)
+
+# Get max. DHW value for on OR BEFORE date surveyed
+dhw <- dhw %>%
+  group_by(Site) %>%
+  mutate(cummaxdhw = cummax(dhw))
+
+# Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
+df14 <- left_join(df14, dhw, by = c("Site", "Date"), keep = FALSE)
+
+# Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
+peakdhw <- dhw %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(0,52,2)))) %>%
+  filter(Week2 == "(36,38]") %>%
+  group_by(Site) %>%
+  summarize(peakdhw = max(dhw))
+df14 <- left_join(df14, peakdhw)
+```
+
+### Save 2014 processed data
+```{r 2014_save}
+save(df14, file = "data/processed/2014.RData")
+```
+
+# 2015
+
+### 2015 DRM data
+```{r 2015_drm}
+# Import DRM data
+df <- read_csv("data/drm/export.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+
+# Get day of the year number, week, and month for some model fitting
+df <- df %>%
+  mutate(Day = yday(Date),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
+         Week = factor(Week),
+         Month = factor(month(Date)))
+
+# Subset just 2015 surveys
+df15 <- filter(df, year(Date) == "2015")
+
+# Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
+df15[df15$Subregion == "Deerfield" & df15$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
+df15[df15$Subregion == "Deerfield" & df15$Latitude < 26.32825, "Subregion"] <- "Broward-Miami"
+
+# Order Subregions from south to north
+df15 <- df15 %>%
+  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
+                                              "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
+                                              "Biscayne", "Broward-Miami", "South Palm Beach", 
+                                              "North Palm Beach", "Martin")))
+
+# Order Species alphabetically
+df15 <- df15 %>%
+  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+
+# Are there any dead corals?
+# dead <- df15 %>% filter(Old + Recent >= 100)
+# There are recently dead corals -- but this could have been SCTLD, in Biscayne up to Palm Beach....
+# Assign dead corals NOT in those regions TRS (dead from bleaching)
+df15[(df15$Old + df15$Recent) >= 100 & !df15$Subregion %in% c("Biscayne", "Broward-Miami", "South Palm Beach"), "Other Conditions"] <- "TRS"
+# Remove other dead corals (disease death?)
+df15 <- df15 %>%
+  filter(((Old + Recent < 100) | grepl("TRS", `Other Conditions`)))
+
+# Create ordinal variables and factors for bleaching severity
+df15 <- df15 %>%
+  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
+                                Bleaching == "P" ~ 1,
+                                Bleaching == "PB" ~ 2,
+                                Bleaching == "BL" ~ 3,
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4),
+         Bleaching3 = factor(case_match(Bleaching2, 
+                                 0 ~ "Healthy",
+                                 1 ~ "Pale",
+                                 2 ~ "Partially Bleached",
+                                 3 ~ "Bleached",
+                                 4 ~ "Dead"),
+                             levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
+```
+
+### 2015 DHW data
+```{r 2015_dhw}
+# Import 2015 DHW data
+dhw <- read_csv("data/dhw/2015/2015_dhw_processed.csv") %>%
+  mutate(across(where(is.character), as_factor)) %>%
+  rename(Date = date) %>%
+  dplyr::select(Site, Date, dhw)
+
+# Get max. DHW value for on OR BEFORE date surveyed
+dhw <- dhw %>%
+  group_by(Site) %>%
+  mutate(cummaxdhw = cummax(dhw))
+
+# Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
+df15 <- left_join(df15, dhw, by = c("Site", "Date"))
+
+# Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
+peakdhw <- dhw %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(0,52,2)))) %>%
+  filter(Week2 == "(36,38]") %>%
+  group_by(Site) %>%
+  summarize(peakdhw = max(dhw))
+df15 <- left_join(df15, peakdhw)
+
+# ggplot(df15, aes(x = dhw, y = peakdhw, color = Subregion)) + geom_point()
+```
+
+### Save 2015 processed data
+```{r 2015_save}
+save(df15, file = "data/processed/2015.RData")
+```
+
+# 2023
+
+### 2023 DRM data
+```{r 2023_drm}
+# Import Transect 1 and 2 data
+t1t2 <- readxl::read_xlsx("data/drm/Updated_2023AfterQAQC_RawCoralDataTransect1and2.xlsx",
+                          na = "NULL")
+
+# Import Transect 3 and 4 data
+t3t4 <- readxl::read_xlsx("data/drm/Updated_2023AfterQAQC_RawCoralDataTransects3and4.xlsx")
+
+# Combine
+df <- bind_rows(t1t2, t3t4)
+
+# Recode and rename things
+df <- df %>%
+  mutate(Bleaching = case_match(
+    Bleaching, 
+    "Not Bleached" ~ NA,
+    "Pale" ~ "P",
+    "Partly Bleached" ~ "PB",
+    "Totally Bleached" ~ "BL",
+    )) %>%
+  rename(Old = OldMortality, Recent = RecentMortality,
+         `Other Conditions` = oCondition) %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%Y-%m-%d"))
+
+# Get day of the year number, week, and month for some model fitting
+df <- df %>%
+  mutate(Day = yday(Date),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(1,52,2))),
+         Week = factor(Week),
+         Month = factor(month(Date)))
+
+# Subset just 2023 surveys
+df23 <- filter(df, year(Date) == "2023")
+# Subset at some earlier date? Later in the season, corals are probably dead and not counted, underestimating bleaching and mortality rates...?
+# df23 <- filter(df23, Date < "2023-10-01")
+
+
+# Order Subregions from south to north
+df23 <- df23 %>%
+  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
+                                              "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
+                                              "Biscayne", "Broward-Miami", "South Palm Beach", 
+                                              "North Palm Beach", "Martin")))
+
+# Order Species alphabetically
+df23 <- df23 %>%
+  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+
+# Dead corals
+dead <- df23 %>%
+  filter((Old + Recent) >= 100)
+## 324 of the dead corals do have TRS code, 24 do not -- assume these ARE also dead from thermal stress and add TRS code
+# table(grepl("TRS", dead$`Other Conditions`))
+df23 <- df23 %>%
+  mutate(`Other Conditions` = case_when((Old + Recent >= 100) ~ "TRS",
+                                        TRUE ~ `Other Conditions`))
+
+
+
+# Create ordinal variables and factors for bleaching severity
+df23 <- df23 %>%
+  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
+                                Bleaching == "P" ~ 1,
+                                Bleaching == "PB" ~ 2,
+                                Bleaching == "BL" ~ 3,
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4),
+         Bleaching3 = factor(case_match(Bleaching2, 
+                                 0 ~ "Healthy",
+                                 1 ~ "Pale",
+                                 2 ~ "Partially Bleached",
+                                 3 ~ "Bleached",
+                                 4 ~ "Dead"),
+                             levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
+
+
+# # There are corals with the TRS code that are NOT fully dead, but don't have BL code
+test <- df23 %>% filter(is.na(Bleaching2))
+#### Filter these out
+df23 <- df23 %>%
+  filter(!is.na(Bleaching2))
+```
+
+### 2023 DHW data
+```{r 2023_dhw}
+# Import 2023 DHW data
+dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
+  mutate(across(where(is.character), as_factor)) %>%
+  rename(Date = date) %>%
+  dplyr::select(Site, Date, dhw)
+
+# Get max DHW experienced in 2023 for each site as of the date surveyed?
+# or something like cumulative DHW? I think there are lots of corals that already bleached and died by September onward that are not getting captured in the surveys...
+
+# Get max. DHW value for on OR BEFORE date surveyed
+dhw <- dhw %>%
+  group_by(Site) %>%
+  mutate(cummaxdhw = cummax(dhw))
+  
+
+# Get DHW values for each DRM survey site on the date surveyed -- join with DRM data
+df23 <- left_join(df23, dhw, by = c("Site", "Date"))
+
+
+# Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
+peakdhw <- dhw %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(1,52,2)))) %>%
+  filter(Week2 == "(33,35]") %>%
+  group_by(Site) %>%
+  summarize(peakdhw = max(dhw))
+df23 <- left_join(df23, peakdhw)
+ggplot(df23, aes(x = dhw, y = peakdhw, color = Subregion)) + geom_point()
+```
+
+### Save 2023 processed data
+```{r}
+# Remove rows where Species is NA (transects 3 and 4 when nothing was observed)
+df23 <- df23 %>%
+  filter(!is.na(Species))
+df23 %>%
+  count(TransectNum)
+save(df23, file = "data/processed/2023.RData")
+```
+
+
