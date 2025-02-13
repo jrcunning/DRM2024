@@ -812,8 +812,6 @@ findat <- nets %>%
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90)) +
   labs(y = "Change in heat tolerance (°C)        "))
-
-ggsave(finplot, filename = "figures/FigS5.png", width = 100, height = 100, units = "mm")
 ```
 
 ### ∆°C vs. density + symbionts
@@ -1014,9 +1012,9 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
 
-s6 <- cowplot::plot_grid(decomp, ps, nrow = 2, rel_heights = c(0.55, 0.45), labels = "A")
-s6
-ggsave(filename = "figures/FigS6.png", plot = s6, width = 190, height = 200, units = "mm")
+s5 <- cowplot::plot_grid(decomp, ps, nrow = 2, rel_heights = c(0.55, 0.45), labels = "A")
+s5
+ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
 
 
 
@@ -1100,7 +1098,7 @@ mynames <- pred2 %>%
 # Calculate relative risk of large (90th percentile) and small (4cm) colonies of each species
 p90 <- actual %>%
   group_by(Species) %>%
-  summarize(Width2 = round(quantile(Width2, 0.90))) %>%
+  summarize(Width2 = round(quantile(Width2, 0.99))) %>%
   bind_rows(filter(actual, Width2 == 4)) %>%
   filter(Species %in% sig$Species)
 p90andsmall <- pred2 %>%
@@ -1118,6 +1116,7 @@ RR <- p90andsmall %>%
   scale_x_continuous(breaks = c(4, 16, 64, 256), expand = expansion(mult = c(0.05, 0.1))) +
   facet_wrap(~Species, scales = "free_x", labeller = labeller(Species = abbrev_names)) +
   geom_line(aes(color = response)) +
+  geom_point(aes(x = Width2, y = response), data = p90andsmall, pch = 1, size = 0.5) +
   geom_text(aes(x = Width2, y = max.x - 0.2, label = paste0(round(RR, 1), "x")), data = RR,
             hjust = 0.5, fontface = "italic", size = 3) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
@@ -1130,7 +1129,7 @@ RR <- p90andsmall %>%
         strip.text = element_text(face = "italic", hjust = 0),
         strip.background = element_blank()))
 
-ggsave(filename = "figures/FigS7.png", plot = sizeplot,
+ggsave(filename = "figures/FigS6.png", plot = sizeplot,
        width = 120, height = 100, units = "mm")
 
 
@@ -1219,7 +1218,6 @@ sizefreq <- sizefreq +
             vjust = 4, hjust = 1, color = "black", size = 3, fontface = "bold") +
   theme(legend.position = c(0.7, 0.1))
 
-ggsave("figures/FigS8.png", plot = sizefreq, width = 220, height = 220, units = "mm")
-
+ggsave("figures/FigS7.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
 
