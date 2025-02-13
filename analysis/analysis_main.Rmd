@@ -99,9 +99,9 @@ names(abbrev_names) <- names(species_names)
 ## DRM and DHW data (2014, 2015, 2023)
 ```{r import_data}
 # Load all QC'd data from 2014, 2015, and 2023
-load("output/2014.RData")
-load("output/2015.RData")
-load("output/2023.RData")
+load("data/processed/2014.RData")
+load("data/processed/2015.RData")
+load("data/processed/2023.RData")
 df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
 
 # Combine all years
@@ -565,8 +565,8 @@ bleach50
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
 # boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 200, seed = 123, re.form = NULL,
 #                     parallel = "multicore", ncpus = 20)
-# saveRDS(boot.out, file = "output/boot.out.rds")
-boot.out <- readRDS(file = "output/boot.out.rds")
+# saveRDS(boot.out, file = "data/processed/boot.out.rds")
+boot.out <- readRDS(file = "data/processed/boot.out.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -745,8 +745,8 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
 # sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
 #                        parallel = "multicore", ncpus = 20)
-# saveRDS(sp.boot.out, file = "output/sp.boot.out.rds")
-sp.boot.out <- readRDS(file = "output/sp.boot.out.rds")
+# saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
+sp.boot.out <- readRDS(file = "data/processed/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
@@ -817,8 +817,7 @@ findat <- nets %>%
 ### ∆°C vs. density + symbionts
 
 ```{r bleachthresh_vs_density, fig.width = 10}
-#densres <- readRDS("output/density.rds")
-densdiffs <- readRDS("output/dens20142023.rds")
+densdiffs <- readRDS("data/processed/dens20142023.rds")
 
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- findat %>%
