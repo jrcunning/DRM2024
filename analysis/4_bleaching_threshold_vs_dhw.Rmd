@@ -15,7 +15,7 @@ library(tidyverse)
 ```{r}
 # Import Florida Keys daily temperature data for 1985-2023
 ## Downloaded from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
-temp0 <- read_delim("data/temp/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
+temp0 <- read_delim("data/temperature/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
 temp <- temp0 %>%
   mutate(temp = `SST@90th_HS`) %>%
   dplyr::select(YYYY, MM, DD, temp) %>%
@@ -24,21 +24,22 @@ temp <- temp0 %>%
          yday = yday(date),
          year = year(date))
 
-## Plot temperature for each year, and threshold of 28.6 used to calculate DHWs
-mytemp <- temp %>% filter(year < 2023) %>%
+# Define Maximum Monthly Mean temperature for Florida Keys
+mmm <- 29.6264 # Actual MMM for FL Keys
+
+# Plot temperature for each year, and MMM
+(mytemp <- temp %>% filter(year < 2023) %>%
   ggplot(aes(x = yday, y = temp, color = factor(year), group = year, alpha = 0.5)) +
   geom_line(alpha = 0.4) +
   geom_hline(aes(yintercept = 29.624), lty = 2) +
   #geom_hline(aes(yintercept = 30.624), lty = 2) +
   theme_classic() +
   labs(x = "Day of year", y = "Temperature (°C)") +
-  theme(legend.position = "none")
+  theme(legend.position = "none"))
 
-# Calculate DHWs for various thresholds, and resulting reduction in max DHW for each threshold
-# mmm <- 29.6264. # Actual MMM for FL Keys
-mmm <- 29.6264 # Use a reduced MMM in order to accumulate more DHWs in more years for simulation purposes
-
-# DHWs for each threshold
+# DHWs accumulate when temperatures exceed the bleaching threshold, defined as MMM temperature + 1°C
+# Simulate increased bleaching thresholds (i.e., MMM + 1°C + x), with x ranging from 0 to 1.5°C of additional increase
+# Calculate DHWs for all simulated increased thresholds for each year of real temperature data
 dhwout <- temp %>%
   group_by(year) %>%
   nest() %>%
@@ -46,95 +47,45 @@ dhwout <- temp %>%
   mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
          dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
          maxdhw = map_dbl(dhw, max))
-
-# Resulting reduction in max DHW in each year based on each increase in threshold
+# Compute reduction in DHW in each year based on each increase in threshold
 diffs <- dhwout %>%
   group_by(year) %>%
   mutate(diff = maxdhw[add==0] - maxdhw) %>%
   filter(maxdhw > 0)
 
 # Plot reduction in DHW for each year afforded by X°C increase in bleaching threshold
-ggplot(diffs, aes(x = add, y = diff)) + 
-  geom_point(aes(color = factor(year))) +
+(diffs_vs_add <- ggplot(diffs, aes(x = add, y = diff, group = year, color = factor(year))) + 
+  #geom_point() +
+  geom_path() +
   theme_classic() +
-  labs(x = "Increase in bleaching threshold (°C)",
-       y = "Decrease in maximum DHW in each year")
+  labs(x = "Simulated increase in bleaching threshold (°C)",
+       y = "Decrease in accumulated DHW"))
 
-# Flip axes - plot increase in threshold vs. reduction in DHW
-ggplot(diffs, aes(y = add, x = diff)) + 
-  geom_point(aes(color = factor(year))) +
-  geom_smooth(method = "lm", se = FALSE) +
-  theme_classic() +
-  labs(x = "Reduction of max DHW (DHW)",
-       y = "Increase in bleaching threshold (°C)")
+# Model reduction in DHW as a function of simulated increase
+## Constrain intercept to zero, and have random slopes for years
+mod <- lmer(diff ~ 0 + add + (0 + add|year), data = diffs)
+## Get slope and standard error
+coefs <- tibble(
+  dhw.per.degC = summary(mod)$coefficients[1],
+  dhw.per.degC.se = summary(mod)$coefficients[2]
+)
+write_csv(coefs, "data/processed/dhw.per.degC.csv")
 
-# Get slope of this line as the increase in °C per reduced DHW
-mod <- lm(add ~ 0 + diff, data = diffs)
-summary(mod)
-coef(mod) # slope is the increase in °C per reduced DHW
-## Every 1 DHW gained represents an increase in bleaching threshold of 0.077°C
-## How to put confidence on this estimate?
-confint(mod, level = 0.95)
+# Plot fitted model over simulated data
+anno <- paste0("y = ", round(coefs[1], 2), " x")
+(figs3 <- diffs_vs_add + 
+    geom_abline(aes(slope = slope, intercept = 0),
+                           alpha = 0.5, linewidth = 1.5) +
+    scale_color_discrete(name = "") +
+    annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
+    theme(legend.text = element_text(size = 8),
+          legend.key.size = unit(5, "mm")))
 
-# Depending on the MMM used to calculate DHW accumulation, the slope of the line changes.
-# Using the actual MMM of 29.6264 gives a slope of 0.1047°C/DHW.
-# Using a reduced MMM of 28.6 gives a slope of 0.0777°C/DHW.
-# Further reducing the MMM further reduces the estimated °C/DHW.
-
+ggsave(filename = "figures/FigS3.png", plot = figs3, width = 140, height = 90, units = "mm")
 
 
-# Making figs for presentations
-mydhw <- dhwout %>% filter(add == 0) %>% unnest(data, dhw) %>%
-  distinct(year, yday, temp, dhw) %>%
-  filter(year < 2023) %>%
-  pivot_longer(cols = c(temp, dhw)) %>%
-  mutate(name = factor(name, levels = c("temp", "dhw")))
-
-ggplot(mydhw, aes(x = yday, y = value, color = factor(year), group = year)) +
-  facet_grid(name~., scales = "free") +
-  geom_line(alpha = 0.4) +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "", y = "")
-
-tempsumm <- mydhw %>%
-  group_by(yday) %>%
-  summarize(temp = quantile(value[name == "temp"], 0.85))
-
-dhwsumm999 <- mydhw %>%
-  group_by(yday) %>%
-  summarize(dhw = quantile(value[name == "dhw"], 0.999999))
-
-dhwsumm5 <- mydhw %>%
-  group_by(yday) %>%
-  summarize(dhw = quantile(value[name == "dhw"], 0.5))
-
-templot1 <- ggplot(tempsumm, aes(x = yday, y = temp)) +
-  geom_line() +
-  theme_classic() +
-  labs(x = "", y = "Temperature (°C)") +
-  geom_hline(yintercept = 29.6, lty = 2)
-
-templot2 <- templot1 +
-  geom_hline(yintercept = 30.7, lty = 2, color = "red")
-
-dhwplot1 <- ggplot(dhwsumm999, aes(x = yday, y = dhw)) +
-  geom_line() +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "", y = "DHW")
-
-dhwplot2 <- dhwplot1 +
-  geom_line(data = dhwsumm5, color = "red")
-
-plot1 <- cowplot::plot_grid(templot1, dhwplot1, ncol = 1, align = "v")
-plot2 <- cowplot::plot_grid(templot2, dhwplot2, ncol = 1, align = "v")
-
-ggsave(plot1, filename = "dhwplot1.png", width = 90, height = 90, units = "mm")
-ggsave(plot2, filename = "dhwplot2.png", width = 90, height = 90, units = "mm")
-```
-
-```{r}
-
+slope
+# 6.229798 DHWs reduced for every °C increase in bleaching threshold
+# 1/6.229798 = 0.1605189°C for every DHW reduced
 ```
 
