@@ -499,25 +499,7 @@ ed_vals <- ED(m3, c(0.1, 0.9), type = "absolute", display = FALSE) %>%
   )
 
 # Join ED50s and ED90-ED10 diffs
-eds <- full_join(ed50s, ed_vals) %>%
-  left_join(symsumm)
-
-# Plot ED90-ED10 diffs vs. ED50 with errorbars
-oldfig3 <- ggplot(eds, aes(x = Estimate, y = Diff)) + 
-  geom_point(aes(size = ngen^4, alpha = 0.7)) +
-  geom_errorbar(aes(xmin = Estimate - `Std. Error`, xmax = Estimate + `Std. Error`)) +
-  geom_errorbar(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff)) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
-  labs(x = "Median tolerance (DHW ED50)",
-       y = "Range in tolerance (DHW ED90 - ED10)") +
-  theme_classic() +
-  scale_size_continuous(breaks = c(1^4,2^4,3^4,4^4)) +
-  theme(legend.position = "none")
-
-#ggsave(filename = "figures/Fig3.png", plot = fig3, width = 90, height = 90, units = "mm")
-
-  
+eds <- full_join(ed50s, ed_vals)
 
 # Test relationship between number of symbiont genera and tolerance range
 # Join with symbiont data
@@ -535,7 +517,7 @@ anno <- substitute(italic("R") == r * ";" ~ italic("p") == p,
 
 # Plot
 pos <- position_jitter(width = 0.15, seed = 6) # Make jitter position for plotting
-figS3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
+fig3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
   geom_line(data = data.frame(x = c(1, 4), 
                               y = c(coef(mod)[1] + coef(mod)[2] * 1, 
                                     coef(mod)[1] + coef(mod)[2] * 4)),
@@ -550,9 +532,9 @@ figS3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
   labs(x = "Number of Symbiodiniaceae genera", 
        y = "Intraspecific bleaching variability (ED90-ED10)") +
   theme_classic()
-figS3
+fig3
 
-ggsave(filename = "figures/Fig3.png", plot = figS3, width = 90, height = 90, units = "mm")
+ggsave(filename = "figures/Fig3.png", plot = fig3, width = 90, height = 90, units = "mm")
 ```
 
 
@@ -815,16 +797,6 @@ sp.ed50conf <- tibble(
   lower = sp.lower,
   upper = sp.upper) %>%
   separate(year, into = c("Species", "year"), sep = " ")
-
-# # Plot ED50s for each species for each year
-# sp.ed50conf %>%
-#   filter(year %in% c("2014", "2015", "2023")) %>%
-#   ggplot(aes(x = year, y = ed50)) +
-#     geom_point() +
-#     geom_errorbar(aes(ymin = ed50 - se, ymax = ed50 + se), width = 0.2) +
-#     facet_wrap(~Species, scales = "free_y") +
-#     labs(y = "ED50 (DHWs to 50% bleaching)") +
-#     theme_classic()
 ```
 
 ### ∆ED50 --> ∆°C
@@ -840,41 +812,9 @@ sp.degC <- sp.ed50conf %>%
   separate(year, into = c("year", "2014")) %>%
   mutate(Species = fct_reorder(Species, degC))
 
-ggplot(sp.degC, aes(x = Species, y = degC)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = degC.lower, ymax = degC.upper))
 
-
-# old way
-# 
-# sp.degC <- sp.ed50conf %>%
-#   filter(year %in% c("2015-2014", "2023-2014")) %>%
-#   mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC")) %>%
-#   separate(year, into = c("year", "2014"))
-
-# # Plot ED50 vs. year for all Species
-# sp.ed50conf %>%
-#   filter(year %in% c("2014", "2015", "2023")) %>%
-#   ggplot(aes(x = as.numeric(year), y = ed50)) + 
-#   geom_point() +
-#   #geom_errorbar(aes(ymin = lower, ymax = upper)) +
-#   #geom_smooth(method = "lm", se = FALSE) +
-#   geom_path(data = filter(sp.ed50conf, year != "2015")) +
-#   facet_wrap(~Species) +
-#   theme_classic()
-
-# Get net change in ∆DHW/year from 2014 - 2023, convert to degC
-nets <- sp.ed50conf %>%
-  filter(year == "2023-2014") %>%
-  mutate(neted50 = ed50, neted50.SE = se) %>%
-  dplyr::select(Species, neted50, neted50.SE) %>%
-  mutate(degC = neted50 * degC.per.DHW, degC.se = neted50.SE * degC.per.DHW) %>%
-  dplyr::select(Species, degC, degC.se)
-
-# Plot change in tolerance for all Species
-findat <- nets %>%
-  mutate(Species = fct_reorder(Species, degC)) 
-
+# Plot change in heat tolerance in degC for all species
+## Need to decide whether to use SE or CI for error bars
 (finplot <- sp.degC %>%
   ggplot(aes(x = Species, y = degC)) +
   geom_point() +
@@ -883,6 +823,8 @@ findat <- nets %>%
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90)) +
   labs(y = "Change in heat tolerance (°C)        "))
+
+sp.degC %>% arrange(-degC)
 ```
 
 ### ∆°C vs. density + symbionts
@@ -891,7 +833,7 @@ findat <- nets %>%
 densdiffs <- readRDS("data/processed/dens20142023.rds")
 
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
-net <- findat %>%
+net <- sp.degC %>%
   left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
@@ -911,9 +853,6 @@ PBfit <- PBfit %>%
 myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
 myticks2 <- log(myticks + 1)
 set.seed(8)
-library(RColorBrewer)
-
-
 (dens_sym_viz <- net %>%
   ggplot(aes(x = estimate, y = degC)) + 
   geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
@@ -924,7 +863,7 @@ library(RColorBrewer)
   
   #geom_smooth(method = "lm", se = FALSE) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
+                           fontface = "italic", size = 3, segment.size = 0.25) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
   scale_color_brewer(name = "Symbiont\nGenera",
                      palette = "RdYlBu", direction = -1,
@@ -946,7 +885,8 @@ library(RColorBrewer)
       reverse = TRUE,
       title.hjust = 0.5,  # Further adjusts alignment
       override.aes = list(size = 3)  # Adjusts point size in legend
-    )))
+    ))) +
+  coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC)))
 
 
 
@@ -1106,13 +1046,14 @@ stat_text <- paste0(
 
 # ✅ Add right-aligned annotations in the top-right corner
 (fig5 <- dens_sym_viz +
-  annotate("text", 
+    annotate("text", 
            x = max(net$estimate + net$SE), y = max(PBfit$degC),  # Top-right corner
            label = stat_text, 
            hjust = 1, vjust = 1,  # Right-align text
-           size = 2.5))
+           size = 2.5) +
+    coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC))))
 
-ggsave(filename = "figures/Fig5agar.png", plot = fig5,
+ggsave(filename = "figures/Fig5.png", plot = fig5,
        width = 110, height = 100, units = "mm")
 ```
 
