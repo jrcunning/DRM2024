@@ -145,7 +145,7 @@ all0 %>% count(year)
 ```
 
 ## Symbiont metadata for Florida corals
-```{r}
+```{r import_sym_data}
 # Import symbiont metadata
 library(gsheet)
 sheet_url <- "https://docs.google.com/spreadsheets/d/1r1MyUA4Vk50SMjkuRM4XfLcv2-Ve1afp/edit?usp=sharing&ouid=100793581009007740691&rtpof=true&sd=true"
@@ -155,7 +155,7 @@ sym0 <- gsheet2tbl(sheet_url)
 symsumm <- sym0 %>% 
   filter(location == "FL") %>%
   group_by(Species) %>%
-  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
+  summarize(domsyms = paste0(unique(dominant_genus), collapse = "")) %>%
   mutate(ngen = nchar(domsyms))
 
 # Aggregate symbiont metadata to match coral taxa to match aggregation in DRM dataset
@@ -171,13 +171,13 @@ symsumm.ag <- sym0  %>%
                              TRUE ~ Species)) %>%
   drop_na(Species) %>% 
   group_by(Species) %>%
-  summarize(domsyms = paste0(unique(most_dom_sym_study), collapse = "")) %>%
+  summarize(domsyms = paste0(unique(dominant_genus), collapse = "")) %>%
   mutate(ngen = nchar(domsyms)) %>%
   print(n = nrow(.)) %>%
   mutate(D = grepl("D", domsyms)) 
 ```
 
-```{r}
+```{r surveys_by_dhw}
 # Plot surveys vs. DHW
 (surveys.by.dhw <- all0 %>%
   distinct(year, Site, Date, Subregion, dhw) %>%
@@ -189,13 +189,13 @@ symsumm.ag <- sym0  %>%
 
 ggsave(filename = "figures/FigS1.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
 
-(surveys.by.date <- all0 %>%
-  distinct(year, Site, Date, Subregion, dhw) %>%
-  ggplot(aes(x = Date, fill = Subregion)) +
-  geom_histogram() +
-  facet_wrap(~year, ncol = 1, scales = "free") +
-  theme_classic() +
-  labs(x = "Degree Heating Weeks", y = "Number of surveys"))
+# (surveys.by.date <- all0 %>%
+#   distinct(year, Site, Date, Subregion, dhw) %>%
+#   ggplot(aes(x = Date, fill = Subregion)) +
+#   geom_histogram() +
+#   facet_wrap(~year, ncol = 1, scales = "free") +
+#   theme_classic() +
+#   labs(x = "Degree Heating Weeks", y = "Number of surveys"))
 ```
 
 # Bleaching severity 2023
@@ -269,7 +269,7 @@ quantile(south, c(0.25, 0.75))
 mad(south)
 ```
 
-```{r interpolation}
+```{r bleaching_heatmap}
 # Interpolate percent bleaching for whole reef tract
 # https://geobgu.xyz/r/spatial-interpolation-of-point-data.html
 
@@ -525,7 +525,7 @@ fig3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
   geom_pointrange(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff), 
                   position = pos, alpha = 0.7, stroke = 0, size = 0.75, linewidth = 0.25) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]), position = pos,
-                           fontface = "italic", size = 3, segment.size = 0.25,
+                           fontface = "italic", size = 3, segment.size = 0.25, seed = 8,
                            min.segment.length = 0.3) +
   annotate("text", x = -Inf, y = Inf, label = anno, hjust = -0.1, vjust = 1, size = 2.5) +
   #ggpubr::stat_cor() +
@@ -863,7 +863,7 @@ set.seed(8)
   
   #geom_smooth(method = "lm", se = FALSE) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, segment.size = 0.25) +
+                           fontface = "italic", size = 3, segment.size = 0.25, seed = 8) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
   scale_color_brewer(name = "Symbiont\nGenera",
                      palette = "RdYlBu", direction = -1,
@@ -1000,7 +1000,7 @@ p1 <- ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
                 width = 0, alpha = 0.7, lwd = 0.3) +
   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
+                           fontface = "italic", size = 3, seed = 8) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
   
   labs(x = "Change in population size (2014-2023)", 
@@ -1015,7 +1015,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
   geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
                 width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
+                           fontface = "italic", size = 3, seed = 8) +
   labs(x = "Number of symbiont genera", 
        y = "Change in bleaching threshold (°C)\n(adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
@@ -1157,7 +1157,7 @@ ggsave(filename = "figures/FigS6.png", plot = sizeplot,
 ```
 
 ## Temporal change in size-frequency
-```{r}
+```{r size_frequency}
 # Combine 2014 and 2015 data and compare to 2023 size-frequency
 allw <- allf %>%
   mutate(Width2 = case_when(Width >= 4 ~ Width,
