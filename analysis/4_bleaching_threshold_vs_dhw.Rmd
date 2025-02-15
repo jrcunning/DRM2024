@@ -43,15 +43,17 @@ mmm <- 29.6264 # Actual MMM for FL Keys
 dhwout <- temp %>%
   group_by(year) %>%
   nest() %>%
-  crossing(add = seq(0, 1.5, 0.1)) %>%
+  crossing(add = seq(0, 2.5, 0.1)) %>%
   mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
          dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
          maxdhw = map_dbl(dhw, max))
+
 # Compute reduction in DHW in each year based on each increase in threshold
+# Keep only years where at least 1 DHW was accumulated (based on actual MMM)
 diffs <- dhwout %>%
   group_by(year) %>%
   mutate(diff = maxdhw[add==0] - maxdhw) %>%
-  filter(maxdhw > 0)
+  filter(maxdhw > 0, max(maxdhw) > 1)
 
 # Plot reduction in DHW for each year afforded by X°C increase in bleaching threshold
 (diffs_vs_add <- ggplot(diffs, aes(x = add, y = diff, group = year, color = factor(year))) + 
@@ -69,23 +71,20 @@ coefs <- tibble(
   dhw.per.degC = summary(mod)$coefficients[1],
   dhw.per.degC.se = summary(mod)$coefficients[2]
 )
+## Save slope and standard error for analysis in analysis_main
 write_csv(coefs, "data/processed/dhw.per.degC.csv")
 
 # Plot fitted model over simulated data
 anno <- paste0("y = ", round(coefs[1], 2), " x")
 (figs3 <- diffs_vs_add + 
-    geom_abline(aes(slope = slope, intercept = 0),
+    geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
                            alpha = 0.5, linewidth = 1.5) +
     scale_color_discrete(name = "") +
     annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
     theme(legend.text = element_text(size = 8),
-          legend.key.size = unit(5, "mm")))
+          legend.key.size = unit(5, "mm")) +
+    coord_cartesian(xlim = c(0, 1.5), ylim = c(0, 11), expand = FALSE))
 
 ggsave(filename = "figures/FigS3.png", plot = figs3, width = 140, height = 90, units = "mm")
-
-
-slope
-# 6.229798 DHWs reduced for every °C increase in bleaching threshold
-# 1/6.229798 = 0.1605189°C for every DHW reduced
 ```
 
