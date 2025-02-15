@@ -24,6 +24,8 @@ df <- df %>%
 
 # Subset just 2014 surveys
 df14 <- filter(df, year(Date) == "2014")
+# How many corals observed?
+nrow(df14)
 
 # Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
 df14[df14$Subregion == "Deerfield" & df14$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
@@ -116,6 +118,8 @@ df <- df %>%
 
 # Subset just 2015 surveys
 df15 <- filter(df, year(Date) == "2015")
+# How many corals observed?
+nrow(df15)
 
 # Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
 df15[df15$Subregion == "Deerfield" & df15$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
@@ -202,6 +206,8 @@ t3t4 <- readxl::read_xlsx("data/drm/Updated_2023AfterQAQC_RawCoralDataTransects3
 
 # Combine
 df <- bind_rows(t1t2, t3t4)
+# How many corals observed?
+nrow(df)
 
 # Recode and rename things
 df <- df %>%
