@@ -465,21 +465,78 @@ ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
 ```
 
 
-CAN WE GET BOOTSTRAPPED INTERVALS FOR SPECIES ED50S AND ED90-ED10S? ADD THESE TO FIGURE 3? AND USE AS WEIGHTS IN THE NGEN ANALYSIS, FIGS3?
-```{r TRYBOOT}
+### Within-species variation (ED90-ED10)
+```{r within_spp_bleaching_variability}
+# Get ED50s and SE
 ed50s <- ED(m3, 0.5, type = "absolute", interval = "delta", display = FALSE) %>%
-  as_tibble()
+  as_tibble() %>%
+  mutate(Species = levels(df23f$Species))
 
-ED(m3, c(0.1, 0.9), type = "absolute", interval = "delta")
+# Get ED90s - ED10 differences and SE
+ed_vals <- ED(m3, c(0.1, 0.9), type = "absolute", display = FALSE) %>%
+  as_tibble() %>%
+  mutate(Species = rep(levels(df23f$Species), each = 2),
+         Level = rep(c("ED10", "ED90"), times = length(levels(df23f$Species)))) %>%
+  rename(SE = `Std. Error`) %>%
+  pivot_wider(names_from = Level, values_from = c(Estimate, SE)) %>%
+  mutate(
+    # Cap ED10 at 23 DHW
+    Estimate_ED10 = pmin(Estimate_ED10, 23),  
+    SE_ED10 = ifelse(Estimate_ED10 == 23, 0, SE_ED10),  # Set SE to 0 if truncated
+    Diff = Estimate_ED10 - Estimate_ED90,  # Compute difference
+    SE_Diff = sqrt(SE_ED10^2 + SE_ED90^2)  # Delta Method SE
+  )
 
-compParm(m3, strVal = "ED50", operator = "-")
+# Join ED50s and ED90-ED10 diffs
+eds <- full_join(ed50s, ed_vals) %>%
+  left_join(symsumm)
 
-boot::boot(m3)
+# Plot ED90-ED10 diffs vs. ED50 with errorbars
+fig3 <- ggplot(eds, aes(x = Estimate, y = Diff)) + 
+  geom_point(aes(size = ngen^4, alpha = 0.7)) +
+  geom_errorbar(aes(xmin = Estimate - `Std. Error`, xmax = Estimate + `Std. Error`)) +
+  geom_errorbar(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff)) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, lineheight = 0.75) +
+  labs(x = "Median tolerance (DHW ED50)",
+       y = "Range in tolerance (DHW ED90 - ED10)") +
+  theme_classic() +
+  scale_size_continuous(breaks = c(1^4,2^4,3^4,4^4)) +
+  theme(legend.position = "none")
+
+ggsave(filename = "figures/Fig3.png", plot = fig3, width = 90, height = 90, units = "mm")
+
+  
+
+# Test relationship between number of symbiont genera and tolerance range
+# Join with symbiont data
+eds <- full_join(eds, symsumm)
+# Model tolerance range with number of symbiont genera as predictor, weighted by SE_Diff
+mod <- lm(Diff ~ ngen, data = eds, weights = 1/SE_Diff^2)
+anova(mod)
+
+# Plot
+set.seed(125)
+figS3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
+  #geom_abline(slope = coef(mod)[2], intercept = coef(mod)[1]) +
+  geom_line(data = data.frame(x = c(1, 4), 
+                              y = c(coef(mod)[1] + coef(mod)[2] * 1, 
+                                    coef(mod)[1] + coef(mod)[2] * 4)),
+            aes(x = x, y = y), color = "black", alpha = 0.3, linewidth = 1) +
+  geom_pointrange(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff), 
+                    position=position_jitter(width=0.15)) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 4, lineheight = 0.75) +
+  labs(x = "Number of Symbiodiniaceae genera", 
+       y = "Intraspecific bleaching variability (ED90-ED10)") +
+  theme_classic()
+
+ggsave(filename = "figures/FigS3.png", plot = figS3, width = 140, height = 120, units = "mm")
 ```
 
 
 ### Within-species variation (ED90-ED10)
-```{r within_spp_bleaching_variability, fig.width = 8, fig.height = 5}
+```{r within_spp_bleaching_variability_old, fig.width = 8, fig.height = 5}
 # Tolerance range within species - from 10% to 90% of colonies bleached, by Species
 span1090 <- drc.res %>%
   group_by(Species) %>%
