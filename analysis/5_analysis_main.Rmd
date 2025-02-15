@@ -401,7 +401,7 @@ ggsave(filename = "figures/FigS2.png", plot = dhwmap, width = 90, height = 90, u
 # Get subsetted dataset of coral species observed >80 times
 df23.abund <- df23 %>%
   group_by(Species) %>%
-  filter(n() > 80)
+  filter(n() > 80)  # 80
 df23f <- df23.abund %>%
   group_by(Site, Subregion, Week2, Species, dhw) %>%
   summarize(BL = sum(Bleaching2 > 1),
@@ -427,13 +427,15 @@ AIC(m3)
 nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 0.1))
 pred <- predict(m3, newdata = nd)
 drc.res <- as_tibble(bind_cols(nd, prob = pred))
-drc.ord <- ED(m3, 0.5, type = "absolute", display = FALSE) %>%
+
+# Get ED50s and SE
+ed50s <- ED(m3, 0.5, type = "absolute", interval = "delta", display = FALSE) %>%
   as_tibble() %>%
   mutate(Species = levels(df23f$Species),
          Species = fct_reorder(Species, Estimate))
 
 # Stats on ED50s
-# compParm(m3, "ED50", operator = "-")
+#compParm(m3, "ED50", operator = "-")
 
 # Extract slopes? coef 'hill'
 # coef(m3)
@@ -447,21 +449,29 @@ drc.ord <- ED(m3, 0.5, type = "absolute", display = FALSE) %>%
 
 # Ridgeline plot
 drc.res.ridges <- drc.res %>%
-  mutate(Species = factor(Species, levels = levels(drc.ord$Species))) %>%
+  mutate(Species = factor(Species, levels = levels(ed50s$Species))) %>%
   ggplot(aes(x = dhw, y = Species)) +
   ggridges::geom_ridgeline_gradient(aes(height = (1 - prob), fill = prob)) +
-  scale_y_discrete(labels = species_names[as.character(drc.ord$Species)]) +
+  scale_y_discrete(labels = species_names[as.character(ed50s$Species)]) +
   scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
                        limits = c(0, 1), midpoint = 0.5) +
-  geom_point(data = drc.ord, aes(x = Estimate), pch = 5, size = 0.5) +
+  geom_point(data = ed50s, aes(x = Estimate), pch = 5, size = 0.75, stroke = 0.25) +
+  geom_segment(data = ed50s, aes(y = Species, yend = Species, x = Lower, xend = Upper),
+               linewidth = 0.2) +
   theme_classic() +
   theme(legend.position = "none",
-        axis.text.y = element_text(face = "italic")) +
-  labs(x = "Degree Heating Weeks", y = "")
+        axis.text.y = element_text(face = "italic", vjust = 0)) +
+  labs(x = "Degree Heating Weeks", y = "") +
+  scale_x_continuous(expand = c(0, 0)) +
+  coord_cartesian(xlim = c(0, 23))
+drc.res.ridges
 
 # Save as Figure2
 ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
        width = 100, height = 120, units = "mm")
+
+drc.res %>%
+  filter(Species == "ACER", dhw > 13)
 ```
 
 
@@ -471,6 +481,7 @@ ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
 ed50s <- ED(m3, 0.5, type = "absolute", interval = "delta", display = FALSE) %>%
   as_tibble() %>%
   mutate(Species = levels(df23f$Species))
+
 
 # Get ED90s - ED10 differences and SE
 ed_vals <- ED(m3, c(0.1, 0.9), type = "absolute", display = FALSE) %>%
@@ -492,7 +503,7 @@ eds <- full_join(ed50s, ed_vals) %>%
   left_join(symsumm)
 
 # Plot ED90-ED10 diffs vs. ED50 with errorbars
-fig3 <- ggplot(eds, aes(x = Estimate, y = Diff)) + 
+oldfig3 <- ggplot(eds, aes(x = Estimate, y = Diff)) + 
   geom_point(aes(size = ngen^4, alpha = 0.7)) +
   geom_errorbar(aes(xmin = Estimate - `Std. Error`, xmax = Estimate + `Std. Error`)) +
   geom_errorbar(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff)) +
@@ -504,7 +515,7 @@ fig3 <- ggplot(eds, aes(x = Estimate, y = Diff)) +
   scale_size_continuous(breaks = c(1^4,2^4,3^4,4^4)) +
   theme(legend.position = "none")
 
-ggsave(filename = "figures/Fig3.png", plot = fig3, width = 90, height = 90, units = "mm")
+#ggsave(filename = "figures/Fig3.png", plot = fig3, width = 90, height = 90, units = "mm")
 
   
 
@@ -513,84 +524,35 @@ ggsave(filename = "figures/Fig3.png", plot = fig3, width = 90, height = 90, unit
 eds <- full_join(eds, symsumm)
 # Model tolerance range with number of symbiont genera as predictor, weighted by SE_Diff
 mod <- lm(Diff ~ ngen, data = eds, weights = 1/SE_Diff^2)
+#mod2 <- quantreg::rq(Diff ~ ngen, data = eds, weights = 1/SE_Diff^2)
 anova(mod)
 
+# Get stats to annotate plot
+r_val <- sqrt(summary(mod)$r.squared)
+p_val <- summary(mod)$coefficients[2, 4]
+anno <- substitute(italic("R") == r * ";" ~ italic("p") == p, 
+                   list(r = signif(r_val, 2), p = signif(p_val, 2)))
+
 # Plot
-set.seed(125)
+pos <- position_jitter(width = 0.15, seed = 6) # Make jitter position for plotting
 figS3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
-  #geom_abline(slope = coef(mod)[2], intercept = coef(mod)[1]) +
   geom_line(data = data.frame(x = c(1, 4), 
                               y = c(coef(mod)[1] + coef(mod)[2] * 1, 
                                     coef(mod)[1] + coef(mod)[2] * 4)),
-            aes(x = x, y = y), color = "black", alpha = 0.3, linewidth = 1) +
+            aes(x = x, y = y), color = "black", alpha = 0.3, linewidth = 2) +
   geom_pointrange(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff), 
-                    position=position_jitter(width=0.15)) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 4, lineheight = 0.75) +
+                  position = pos, alpha = 0.7, stroke = 0, size = 0.75, linewidth = 0.25) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]), position = pos,
+                           fontface = "italic", size = 3, segment.size = 0.25,
+                           min.segment.length = 0.3) +
+  annotate("text", x = -Inf, y = Inf, label = anno, hjust = -0.1, vjust = 1, size = 2.5) +
+  #ggpubr::stat_cor() +
   labs(x = "Number of Symbiodiniaceae genera", 
        y = "Intraspecific bleaching variability (ED90-ED10)") +
   theme_classic()
+figS3
 
-ggsave(filename = "figures/FigS3.png", plot = figS3, width = 140, height = 120, units = "mm")
-```
-
-
-### Within-species variation (ED90-ED10)
-```{r within_spp_bleaching_variability_old, fig.width = 8, fig.height = 5}
-# Tolerance range within species - from 10% to 90% of colonies bleached, by Species
-span1090 <- drc.res %>%
-  group_by(Species) %>%
-  slice(which.min(abs(prob - 0.9)),
-        which.min(abs(prob - 0.1))) %>%
-  summarize(min = min(dhw), max = max(dhw)) %>%
-  mutate(span = max - min) %>%
-  arrange(-span)
-
-# # Calculate percent of colonies of each species bleached at 23 DHW
-# pbleach <- drc.res %>%
-#   filter(dhw == 23) %>%
-#   mutate(pbleach = 1 - prob)
-
-# Join within-species variation with symbiont metadata
-out <- drc.ord %>%
-  left_join(span1090) %>%
-  left_join(symsumm)
-
-# Plot species' range vs. ed50, size points by number of symbiont genera
-set.seed(12344)
-plot1090 <- ggplot(out, aes(x = Estimate, y = span)) +
-  geom_point(aes(size = ngen^4), alpha = 0.7) + #, color = most_dom_sym)) +
-  #geom_point(aes(color = factor(n_symbiont_genera))) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, lineheight = 0.75) +
-  labs(x = "Median tolerance (DHW ED50)",
-       y = "Range in tolerance (DHW ED90 - ED10)") +
-  theme_classic() +
-  scale_size_continuous(breaks = c(1^4,2^4,3^4,4^4)) +
-  theme(legend.position = "none")
-
-ggsave(filename = "figures/Fig3.png", plot = plot1090, width = 90, height = 90, units = "mm")
-
-
-
-
-# Test relationship between number of symbiont genera and tolerance range
-mod <- lm(span ~ ngen, data = out)
-anova(mod)
-p_value <- summary(mod)$coefficients[2, 4]
-
-set.seed(1231)
-ngen <- ggplot(out, aes(x = ngen, y = span)) +
-  geom_point() +
-  stat_smooth(geom = "line", method = "lm", se = FALSE, alpha = 0.3, linewidth = 1) +
-  stat_smooth(geom = "line", method = "glm", se = FALSE) +
-  ggpubr::stat_cor() +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 4, lineheight = 0.75) +
-  labs(x = "Number of Symbiodiniaceae genera", y = "Intraspecific bleaching variability (ED90-ED10)") +
-  theme_classic()
-
-ggsave(filename = "figures/FigS3.png", plot = ngen, width = 140, height = 120, units = "mm")
+ggsave(filename = "figures/Fig3.png", plot = figS3, width = 90, height = 90, units = "mm")
 ```
 
 
@@ -736,34 +698,26 @@ ggsave(filename = "figures/Fig4.png", plot = dhw.bleach.plot, width = 100, heigh
 
 ## All corals - ∆ED50, ∆°C
 ```{r change_degC_thresh}
-# Specify degC per DHW
-degC.per.DHW <- 0.1273714
+# Load dhw.per.degC
+dhw.per.degC <- read_csv("data/processed/dhw.per.degC.csv")
+dhw.per.degC.se <- dhw.per.degC$dhw.per.degC.se
+dhw.per.degC <- dhw.per.degC$dhw.per.degC
 
-# Back-calculate change in ed50s (DHW) to change in tolerance (°C) 
+# Convert change in ed50s (DHW) to change in tolerance (°C) 
+## Propagate errors (quadrature methhod for relative error propagation)
 degC <- ed50conf %>%
   filter(year %in% c("2023-2014", "2015-2014")) %>%
-  mutate(ed50.degC = ed50 * degC.per.DHW,
-         se.degC = se * degC.per.DHW,
-         lower.degC = lower * degC.per.DHW,
-         upper.degC = upper * degC.per.DHW) %>%
+  mutate(degC = ed50 / dhw.per.degC,
+         degC.se = sqrt((se/ed50)^2 + (dhw.per.degC.se/dhw.per.degC)^2) * degC,
+         degC.lower = degC - (1.96 * degC.se),
+         degC.upper = degC + (1.96 * degC.se)) %>%
   separate(year, into = c("year", "2014"))
 
-# Plot overall change in heat tolerance relative to 2014 in degC
-degC %>%
-  select(year, ed50.degC, se.degC, lower.degC, upper.degC) %>%
-  ggplot(aes(x = year, y = ed50.degC)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0.2) +
-  ylim(0, 1.2) +
-  labs(y = "Change in heat tolerance from 2014 (°C)") +
-  theme_classic()
-
-# Change over time from 2014-2023 in degC
-ed50conf %>%
-  filter(year == "2023-2014") %>%
-  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC"))
-
-# 0.97°C [95% C.I. = 0.777-1.06°C]
+# Get change in heat tolerance from 2014-2013 in degC with 95% C.I.
+degC %>% 
+  filter(year == 2023) %>%
+  select(degC, degC.lower, degC.upper)
+# 1.22°C [95% C.I. = 0.947-1.49°C]
 ```
 
 ## Species - ∆ED50 2014-15-23
@@ -875,12 +829,28 @@ sp.ed50conf <- tibble(
 
 ### ∆ED50 --> ∆°C
 ```{r sp.changeED50, fig.width = 7, fig.height = 8}
-degC.per.DHW <- 0.1273714
-# Convert ∆ED50s to degC
+# Convert ∆ED50s to degC with error propagation
 sp.degC <- sp.ed50conf %>%
-  filter(year %in% c("2015-2014", "2023-2014")) %>%
-  mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC")) %>%
-  separate(year, into = c("year", "2014"))
+  filter(year == "2023-2014") %>%
+  mutate(degC = ed50 / dhw.per.degC,
+         # pmax(ed50, 0.1) uses 0.1 as a constant for cases (PFUR/PDIV) with ed50 = 0 (can't div. by 0), which serves to propagate the absolute error
+         degC.se = sqrt((se/pmax(ed50, 0.1))^2 + (dhw.per.degC.se/dhw.per.degC)^2) * pmax(degC, 0.1),
+         degC.lower = degC - (1.96 * degC.se),
+         degC.upper = degC + (1.96 * degC.se)) %>%
+  separate(year, into = c("year", "2014")) %>%
+  mutate(Species = fct_reorder(Species, degC))
+
+ggplot(sp.degC, aes(x = Species, y = degC)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = degC.lower, ymax = degC.upper))
+
+
+# old way
+# 
+# sp.degC <- sp.ed50conf %>%
+#   filter(year %in% c("2015-2014", "2023-2014")) %>%
+#   mutate(across(c("ed50", "se", "lower", "upper"), ~ . * degC.per.DHW, .names = "{.col}.degC")) %>%
+#   separate(year, into = c("year", "2014"))
 
 # # Plot ED50 vs. year for all Species
 # sp.ed50conf %>%
@@ -905,7 +875,7 @@ nets <- sp.ed50conf %>%
 findat <- nets %>%
   mutate(Species = fct_reorder(Species, degC)) 
 
-(finplot <- findat %>%
+(finplot <- sp.degC %>%
   ggplot(aes(x = Species, y = degC)) +
   geom_point() +
   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
