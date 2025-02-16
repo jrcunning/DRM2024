@@ -516,16 +516,16 @@ anno <- substitute(italic("R") == r * ";" ~ italic("p") == p,
                    list(r = signif(r_val, 2), p = signif(p_val, 2)))
 
 # Plot
-pos <- position_jitter(width = 0.15, seed = 6) # Make jitter position for plotting
+pos <- position_jitter(width = 0.15, seed = 21) # Make jitter position for plotting
 fig3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
   geom_line(data = data.frame(x = c(1, 4), 
                               y = c(coef(mod)[1] + coef(mod)[2] * 1, 
                                     coef(mod)[1] + coef(mod)[2] * 4)),
             aes(x = x, y = y), color = "black", alpha = 0.3, linewidth = 2) +
   geom_pointrange(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff), 
-                  position = pos, alpha = 0.7, stroke = 0, size = 0.75, linewidth = 0.25) +
+                  position = pos, alpha = 0.6, stroke = 0, size = 0.75, linewidth = 0.25) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]), position = pos,
-                           fontface = "italic", size = 3, segment.size = 0.25, seed = 8,
+                           fontface = "italic", size = 2.5, segment.size = 0.25, seed = 8,
                            min.segment.length = 0.3) +
   annotate("text", x = -Inf, y = Inf, label = anno, hjust = -0.1, vjust = 1, size = 2.5) +
   #ggpubr::stat_cor() +
