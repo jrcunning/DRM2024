@@ -458,20 +458,38 @@ drc.res.ridges <- drc.res %>%
   geom_point(data = ed50s, aes(x = Estimate), pch = 5, size = 0.75, stroke = 0.25) +
   geom_segment(data = ed50s, aes(y = Species, yend = Species, x = Lower, xend = Upper),
                linewidth = 0.2) +
+  scale_x_continuous(expand = c(0, 0)) +
+  coord_cartesian(xlim = c(0, 23)) +
   theme_classic() +
   theme(legend.position = "none",
-        axis.text.y = element_text(face = "italic", vjust = 0)) +
-  labs(x = "Degree Heating Weeks", y = "") +
-  scale_x_continuous(expand = c(0, 0)) +
-  coord_cartesian(xlim = c(0, 23))
+        axis.text.y = element_text(face = "italic", vjust = 0),
+        plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = -10)) +
+  labs(x = "DHW (°C-weeks)", y = "")
+  
 drc.res.ridges
 
 # Save as Figure2
 ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
-       width = 100, height = 120, units = "mm")
+       width = 90, height = 120, units = "mm")
 
+# Ancillary results reported in text
+## DHW at which 99% of ACER were bleached
 drc.res %>%
-  filter(Species == "ACER", dhw > 13)
+  filter(Species == "ACER", signif(prob, 1) <= 0.01) %>%
+  summarize(dhw = min(signif(dhw, 2)))
+drc.res %>%
+  filter(Species == "ACER", prob > 0.975) %>%
+  filter(dhw == max(dhw))
+drc.res %>%
+  filter(Species == "ACER", prob < 0.025) %>%
+  filter(dhw == min(dhw))
+
+# DLAB ED50
+ed50s %>%
+  filter(Species == "DLAB")
+
+ed50s %>%
+  filter(Estimate <= 8)
 ```
 
 
@@ -501,26 +519,33 @@ ed_vals <- ED(m3, c(0.1, 0.9), type = "absolute", display = FALSE) %>%
 # Join ED50s and ED90-ED10 diffs
 eds <- full_join(ed50s, ed_vals)
 
+# Ancillary result: OFAV ED50 vs ED10
+eds %>%
+  filter(Species == "OFAV")
+eds %>%
+  arrange(-Diff)
+
 # Test relationship between number of symbiont genera and tolerance range
 # Join with symbiont data
 eds <- full_join(eds, symsumm)
 # Model tolerance range with number of symbiont genera as predictor, weighted by SE_Diff
-mod <- lm(Diff ~ ngen, data = eds, weights = 1/SE_Diff^2)
+mod3 <- lm(Diff ~ ngen, data = eds, weights = 1/SE_Diff^2)
 #mod2 <- quantreg::rq(Diff ~ ngen, data = eds, weights = 1/SE_Diff^2)
-anova(mod)
+anova(mod3)
 
 # Get stats to annotate plot
-r_val <- sqrt(summary(mod)$r.squared)
-p_val <- summary(mod)$coefficients[2, 4]
+r_val <- sqrt(summary(mod3)$r.squared)
+p_val <- summary(mod3)$coefficients[2, 4]
 anno <- substitute(italic("R") == r * ";" ~ italic("p") == p, 
                    list(r = signif(r_val, 2), p = signif(p_val, 2)))
 
 # Plot
 pos <- position_jitter(width = 0.15, seed = 21) # Make jitter position for plotting
+eds <- eds %>% mutate(D = grepl("D", domsyms), A = grepl("A", domsyms))
 fig3 <- ggplot(eds, aes(x = ngen, y = Diff)) +
   geom_line(data = data.frame(x = c(1, 4), 
-                              y = c(coef(mod)[1] + coef(mod)[2] * 1, 
-                                    coef(mod)[1] + coef(mod)[2] * 4)),
+                              y = c(coef(mod3)[1] + coef(mod3)[2] * 1, 
+                                    coef(mod3)[1] + coef(mod3)[2] * 4)),
             aes(x = x, y = y), color = "black", alpha = 0.3, linewidth = 2) +
   geom_pointrange(aes(ymin = Diff - SE_Diff, ymax = Diff + SE_Diff), 
                   position = pos, alpha = 0.6, stroke = 0, size = 0.75, linewidth = 0.25) +
@@ -639,7 +664,7 @@ dhw.res2 <- subset(dhw.res,
 )
 
 # Plot
-(dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
+dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
   geom_line(aes(color = prob), lwd = 2) +
@@ -652,8 +677,6 @@ dhw.res2 <- subset(dhw.res,
   # Annotate increase in heat tolerance
   annotate("segment", x = 3.9, xend = 11.5, y = 0.05, lwd = 0.2, 
            arrow = arrow(type = "closed", length = unit(3, "mm"))) +
-  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, 
-           label = "Bleaching threshold\n+7.6 DHW = +0.99°C") +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1), 
                      labels = scales::label_percent()) +
@@ -662,10 +685,8 @@ dhw.res2 <- subset(dhw.res,
   theme_classic() +
   theme(legend.position = "none") +
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
-  coord_cartesian(clip = "off"))
+  coord_cartesian(clip = "off")
 
-# Save plot
-ggsave(filename = "figures/Fig4.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
 ```
 
 
@@ -687,11 +708,19 @@ degC <- ed50conf %>%
   separate(year, into = c("year", "2014"))
 
 # Get change in heat tolerance from 2014-2013 in degC with 95% C.I.
-degC %>% 
+finaldegC <- degC %>% 
   filter(year == 2023) %>%
-  select(degC, degC.lower, degC.upper) %>%
-  pull(degC)
+  select(degC, degC.lower, degC.upper)
 # 0.99°C [95% C.I. = 0.804-1.17°C]
+
+# Annotate and save bleaching response curves plot // Fig4
+(dhw.bleach.plot <- dhw.bleach.plot +
+  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, 
+           label = paste0("Bleaching threshold\n+", signif(ed50conf$ed50[[5]], 2),
+                          " DHW = +", signif(finaldegC$degC, 2), "°C")))
+
+ggsave(filename = "figures/Fig4.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
+
 ```
 
 ## Species - ∆ED50 2014-15-23
@@ -905,7 +934,7 @@ predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = 0
 
 # Check model summary
 (summary_ols <- summary(ols_model_adjusted))
-# Plot residuals vs. fitted
+# Partition variance
 
 # Extract model coefficients
 ols_slope_estimate <- coef(ols_model_adjusted)["estimate"]
