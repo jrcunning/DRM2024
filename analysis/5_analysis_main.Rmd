@@ -147,9 +147,7 @@ all0 %>% count(year)
 ## Symbiont metadata for Florida corals
 ```{r import_sym_data}
 # Import symbiont metadata
-library(gsheet)
-sheet_url <- "https://docs.google.com/spreadsheets/d/1r1MyUA4Vk50SMjkuRM4XfLcv2-Ve1afp/edit?usp=sharing&ouid=100793581009007740691&rtpof=true&sd=true"
-sym0 <- gsheet2tbl(sheet_url)
+sym0 <- read_csv("data/FL_coral_symbiont_genera.csv")
 
 # Summarize symbiont data (get all genera detected in each spp in Florida)
 symsumm <- sym0 %>% 
@@ -172,8 +170,9 @@ symsumm.ag <- sym0  %>%
   drop_na(Species) %>% 
   group_by(Species) %>%
   summarize(domsyms = paste0(unique(dominant_genus), collapse = "")) %>%
+  # No data available for AGAR (Agaricia spp. other other AAGA), so assuming these also have C and D (same as AAGA)
+  add_row(Species = "AGAR", domsyms = "CD") %>%
   mutate(ngen = nchar(domsyms)) %>%
-  print(n = nrow(.)) %>%
   mutate(D = grepl("D", domsyms)) 
 ```
 
