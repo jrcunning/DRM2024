@@ -710,7 +710,7 @@ degC <- ed50conf %>%
 finaldegC <- degC %>% 
   filter(year == 2023) %>%
   select(degC, degC.lower, degC.upper)
-# 0.99°C [95% C.I. = 0.804-1.17°C]
+# 0.96°C [95% C.I. = 0.78-1.14°C]
 
 # Annotate and save bleaching response curves plot // Fig4
 (dhw.bleach.plot <- dhw.bleach.plot +
