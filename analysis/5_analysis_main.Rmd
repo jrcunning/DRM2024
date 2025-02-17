@@ -632,7 +632,7 @@ bleach50
 # Bootstrap the calculation of ED50
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 200, seed = 123, re.form = NULL,
+# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun, nsim = 1000, seed = 123, re.form = NULL,
 #                     parallel = "multicore", ncpus = 20)
 # saveRDS(boot.out, file = "data/processed/boot.out.rds")
 boot.out <- readRDS(file = "data/processed/boot.out.rds")
@@ -710,7 +710,7 @@ degC <- ed50conf %>%
 finaldegC <- degC %>% 
   filter(year == 2023) %>%
   select(degC, degC.lower, degC.upper)
-# 0.96°C [95% C.I. = 0.78-1.14°C]
+# 0.96°C [95% C.I. = 0.79-1.13°C]
 
 # Annotate and save bleaching response curves plot // Fig4
 (dhw.bleach.plot <- dhw.bleach.plot +
