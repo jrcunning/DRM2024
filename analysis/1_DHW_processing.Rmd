@@ -53,109 +53,51 @@ nc.data <- tibble(file = nc.files) %>%
        coords = list(drmsites),
           dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
 
-out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
-  mutate(date = as_date(date, format = "%Y%m%d"))
 
-# Check that all sites got DHW values
-dhws <- out %>%
-  group_by(Site) %>%
-  dplyr::summarize(avgdhw = mean(dhw))
-nodhw <- dhws %>% filter(is.na(avgdhw))
-nodhw
-## 27 sites did not get DHW -- outside of 5km pixels (too close to land)
+###### GET NEAREST PIXEL INSTEAD OF NEAREST SITE
+buf_m <- 6000  # 
 
-# Assign missing dhws value of closest site that has a dhw value
-library(FastKNN)
+extract_dhw <- function(r, df_xy, buf = buf_m) {
+  sp <- SpatialPoints(df_xy[, c("Longitude","Latitude")], proj4string = crs(r))
 
-# matrix of neighbours
-n <- nrow(drmsites)
-k <- 15 # Number of nearest neighbors to find
-dm <- dist(drmsites[,3:4])
-nn <- matrix(0,n,k) # n x k nearest neighbors matrix
-for (i in 1:n) {
-   nn[i,] = k.nearest.neighbors(i, as.matrix(dm), k = k)
+  v_simple <- raster::extract(r, sp, method = "simple")
+
+  # buffered mean ignoring NA; will still be NA if *all* nearby cells are NA
+  v_buf <- raster::extract(r, sp, buffer = buf, fun = mean, na.rm = TRUE)
+
+  # use simple unless it's NA, then buffered
+  ifelse(is.na(v_simple), v_buf, v_simple)
 }
-nn[] <- as.character(drmsites$Site)[c(nn)]
 
-# Get names of all sites and their nearest neighbors
-neighbors <- as_tibble(cbind(Site = as.character(drmsites$Site), nn))
-# Get dhws of all sites and dhws of their nearest neighbors
-neighborsdhw <- neighbors %>%
-  pivot_longer(-1, names_to = "nno", values_to = "nname") %>%
-  mutate(nno = parse_number(nno) - 1) %>%
-  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$Site)])
+nc.data <- nc.data %>%
+  mutate(
+    dhw = map(r, ~extract_dhw(.x, drmsites, buf = buf_m))
+  )
 
-finddhw <- neighborsdhw %>%
-  filter(Site %in% nodhw$Site)
-
-dhwmatch <- finddhw %>% 
-  group_by(Site) %>%
-  filter(!is.na(navgdhw)) %>%
-  dplyr::summarize(closest_n_with_dhw = nname[nno == min(nno)]) %>%
-  right_join(nodhw) %>%
-  dplyr::select(1, 2) %>%
-  print(n = nrow(.))
-  
-# Output matches
-matches <- left_join(dhwmatch, drmsites)
-range(matches$Longitude)
-range(matches$Latitude)
-matches2 <- left_join(dplyr::select(matches, Site = closest_n_with_dhw), drmsites) %>%
-  distinct(Site, Longitude, Latitude)
-
-# Plot matches
-library(ggrepel)
-ggplot(matches, aes(x = Longitude, y = Latitude)) +
-  geom_point() +
-  geom_point(data = matches2, color = "green") +
-  geom_label_repel(data = matches2, aes(label = Site), color = "green", max.overlaps = 100, force = 80) +
-  geom_label_repel(aes(label = Site), max.overlaps = 100, force = 80) +
-  xlim(-80.125, -80) +
-  ylim(26, 26.75)
-
-# Replace missing dhws with values from matching sites
-matches
-fixing <- out %>%
-  nest(data = c(date, dhw)) 
-
-fixed <- fixing
-### dhw data for sites where missing gets replaced with dhw data for the site of its closest neighbor site with dhw data
-fixed[match(matches$Site, fixing$Site), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$Site), "data"]
-
-### test if it worked (dhw was missing for site Y1048, should have been replaced with dhw data from Y1046)
-fixing %>% filter(Site == "Y1048") %>% pull(data)
-fixed %>% filter(Site == "Y1048") %>% pull(data)
-
-identical(fixed$data[fixed$Site == "Y1048"], fixed$data[fixed$Site == "Y1046"])
-y1 <- fixed$data[fixed$Site == "Y1048"][[1]]
-y2 <- fixed$data[fixed$Site == "Y1046"][[1]]
-cbind(y1, y2)
-
-### test if it worked (dhw was missing for site Y1343, should have been replaced with dhw data from Y1346)
-fixing %>% filter(Site == "Y1343") %>% pull(data)
-fixed %>% filter(Site == "Y1343") %>% pull(data)
-
-identical(fixed$data[fixed$Site == "Y1343"], fixed$data[fixed$Site == "Y1346"])
-y1 <- fixed$data[fixed$Site == "Y1048"][[1]]
-y2 <- fixed$data[fixed$Site == "Y1046"][[1]]
-cbind(y1, y2)
-
-
-# Unnest fixed output
-outfixed <- fixed %>% unnest()
-outfixed %>% filter(is.na(dhw))
+out2 <- nc.data %>%
+  mutate(
+    date = as.Date(date, "%Y%m%d"),
+    site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+    # sanity check: dhw vector length should equal nrow(drmsites)
+    n_dhw = map_int(dhw, length),
+    n_site = map_int(site, nrow)
+  ) %>%
+  # optional: stop early if something doesn't match
+  filter(n_dhw == n_site) %>%
+  dplyr::select(date, site, dhw) %>%
+  unnest(cols = c(site, dhw))
 ```
 
 ```{r}
 # Plot DHWs for all sites
-ggplot(outfixed, aes(x = date, y = dhw, color = Subregion, group = Site)) +
+ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
   geom_line() +
   scale_x_date(date_breaks = "month", date_labels = "%b")
 ```
 
 ```{r}
 # Write DHW data to file
-write_csv(outfixed, file = "data/processed/2023_dhw_processed.csv")
+write_csv(out2, file = "data/processed/2023_dhw_processed.csv")
 ```
 
 # 2015
@@ -192,101 +134,50 @@ nc.data <- tibble(file = nc.files) %>%
        coords = list(drmsites),
           dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
 
-out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
-  mutate(date = as_date(date, format = "%Y%m%d"))
+###### GET NEAREST PIXEL INSTEAD OF NEAREST SITE
+buf_m <- 6000  # 
 
-# Check that all sites got DHW values
-dhws <- out %>%
-  group_by(Site) %>%
-  dplyr::summarize(avgdhw = mean(dhw))
-nodhw <- dhws %>% filter(is.na(avgdhw))
-nodhw
-## 25 sites did not get DHW -- outside of 5km pixels (too close to land)
+extract_dhw <- function(r, df_xy, buf = buf_m) {
+  sp <- SpatialPoints(df_xy[, c("Longitude","Latitude")], proj4string = crs(r))
 
-# Assign missing dhws value of closest site that has a dhw value
-library(FastKNN)
+  v_simple <- raster::extract(r, sp, method = "simple")
 
-# matrix of neighbours
-n <- nrow(drmsites)
-k <- 25 # Number of nearest neighbors to find
-dm <- dist(drmsites[,3:4])
-nn <- matrix(0,n,k) # n x k nearest neighbors matrix
-for (i in 1:n) {
-   nn[i,] = k.nearest.neighbors(i, as.matrix(dm), k = k)
+  # buffered mean ignoring NA; will still be NA if *all* nearby cells are NA
+  v_buf <- raster::extract(r, sp, buffer = buf, fun = mean, na.rm = TRUE)
+
+  # use simple unless it's NA, then buffered
+  ifelse(is.na(v_simple), v_buf, v_simple)
 }
-nn[] <- as.character(drmsites$Site)[c(nn)]
 
-# Get names of all sites and their nearest neighbors
-neighbors <- as_tibble(cbind(Site = as.character(drmsites$Site), nn))
-# Get dhws of all sites and dhws of their nearest neighbors
-neighborsdhw <- neighbors %>%
-  pivot_longer(-1, names_to = "nno", values_to = "nname") %>%
-  mutate(nno = parse_number(nno) - 1) %>%
-  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$Site)])
+nc.data <- nc.data %>%
+  mutate(
+    dhw = map(r, ~extract_dhw(.x, drmsites, buf = buf_m))
+  )
 
-finddhw <- neighborsdhw %>%
-  filter(Site %in% nodhw$Site)
-
-dhwmatch <- finddhw %>% 
-  group_by(Site) %>%
-  filter(!is.na(navgdhw)) %>%
-  dplyr::summarize(closest_n_with_dhw = nname[nno == min(nno)]) %>%
-  right_join(nodhw) %>%
-  dplyr::select(1, 2) %>%
-  print(n = nrow(.))
-  
-# Output matches
-matches <- left_join(dhwmatch, drmsites)
-range(matches$Longitude)
-range(matches$Latitude)
-matches2 <- left_join(dplyr::select(matches, Site = closest_n_with_dhw), drmsites) %>%
-  distinct(Site, Longitude, Latitude)
-
-# Plot matches
-library(ggrepel)
-ggplot(matches, aes(x = Longitude, y = Latitude)) +
-  geom_point() +
-  geom_point(data = matches2, color = "green") +
-  geom_label_repel(data = matches2, aes(label = Site), color = "green", max.overlaps = 100, force = 80) +
-  geom_label_repel(aes(label = Site), max.overlaps = 100, force = 80) +
-  xlim(-80.125, -80) +
-  ylim(26, 26.75)
-
-# Replace missing dhws with values from matching sites
-matches
-fixing <- out %>%
-  nest(data = c(date, dhw)) 
-
-fixed <- fixing
-### dhw data for sites where missing gets replaced with dhw data for the site of its closest neighbor site with dhw data
-fixed[match(matches$Site, fixing$Site), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$Site), "data"]
-
-### test if it worked (dhw was missing for site O1020, should have been replaced with dhw data from O2015)
-fixing %>% filter(Site == "O1020") %>% pull(data)
-fixed %>% filter(Site == "O2015") %>% pull(data)
-
-identical(fixed$data[fixed$Site == "O1020"], fixed$data[fixed$Site == "O2015"])
-y1 <- fixed$data[fixed$Site == "O1020"][[1]]
-y2 <- fixed$data[fixed$Site == "O2015"][[1]]
-cbind(y1, y2)
-
-
-
-# Unnest fixed output
-outfixed <- fixed %>% unnest()
-outfixed %>% filter(is.na(dhw))
+out2 <- nc.data %>%
+  mutate(
+    date = as.Date(date, "%Y%m%d"),
+    site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+    # sanity check: dhw vector length should equal nrow(drmsites)
+    n_dhw = map_int(dhw, length),
+    n_site = map_int(site, nrow)
+  ) %>%
+  # optional: stop early if something doesn't match
+  filter(n_dhw == n_site) %>%
+  dplyr::select(date, site, dhw) %>%
+  unnest(cols = c(site, dhw))
 ```
 
 ```{r}
 # Plot DHWs for all sites
-ggplot(outfixed, aes(x = date, y = dhw, color = Subregion, group = Site)) +
+ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
   geom_line() +
   scale_x_date(date_breaks = "month", date_labels = "%b")
 ```
 
 ```{r}
 # Write DHW data to file
-write_csv(outfixed, file = "data/processed/2015_dhw_processed.csv")
+write_csv(out2, file = "data/processed/2015_dhw_processed.csv")
 ```
 
 
@@ -323,93 +214,129 @@ nc.data <- tibble(file = nc.files) %>%
        coords = list(drmsites),
           dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
 
-out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
-  mutate(date = as_date(date, format = "%Y%m%d"))
 
-# Check that all sites got DHW values
-dhws <- out %>%
-  group_by(Site) %>%
-  dplyr::summarize(avgdhw = mean(dhw))
-nodhw <- dhws %>% filter(is.na(avgdhw))
-nodhw
-## 13 sites did not get DHW -- outside of 5km pixels (too close to land)
+###### GET NEAREST PIXEL INSTEAD OF NEAREST SITE
+buf_m <- 6000  # 
 
-# Assign missing dhws value of closest site that has a dhw value
-library(FastKNN)
+extract_dhw <- function(r, df_xy, buf = buf_m) {
+  sp <- SpatialPoints(df_xy[, c("Longitude","Latitude")], proj4string = crs(r))
 
-# matrix of neighbours
-n <- nrow(drmsites)
-k <- 25 # Number of nearest neighbors to find
-dm <- dist(drmsites[,3:4])
-nn <- matrix(0,n,k) # n x k nearest neighbors matrix
-for (i in 1:n) {
-   nn[i,] = k.nearest.neighbors(i, as.matrix(dm), k = k)
+  v_simple <- raster::extract(r, sp, method = "simple")
+
+  # buffered mean ignoring NA; will still be NA if *all* nearby cells are NA
+  v_buf <- raster::extract(r, sp, buffer = buf, fun = mean, na.rm = TRUE)
+
+  # use simple unless it's NA, then buffered
+  ifelse(is.na(v_simple), v_buf, v_simple)
 }
-nn[] <- as.character(drmsites$Site)[c(nn)]
 
-# Get names of all sites and their nearest neighbors
-neighbors <- as_tibble(cbind(Site = as.character(drmsites$Site), nn))
-# Get dhws of all sites and dhws of their nearest neighbors
-neighborsdhw <- neighbors %>%
-  pivot_longer(-1, names_to = "nno", values_to = "nname") %>%
-  mutate(nno = parse_number(nno) - 1) %>%
-  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$Site)])
+nc.data <- nc.data %>%
+  mutate(
+    dhw = map(r, ~extract_dhw(.x, drmsites, buf = buf_m))
+  )
 
-finddhw <- neighborsdhw %>%
-  filter(Site %in% nodhw$Site)
-
-dhwmatch <- finddhw %>% 
-  group_by(Site) %>%
-  filter(!is.na(navgdhw)) %>%
-  dplyr::summarize(closest_n_with_dhw = nname[nno == min(nno)]) %>%
-  right_join(nodhw) %>%
-  dplyr::select(1, 2) %>%
-  print(n = nrow(.))
-  
-# Output matches
-matches <- left_join(dhwmatch, drmsites)
-range(matches$Longitude)
-range(matches$Latitude)
-matches2 <- left_join(dplyr::select(matches, Site = closest_n_with_dhw), drmsites) %>%
-  distinct(Site, Longitude, Latitude)
-
-# Plot matches
-library(ggrepel)
-ggplot(matches, aes(x = Longitude, y = Latitude)) +
-  geom_point() +
-  geom_point(data = matches2, color = "green") +
-  geom_label_repel(data = matches2, aes(label = Site), color = "green", max.overlaps = 100, force = 80) +
-  geom_label_repel(aes(label = Site), max.overlaps = 100, force = 80) +
-  xlim(-80.125, -80) +
-  ylim(26, 26.75)
-
-# Replace missing dhws with values from matching sites
-matches
-fixing <- out %>%
-  nest(data = c(date, dhw)) 
-
-fixed <- fixing
-### dhw data for sites where missing gets replaced with dhw data for the site of its closest neighbor site with dhw data
-fixed[match(matches$Site, fixing$Site), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$Site), "data"]
-
-
-
-
-
-# Unnest fixed output
-outfixed <- fixed %>% unnest()
-outfixed %>% filter(is.na(dhw))
+out2 <- nc.data %>%
+  mutate(
+    date = as.Date(date, "%Y%m%d"),
+    site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+    # sanity check: dhw vector length should equal nrow(drmsites)
+    n_dhw = map_int(dhw, length),
+    n_site = map_int(site, nrow)
+  ) %>%
+  # optional: stop early if something doesn't match
+  filter(n_dhw == n_site) %>%
+  dplyr::select(date, site, dhw) %>%
+  unnest(cols = c(site, dhw))
 ```
 
 ```{r}
 # Plot DHWs for all sites
-ggplot(outfixed, aes(x = date, y = dhw, color = Subregion, group = Site)) +
+ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
   geom_line() +
   scale_x_date(date_breaks = "month", date_labels = "%b")
 ```
 
 ```{r}
 # Write DHW data to file
-write_csv(outfixed, file = "data/processed/2014_dhw_processed.csv")
+write_csv(out2, file = "data/processed/2014_dhw_processed.csv")
 ```
+
+# 2024
+
+```{r}
+# Import all NetCDF files for each date from June 1 through December 31, 2024
+nc.files <- list.files("data/dhw/2024", pattern = "*.nc$", full.names = TRUE)
+
+# Get DRM survey site coordinates
+# Import data
+drmsites <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
+  filter(year(Date) == "2024") %>%
+  distinct(Site, Subregion, Longitude, Latitude)
+
+# Open all DHW NCDF4 files
+nc.data <- tibble(file = nc.files) %>%
+  mutate(date = map_chr(file, ~str_extract(., "2024\\d+"), format = "%Y%m%d"),
+         data = map(file, nc_open),
+      dhw.all = map(data, ~ncvar_get(., "degree_heating_week", start = c(1930, 1240, 1), count = c(91, 81, 1))),
+            r = map(dhw.all, ~raster(t(.), xmn = -83.525, xmx = -78.975, ymn = 23.975, ymx = 28.025,
+                                     crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))),
+       coords = list(drmsites),
+          dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
+
+# Get dhw data for all site coords
+# use a buffer of 5km to get nearest data for sites that are outside data pixels
+buf_m <- 5000  # 
+
+extract_dhw <- function(r, df_xy, buf = buf_m) {
+  sp <- SpatialPoints(df_xy[, c("Longitude","Latitude")], proj4string = crs(r))
+
+  v_simple <- raster::extract(r, sp, method = "simple")
+
+  # buffered mean ignoring NA; will still be NA if *all* nearby cells are NA
+  v_buf <- raster::extract(r, sp, buffer = buf, fun = mean, na.rm = TRUE)
+
+  # use simple unless it's NA, then buffered
+  ifelse(is.na(v_simple), v_buf, v_simple)
+}
+
+nc.data <- nc.data %>%
+  mutate(
+    dhw = map(r, ~extract_dhw(.x, drmsites, buf = buf_m))
+  )
+
+out2 <- nc.data %>%
+  mutate(
+    date = as.Date(date, "%Y%m%d"),
+    site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+    # sanity check: dhw vector length should equal nrow(drmsites)
+    n_dhw = map_int(dhw, length),
+    n_site = map_int(site, nrow)
+  ) %>%
+  # optional: stop early if something doesn't match
+  filter(n_dhw == n_site) %>%
+  dplyr::select(date, site, dhw) %>%
+  unnest(cols = c(site, dhw))
+
+# re-check missing sites
+dhws <- out2 %>% group_by(Site, Latitude, Longitude) %>% summarize(maxdhw = max(dhw, na.rm = TRUE), .groups="drop")
+nodhw <- dhws %>% filter(is.na(maxdhw))
+nodhw
+
+
+```
+
+```{r}
+# Plot DHWs for all sites
+ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
+  geom_line() +
+  scale_x_date(date_breaks = "month", date_labels = "%b")
+```
+
+```{r}
+# Write DHW data to file
+write_csv(out2, file = "data/processed/2024_dhw_processed.csv")
+```
+
 
