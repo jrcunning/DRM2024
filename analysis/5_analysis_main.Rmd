@@ -99,9 +99,9 @@ names(abbrev_names) <- names(species_names)
 ## DRM and DHW data (2014, 2015, 2023)
 ```{r import_data}
 # Load all QC'd data from 2014, 2015, and 2023
-load("data/processed/2014.RData")
-load("data/processed/2015.RData")
-load("data/processed/2023.RData")
+load("data/processed/2014new.RData")
+load("data/processed/2015new.RData")
+load("data/processed/2023new.RData")
 df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
 
 # Combine all years
@@ -110,8 +110,7 @@ all0 <- bind_rows(
   `2015` = df15,
   `2023` = df23,
   .id = "year"
-) %>%
-  mutate(dhw.bin = cut(dhw, breaks = c(-1, 3, 6, 9, 12, 15, 18, 22)))
+)
 
 # Count number of sites per subregion per year
 nsites <- all0 %>%
@@ -140,7 +139,7 @@ all0 %>%
   geom_point() +
   facet_wrap(~year)
 
-# Number of corals surveyed each year
+# Number of corals surveyed each year postfiltering
 all0 %>% count(year)
 ```
 
@@ -184,17 +183,27 @@ symsumm.ag <- sym0  %>%
   geom_histogram(breaks = seq(0,22,1)) +
   facet_grid(year ~ ., scales = "free") +
   theme_classic() +
+  theme(legend.position = c(0.8, 0.7),
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(10, "pt"),
+        legend.box.background = element_rect(color = "black")) +
   labs(x = "Degree Heating Weeks", y = "Number of surveys"))
 
-ggsave(filename = "figures/FigS1.png", plot = surveys.by.dhw, width = 183, height = 90, units = "mm")
+all1 <- all0 %>%
+  mutate(MonthDay = make_date(2000, month(Date), day(Date))) 
+(surveys.by.date <- all1 %>%
+  distinct(year, Site, MonthDay, Date, Subregion, dhw) %>%
+  ggplot(aes(x = MonthDay, fill = Subregion)) +
+  geom_histogram() +
+  facet_grid(year~., scales = "free") +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "Date", y = "Number of surveys"))
 
-# (surveys.by.date <- all0 %>%
-#   distinct(year, Site, Date, Subregion, dhw) %>%
-#   ggplot(aes(x = Date, fill = Subregion)) +
-#   geom_histogram() +
-#   facet_wrap(~year, ncol = 1, scales = "free") +
-#   theme_classic() +
-#   labs(x = "Degree Heating Weeks", y = "Number of surveys"))
+(surveyplot <- cowplot::plot_grid(surveys.by.dhw, surveys.by.date, ncol = 1, labels = "auto"))
+
+ggsave(filename = "figures/FigS1.png", plot = surveyplot,
+       width = 180, height = 170, units = "mm")
 ```
 
 # Bleaching severity 2023
@@ -248,6 +257,7 @@ pctbl23.adj %>%
 pctbl23.adj <- pctbl23.adj %>%
   mutate(region = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
                               TRUE ~ "south"))
+write_csv(pctbl23.adj, "dataset.csv")
 north <- filter(pctbl23.adj, region == "north") %>% pull(adjprob)
 south <- filter(pctbl23.adj, region == "south") %>% pull(adjprob)
 
@@ -332,7 +342,7 @@ ggsave(filename = "figures/Fig1.png", plot = rasterplot, width = 90, height = 90
 ## Map DHWs
 ```{r map_dhw}
 # Import DHW data from all surveyed sites in 2023
-dhw <- read_csv("data/dhw/2023/dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2023_dhw_processed.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
   rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
@@ -410,49 +420,70 @@ df23f <- df23.abund %>%
   drop_na() %>%
   droplevels()
 
-#### DRC (tried 3par, 4par, and 5par -- all work, just slight diffs. )
-# More pars = less estimable standard errors on ED50... depends how important ED50 inference is
-m3 <- drm(pctNB ~ dhw, data = df23f, curveid = Species, weights = n, type = "binomial",
-         logDose = NULL, fct = LL.5(
-           names = c("hill", "min", "max", "ED50", "f"),
-           ## Max parameter is fixed to 1, min is set to 0
-           fixed = c(NA, 0, 1, NA, NA)),
-    # Hill parameter must be positive (must decrease with incr. dhw)
-    #lowerl = c(rep(0, 22), rep(-Inf, 22), rep(0, 22), rep(-Inf, 22)),
-    control = drmc(relTol = 1e-7))
-AIC(m3)
+#### DRC (tried 3par, 4par, and 5par -- all work, just slight diffs.)
+# Fit drc independently for each species (same model spec: min=0, max=1)
+fits <- df23f %>%
+  group_by(Species) %>%
+  group_map(
+    ~{
+      drm(
+        pctNB ~ dhw,
+        data = .x,
+        weights = n,
+        type = "binomial",
+        logDose = NULL,
+        fct = LL.5(
+          names = c("hill", "min", "max", "ED50", "f"),
+          fixed = c(NA, 0, 1, NA, NA)   # keep 0 and 1 asymptotes
+        ),
+        control = drmc(relTol = 1e-7)
+      )
+    },
+    .keep = TRUE
+  )
 
-# Get fitted values
-nd <- expand.grid(Species = levels(df23f$Species), dhw = seq(0, 23, 0.1))
-pred <- predict(m3, newdata = nd)
-drc.res <- as_tibble(bind_cols(nd, prob = pred))
+sp_levels <- levels(df23f$Species)
+names(fits) <- sp_levels
 
-# Get ED50s and SE
-ed50s <- ED(m3, 0.5, type = "absolute", interval = "delta", display = FALSE) %>%
-  as_tibble() %>%
-  mutate(Species = levels(df23f$Species),
+# AIC per species (optional; mirrors your AIC(m3) call but per-species)
+aic_tbl <- tibble(
+  Species = sp_levels,
+  AIC = map_dbl(fits, AIC)
+)
+
+# Predictions on a common DHW grid for plotting
+nd <- expand.grid(Species = sp_levels, dhw = seq(0, 23, 0.1)) %>% as_tibble()
+
+drc.res <- nd %>%
+  group_by(Species) %>%
+  group_modify(~{
+    fit <- fits[[as.character(.y$Species)]]
+    pred <- predict(fit, newdata = data.frame(dhw = .x$dhw))
+    mutate(.x, prob = as.numeric(pred))
+  }) %>%
+  ungroup()
+
+# ED50s and SE per species (same ED() call, interval="delta")
+ed50s <- tibble(Species = sp_levels) %>%
+  mutate(
+    ed = map(Species, ~ED(fits[[as.character(.x)]],
+                          0.5,
+                          type = "absolute",
+                          interval = "delta",
+                          display = FALSE) %>% as.data.frame())
+  ) %>%
+  unnest(ed) %>%
+  rename(Estimate = Estimate, Lower = Lower, Upper = Upper) %>%
+  mutate(Species = factor(Species, levels = sp_levels),
          Species = fct_reorder(Species, Estimate))
 
-# Stats on ED50s
-#compParm(m3, "ED50", operator = "-")
-
-# Extract slopes? coef 'hill'
-# coef(m3)
-
-# # # Sanity check barplot
-# ggplot(df23.abund, aes(x = cut(dhw, breaks = seq(0,24,3)), fill = Bleaching3)) +
-#   geom_bar(position = "fill") +
-#   geom_text(stat = "count", aes(label = after_stat(count)), vjust = "inward", position = "fill", size = 2) +
-#   facet_wrap(~Species, scales = "free_y")
-
-
-# Ridgeline plot
+# Ridgeline plot (unchanged styling / mappings)
 drc.res.ridges <- drc.res %>%
   mutate(Species = factor(Species, levels = levels(ed50s$Species))) %>%
   ggplot(aes(x = dhw, y = Species)) +
   ggridges::geom_ridgeline_gradient(aes(height = (1 - prob), fill = prob)) +
   scale_y_discrete(labels = species_names[as.character(ed50s$Species)]) +
-  scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1", 
+  scale_fill_gradient2(high = "forestgreen", mid = "yellow", low = "firebrick1",
                        limits = c(0, 1), midpoint = 0.5) +
   geom_point(data = ed50s, aes(x = Estimate), pch = 5, size = 0.75, stroke = 0.25) +
   geom_segment(data = ed50s, aes(y = Species, yend = Species, x = Lower, xend = Upper),
@@ -464,7 +495,7 @@ drc.res.ridges <- drc.res %>%
         axis.text.y = element_text(face = "italic", vjust = 0),
         plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = -10)) +
   labs(x = "DHW (°C-weeks)", y = "")
-  
+
 drc.res.ridges
 
 # Save as Figure2
@@ -1127,7 +1158,7 @@ mynames <- pred2 %>%
   summarize(maxw = max(Width2)) %>%
   distinct(Species, name, maxw)
 
-# Calculate relative risk of large (90th percentile) and small (4cm) colonies of each species
+# Calculate relative risk of largest (99th percentile) and small (4cm) colonies of each species
 p90 <- actual %>%
   group_by(Species) %>%
   summarize(Width2 = round(quantile(Width2, 0.99))) %>%
