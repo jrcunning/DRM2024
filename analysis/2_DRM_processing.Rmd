@@ -346,6 +346,7 @@ t1t2 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
 t1t2 <- filter(t1t2, year(Date) == "2024") %>% droplevels()
 # How many corals observed?
 nrow(t1t2)
+t1t2 %>% count(Bleaching)
 
 # Transect 3 and 4 data
 t3t4 <- readxl::read_xlsx("data/drm/2024ANU_RawCoralDataTransect3and4_QAQC.xlsx") %>%
@@ -355,17 +356,22 @@ t3t4 <- readxl::read_xlsx("data/drm/2024ANU_RawCoralDataTransect3and4_QAQC.xlsx"
          `Disease Conditions` = dCondition, `Other Conditions` = oCondition,
          oPercRecMort = OtherRecentMortality,
          dPercRecMort = DiseaseRecentMoratlity,
-         Transect = TransectNum)
+         Transect = TransectNum) %>%
+  drop_na(Species)    # DROP T3/T4 WITH NO CORALS OBSERVED (Species == NA)
 nrow(t3t4)
-
-df24 <- bind_rows(t1t2, t3t4) %>%
-   mutate(Bleaching = case_match(
+t3t4 %>% count(Bleaching)
+t3t4 <- t3t4 %>%
+  mutate(Bleaching = case_match(
     Bleaching, 
     "Not Bleached" ~ NA,
     "Pale" ~ "P",
     "Partly Bleached" ~ "PB",
     "Totally Bleached" ~ "BL",
     ))
+t3t4 %>% count(Bleaching)
+
+df24 <- bind_rows(t1t2, t3t4)
+   
 names(df24)
 
 # Get day of the year number, week, and month for some model fitting
