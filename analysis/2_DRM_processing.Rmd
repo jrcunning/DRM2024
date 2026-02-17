@@ -427,9 +427,18 @@ df24 <- df24 %>%
                                  4 ~ "Dead"),
                              levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
 
+df24 %>% count(Bleaching2)
+df24 %>% filter(grepl("TRS", `Other Conditions`)) %>% 
+  dplyr::select(Date, Species, Bleaching, Old, Recent, `Other Conditions`) %>%
+  print(n = nrow(.))
+df24 %>% filter(is.na(Bleaching2))
 
-# There are some corals with TRS but no BL condition recorded, unsure how to treat
-df24 %>% filter(grepl("TRS", `Other Conditions`))
+
+# There are some corals with TRS but no BL condition recorded, treat these as not bleached.
+df24 <- df24 %>%
+  mutate(Bleaching2 = case_when(is.na(Bleaching) ~ 0,
+                                TRUE ~ Bleaching2))
+
 
 
 ```
