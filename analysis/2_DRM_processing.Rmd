@@ -333,22 +333,50 @@ save(df23, file = "data/processed/2023.RData")
 
 ### 2024 DRM data
 ```{r 2024_DRM}
-df <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+# Transect 1 and 2 data
+t1t2 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
   mutate(across(where(is.character), as_factor),
-         Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S"))
+         Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
+  rename(Depth = Enddepth, TLRate = Tlrate,
+         `Disease Conditions` = Disease_Conditions, 
+         `Other Conditions` = Other_Conditions,
+         oPercRecMort = Opercrecmort, 
+         dPercRecMort = Dpercrecmort)
+# Subset just 2024 surveys
+t1t2 <- filter(t1t2, year(Date) == "2024") %>% droplevels()
+# How many corals observed?
+nrow(t1t2)
+
+# Transect 3 and 4 data
+t3t4 <- readxl::read_xlsx("data/drm/2024ANU_RawCoralDataTransect3and4_QAQC.xlsx") %>%
+  mutate(Date = as_date(as.character(Date))) %>%
+  rename(Depth = EndDepth,
+         Old = OldMortality, Recent = RecentMortality,
+         `Disease Conditions` = dCondition, `Other Conditions` = oCondition,
+         oPercRecMort = OtherRecentMortality,
+         dPercRecMort = DiseaseRecentMoratlity,
+         Transect = TransectNum)
+nrow(t3t4)
+
+df24 <- bind_rows(t1t2, t3t4) %>%
+   mutate(Bleaching = case_match(
+    Bleaching, 
+    "Not Bleached" ~ NA,
+    "Pale" ~ "P",
+    "Partly Bleached" ~ "PB",
+    "Totally Bleached" ~ "BL",
+    ))
+names(df24)
 
 # Get day of the year number, week, and month for some model fitting
-df <- df %>%
+df24 <- df24 %>%
   mutate(Day = yday(Date),
          Week = week(Date),
          Week2 = factor(cut(Week, breaks = seq(0,52,2))),
          Week = factor(Week),
          Month = factor(month(Date)))
-
-# Subset just 2024 surveys
-df24 <- filter(df, year(Date) == "2024") %>% droplevels()
-# How many corals observed?
 nrow(df24)
+
 
 # unique(df24$Subregion)
 # df24 %>% filter(Subregion == "Marquesas-Tortugas Trans")
@@ -375,16 +403,16 @@ df24 <- df24 %>%
 # Are there any dead corals?
 dead <- df24 %>% filter(Old + Recent >= 100)
 dead
-# There are 8 recently dead corals -- they have OUK, OGI, or SC conditions -- remove these from dataset
+# There are 9 recently dead corals -- they have OUK, OGI, or SC conditions -- remove these from dataset
 df24 <- anti_join(df24, dead)
 
 # Create ordinal variables and factors for bleaching severity
 df24 <- df24 %>%
-  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other_Conditions`)) ~ 0,
+  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
                                 Bleaching == "P" ~ 1,
                                 Bleaching == "PB" ~ 2,
                                 Bleaching == "BL" ~ 3,
-                                ((Old + Recent) >= 100 & grepl("TRS", `Other_Conditions`)) ~ 4),
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4),
          Bleaching3 = factor(case_match(Bleaching2, 
                                  0 ~ "Healthy",
                                  1 ~ "Pale",
@@ -395,7 +423,7 @@ df24 <- df24 %>%
 
 
 # There are some corals with TRS but no BL condition recorded, unsure how to treat
-df24 %>% filter(grepl("TRS", Other_Conditions))
+df24 %>% filter(grepl("TRS", `Other Conditions`))
 
 
 ```
