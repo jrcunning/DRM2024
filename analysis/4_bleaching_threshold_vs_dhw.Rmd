@@ -14,8 +14,8 @@ library(tidyverse)
 # Find the relationship between bleaching threshold (°C) and DHW accumulation
 
 ```{r}
-# Import Florida Keys daily temperature data for 1985-2023
-## Downloaded from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
+# Import Florida Keys daily temperature data for 1985-2025
+## Downloaded on 2026-02-16 from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
 temp0 <- read_delim("data/temperature/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
 temp <- temp0 %>%
   mutate(temp = `SST@90th_HS`) %>%
