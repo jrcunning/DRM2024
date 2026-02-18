@@ -233,7 +233,7 @@ df <- df %>%
 df <- df %>%
   mutate(Day = yday(Date),
          Week = week(Date),
-         Week2 = factor(cut(Week, breaks = seq(1,52,2))),
+         Week2 = factor(cut(Week, breaks = seq(0,52,2))),
          Week = factor(Week),
          Month = factor(month(Date)))
 
@@ -311,7 +311,7 @@ df23 <- left_join(df23, dhw, by = c("Site", "Date"))
 
 # Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
 peakdhw <- dhw %>%
-  mutate(Week2 = factor(cut(week(Date), breaks = seq(1,52,2)))) %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(0,52,2)))) %>%
   filter(Week2 == "(33,35]") %>%
   group_by(Site) %>%
   summarize(peakdhw = max(dhw))
@@ -467,7 +467,7 @@ df24 <- left_join(df24, dhw, by = c("Site", "Date"))
 
 # Get peak DHW values for each site (weeks 36-38) regardless of when surveyed)
 peakdhw <- dhw %>%
-  mutate(Week2 = factor(cut(week(Date), breaks = seq(1,52,2)))) %>%
+  mutate(Week2 = factor(cut(week(Date), breaks = seq(0,52,2)))) %>%
   filter(Week2 == "(39,41]") %>%
   group_by(Site) %>%
   summarize(peakdhw = max(dhw))
