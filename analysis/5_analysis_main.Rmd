@@ -129,32 +129,104 @@ dhw_daily <- dhw_daily %>%
          mean_dhw_smooth = zoo::rollmean(mean_dhw, k = 7, fill = NA)) %>%
   ungroup()
 
+# write.csv(dhw_daily, "dhw_daily.csv")
+# 
+# peak_dates <- dhw_daily %>%
+#   group_by(year) %>%
+#   slice_max(mean_dhw, n = 1, with_ties = FALSE) %>%
+#   ungroup()
+# 
+# peak_dates <- peak_dates %>%
+#   mutate(
+#     week = isoweek(date),
+#     Week2 = cut(
+#       week,
+#       breaks = seq(0, 54, by = 2),
+#       right = TRUE
+#     )
+#   )
+# 
+# peak_dates
+# 
+# # Plot
+# ggplot(dhw_daily, aes(x = date_x, color = factor(year))) +
+#   geom_line(aes(y = mean_dhw), linewidth = 0.25) +
+#   geom_line(aes(y = mean_dhw_smooth)) +
+#   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+#   geom_vline(data = peak_dates, aes(xintercept = date_x, color = factor(year)), linetype = 2)
 
+
+
+
+# new
+
+pick_peak_date <- function(df_year,
+                           delta = 1.5,          # DHW units; tune if needed
+                           minpeakdistance = 7,  # days
+                           eps = 1e-4) {
+
+  df_year <- df_year %>% arrange(date)
+
+  x <- df_year$mean_dhw_smooth
+  x <- zoo::na.approx(x, na.rm = FALSE)
+  x[is.na(x)] <- 0
+
+  mx <- max(x, na.rm = TRUE)
+
+  pk <- pracma::findpeaks(
+    x,
+    minpeakdistance = minpeakdistance,
+    minpeakheight   = 0
+  )
+
+  # candidate local maxima indices
+  if (is.null(pk)) {
+    p <- which.max(x)
+    h <- x[p]
+  } else {
+    peaks_idx <- pk[, 2]
+    peaks_h   <- x[peaks_idx]
+
+    # keep peaks "close enough" to the annual max
+    keep_idx <- peaks_idx[(mx - peaks_h) <= delta]
+
+    if (length(keep_idx) == 0) {
+      # fallback: highest peak
+      p <- peaks_idx[which.max(peaks_h)]
+    } else {
+      # key rule: earliest near-max peak
+      p <- min(keep_idx)
+    }
+    h <- x[p]
+  }
+
+  # plateau handling: use first day of the plateau block around height h
+  plateau <- which(abs(x - h) <= eps)
+  if (length(plateau) > 0) {
+    runs <- split(plateau, cumsum(c(1, diff(plateau) != 1)))
+    block <- runs[sapply(runs, function(r) any(r == p))][[1]]
+    p <- min(block)
+  }
+
+  df_year[p, , drop = FALSE]
+}
 
 peak_dates <- dhw_daily %>%
   group_by(year) %>%
-  slice_max(mean_dhw, n = 1, with_ties = FALSE) %>%
-  ungroup()
-
-peak_dates <- peak_dates %>%
+  group_modify(~ pick_peak_date(.x, delta = 1.5)) %>%
+  ungroup() %>%
   mutate(
-    week = isoweek(date),
-    Week2 = cut(
-      week,
-      breaks = seq(0, 54, by = 2),
-      right = TRUE
-    )
+    week  = isoweek(date),
+    Week2 = cut(week, breaks = seq(0, 54, by = 2), right = TRUE)
   )
 
 peak_dates
 
-# Plot
 ggplot(dhw_daily, aes(x = date_x, color = factor(year))) +
   geom_line(aes(y = mean_dhw), linewidth = 0.25) +
   geom_line(aes(y = mean_dhw_smooth)) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
   geom_vline(data = peak_dates, aes(xintercept = date_x, color = factor(year)), linetype = 2)
-
 ```
 
 
@@ -167,14 +239,18 @@ load("data/processed/2023.RData")
 load("data/processed/2024.RData")
 df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
 
-# Combine all years
+# Combine all years and make sure to keep all Subregions
 all0 <- bind_rows(
-  `2014` = df14,
-  `2015` = df15,
-  `2023` = df23,
-  `2024` = df24,
+  `2014` = df14 %>% mutate(Subregion = as.character(Subregion)),
+  `2015` = df15 %>% mutate(Subregion = as.character(Subregion)),
+  `2023` = df23 %>% mutate(Subregion = as.character(Subregion)),
+  `2024` = df24 %>% mutate(Subregion = as.character(Subregion)),
   .id = "year"
 )
+
+# optional: refactor once, with union of observed values
+all0 <- all0 %>% mutate(Subregion = factor(Subregion))
+all0 %>% filter(is.na(Subregion))
 
 # Count number of sites per subregion per year
 nsites <- all0 %>%
@@ -192,7 +268,8 @@ all0 <- all0 %>%
   mutate(Subregion = factor(Subregion, levels = c("Martin", "Palm Beach", "Broward-Miami",
                                                   "Biscayne", "Upper Keys", "Mid-Upper Keys Transition",
                                                   "Middle Keys", "Lower Keys", "Marquesas",
-                                                  "Tortugas--Dry Tortugas NP")))
+                                                  "Tortugas--Dry Tortugas NP", "Tortugas--Tortugas Bank")))
+all0 %>% filter(is.na(Subregion))
 
 df23 <- all0 %>% filter(year == 2023)
 
@@ -686,7 +763,7 @@ allf <- all1 %>%
 
 # Filter out Marquesas Subregion -- it was not surveyed in 2014 or 2015
 # Filter out Tortugas Bank bc only surveyed in 2024
-allf <- allf %>% filter(!Subregion %in% c("Marquesas", "Tortugas--Tortugas Bank"))
+allf <- allf %>% filter(!(Subregion %in% c("Marquesas", "Tortugas--Tortugas Bank")))
 
 ## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
 allg <- allf %>%
@@ -720,10 +797,14 @@ ggplot(allg, aes(x = dhw, y = cummaxdhw)) +
 
 ## All corals - ED50s (glmer)
 ```{r bleaching_by_dhw_across_years}
+peak_dates
+nrow(allg)
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                  family = "binomial", data = allg, 
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+nrow(model.frame(dhw.mod))
+allg %>% filter(is.na(Subregion))
 
 # Function to get ED50s and ∆ED50s
 ed50s.fun_fast <- function(mod) {
@@ -757,15 +838,19 @@ bleach50 <- ed50s.fun_fast(dhw.mod)
 bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-# set.seed(1)
-# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun_fast, nsim = 100,
-#                     seed = 123, re.form = NULL, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.out, file = "data/processed/boot.out.rds")
-boot.out <- readRDS(file = "data/processed/boot.out.rds")
+set.seed(1)
+boot.outnull <- bootMer(dhw.mod, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+                    seed = 123, parallel = "multicore", ncpus = 10) 
+saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
+boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
 ## Get confidence intervals from Bootstrap
-lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
-upper <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
-se <- apply(boot.out$t, 2, sd)
+lower <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
+upper <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
+se <- apply(boot.outnull$t, 2, sd)
+
+bleach50
+apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=c(0.025, 0.5, 0.975), na.rm=TRUE)))
+apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=0.5, na.rm=TRUE)))
 
 ed50conf <- tibble(
   year = names(bleach50), 
@@ -791,6 +876,7 @@ targets <- peak_dates %>%
 
 # Get emmeans grid
 dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
+                   re.form = NA,
                    at = list(dhw = seq(0, 23, 0.1), Week2 = unique(peak_dates$Week2)), 
                    rg.limit = 20000, level = 0.84)
 
@@ -799,22 +885,30 @@ dhw.res2 <- as_tibble(dhw.res) %>%
   inner_join(targets, by = c("year", "Week2")) %>%
   filter(dhw > mindhw, dhw <= maxdhw)
 
+dhw.res3 <- as_tibble(dhw.res) %>%
+  inner_join(targets, by = c("year", "Week2")) %>%
+  filter(year == 2024, dhw > maxdhw, prob <= 0.5)
+  
+
 # Plot
 dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.1) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
   geom_line(aes(color = prob), lwd = 2) +
-  geom_text(data = slice(ed50conf, 1:4),
-           aes(x = c(8,9.5,20.5, 13.5), y = c(0.8, 0.65, 0.97, 0.18), label = year)) +
+  #geom_line(data = dhw.res3, linetype = 2, linewidth = 0.2) +
+  # Add year text labels
+  geom_text(data = dhw_ranges,
+           aes(x = maxdhw, y = c(0.68, 0.58, 0.9, 0.19), label = year),
+           hjust = c(0,0,1,0), nudge_y = c(0,0,0.03,-0.05)) +
   # Add line segments at ED50s
-  geom_segment(data = slice(ed50conf, 1:4),
-              aes(x = ed50, xend = ed50, y = 0.492, yend = 0), lty = 2, lwd = 0.2) +
+  geom_segment(data = slice(ed50conf, 1:3),
+              aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = 1, lwd = 0.1) +
   geom_point(data = slice(ed50conf, 1:3), aes(y = 0.5, x = ed50), pch = 1, stroke = 0.2) +
-  #Annotate increase in heat tolerance
-  annotate("segment", x = 3.9, xend = 11.5, y = 0.05, lwd = 0.2,
+  # Annotate increase in heat tolerance
+  annotate("segment", x = ed50conf[[1,2]], xend = ed50conf[[3,2]], y = 0, lwd = 0.2,
           arrow = arrow(type = "closed", length = unit(3, "mm"))) +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1), 
+  scale_y_continuous(limits = c(-0.025, 0.95), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 
                      labels = scales::label_percent()) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
@@ -824,202 +918,6 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   coord_cartesian(clip = "off")
 
 dhw.bleach.plot
-```
-
-```{r}
-# sanity check - how week2 affects predictions
-allg <- allg %>%
-  mutate(yrWk = interaction(year, Week2, drop = TRUE))
-
-dhw.mod2 <- glmer(cbind(BL, NB) ~ dhw + 0 + yrWk + (dhw + year | Species) + (year | Subregion),  
-                 family = "binomial", data = allg, 
-                 verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-
-nd <- allg %>%
-  distinct(year, yrWk) %>%
-  crossing(dhw = seq(0, 23, 0.1))
-
-nd$prob <- predict(dhw.mod2, newdata = nd, type = "response", re.form = NA) 
-
-nd <- nd %>%
-  separate(yrWk, into = c("year", "Week2"), sep = "\\.")
-
-# Get last x-value per line (within each year × Week2)
-nd_lab <- nd %>%
-  group_by(year, Week2) %>%
-  filter(dhw == max(dhw)) %>%
-  ungroup()
-
-library(ggrepel)
-ggplot(nd, aes(x = dhw, y = prob, color = Week2)) +
-  geom_line() +
-  facet_wrap(~year) +
-  geom_text_repel(
-    data = nd_lab,
-    aes(label = Week2),
-    max.overlaps = Inf,
-    direction = "y",
-    hjust = 0,
-    segment.color = NA,
-    show.legend = FALSE
-  ) +
-  scale_color_discrete() +
-  theme_bw() +
-  theme(legend.position = "none")
-```
-
-
-```{r}
-# CUMMAXDHW
-## --- cummaxdhw sanity-check model + plot + ED50 bootstrap (robust) ---
-
-library(dplyr)
-library(tidyr)
-library(lme4)
-library(emmeans)
-library(ggplot2)
-library(tibble)
-library(grid)      # unit()
-library(scales)
-
-## 0) IMPORTANT NOTE ON FILTER
-## This filter keeps observations where dhw is NOT below the running max-to-date.
-## Because dhw <= cummaxdhw by definition, this typically keeps rows where dhw == cummaxdhw
-## (i.e., record-high days). If that’s what you want for this sanity check, keep it.
-allg2 <- allg %>%
-  filter(!(dhw < cummaxdhw))
-
-## 1) Fit model (explicitly make sure key cols are factors)
-allg2 <- allg2 %>%
-  mutate(
-    year = factor(year),
-    Species = factor(Species),
-    Subregion = factor(Subregion)
-  )
-
-dhw.mod4 <- glmer(
-  cbind(BL, NB) ~ cummaxdhw + year +
-    (cummaxdhw + year | Species) +
-    (year | Subregion),
-  family  = binomial,
-  data    = allg2,
-  verbose = FALSE,
-  nAGQ    = 0,
-  control = glmerControl(optimizer = "nloptwrap")
-)
-
-## 2) Stabilize dataset used by the fitted model (prevents bootMer row-mismatch errors)
-mf_used <- model.frame(dhw.mod4)
-used_idx <- as.integer(rownames(mf_used))
-allg2_used <- allg2[used_idx, ]
-
-dhw.mod4_used <- update(dhw.mod4, data = allg2_used)
-
-## 3) Plot population-average curves (fixed effects only) using emmeans
-## Use CI columns, NOT prob ± SE
-dhw.mod4.res <- emmeans(
-  dhw.mod4_used,
-  specs = c("cummaxdhw", "year"),
-  type  = "response",
-  at    = list(cummaxdhw = seq(0, 23, 0.1)),
-  rg.limit = 20000,
-  level = 0.84,
-  re.form = NA
-)
-
-plot_df <- as_tibble(dhw.mod4.res)
-
-dhw.bleach.plot <- ggplot(plot_df, aes(x = cummaxdhw, y = prob, group = year)) +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), linewidth = 0, alpha = 0.1) +
-  geom_line(aes(color = prob), linewidth = 2) +
-  annotate(
-    "segment", x = 3.9, xend = 11.5, y = 0.05, linewidth = 0.2,
-    arrow = arrow(type = "closed", length = unit(3, "mm"))
-  ) +
-  scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
-                     labels = label_percent()) +
-  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1",
-                        limits = c(0, 1), midpoint = 0.5) +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
-  coord_cartesian(clip = "off")
-
-dhw.bleach.plot
-
-
-## 4) ED50 function (population-average; grid + closest to 0.5)
-ed50s_fun_cummax <- function(mod, step = 0.01, rng = c(0, 23)) {
-  
-  mf <- model.frame(mod)
-  
-  # lock factor levels to fitted model
-  yrs <- levels(mf$year)
-  
-  # valid levels for grouping vars (won't matter because re.form = NA)
-  sp0 <- levels(mf$Species)[1]
-  sr0 <- levels(mf$Subregion)[1]
-  
-  nd <- tidyr::expand_grid(
-    year = factor(yrs, levels = yrs),
-    cummaxdhw = seq(rng[1], rng[2], by = step)
-  ) %>%
-    mutate(
-      Species   = factor(sp0, levels = levels(mf$Species)),
-      Subregion = factor(sr0, levels = levels(mf$Subregion))
-    )
-  
-  nd$prob <- as.numeric(
-    predict(mod, newdata = nd, type = "response",
-            re.form = NA, allow.new.levels = TRUE)
-  )
-  
-  ed50 <- nd %>%
-    group_by(year) %>%
-    slice(which.min(abs(prob - 0.5))) %>%
-    pull(cummaxdhw)
-  
-  names(ed50) <- yrs
-  
-  ref <- yrs[1]  # reference year = first factor level
-  diffs <- ed50[yrs[-1]] - ed50[ref]
-  names(diffs) <- paste0(yrs[-1], "-", ref)
-  
-  c(ed50, diffs)
-}
-
-## 5) Point estimates
-ed50_hat4 <- ed50s_fun_cummax(dhw.mod4_used)
-ed50_hat4
-
-## 6) Bootstrap CIs (robust to prior row-omissions because we refit on allg2_used)
-boot.out4 <- bootMer(
-  dhw.mod4_used,
-  FUN = ed50s_fun_cummax,
-  nsim = 100,    # increase as needed
-  seed = 123,
-  parallel = "multicore",
-  ncpus = 20
-)
-saveRDS(boot.out4, file = "data/processed/boot.out4.rds")
-boot.out4 <- readRDS(file = "data/processed/boot.out4.rds")
-
-lower <- apply(boot.out4$t, 2, function(x) as.numeric(quantile(x, 0.025, na.rm = TRUE)))
-upper <- apply(boot.out4$t, 2, function(x) as.numeric(quantile(x, 0.975, na.rm = TRUE)))
-se    <- apply(boot.out4$t, 2, sd, na.rm = TRUE)
-
-ed50conf4 <- tibble(
-  term  = names(ed50_hat4),
-  ed50  = unname(ed50_hat4),
-  se    = se,
-  lower = lower,
-  upper = upper
-)
-
-ed50conf4
-
-
 ```
 
 ## All corals - ∆ED50, ∆°C
@@ -1046,8 +944,8 @@ finaldegC <- degC %>%
 # 0.96°C [95% C.I. = 0.79-1.13°C]
 
 # Annotate and save bleaching response curves plot // Fig4
-(dhw.bleach.plot <- dhw.bleach.plot +
-  annotate("text", x = 11.7, y = 0.082, hjust = 0, size = 3, 
+(dhw.bleach.plot +
+  annotate("text", x = 14.7, y = 0.082, hjust = 0, size = 3, 
            label = paste0("Bleaching threshold\n+", signif(ed50conf$ed50[[6]], 2),
                           " DHW = +", signif(finaldegC$degC, 2), "°C")))
 
@@ -1068,20 +966,20 @@ dhw.sp.mod <- glmer(
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
 dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                      at = list(dhw = seq(0, 23, 0.05), Week2 = c("(36,38]", "(33,35]")), 
+                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(34,36]","(36,38]","(38,40]")), 
                       rg.limit = 200000, level = 0.84)
 dhw.sp.res2 <- subset(dhw.sp.res,
-  (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.48) |
+  (year == "2014" & Week2 == "(34,36]" & dhw <= 8.11 & dhw > 0.48) |
   (year == "2015" & Week2 == "(36,38]" & dhw <= 8.90 & dhw > 0) |
-  (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06) |
-  (year == "2024" & Week2 == "(36,38]" & dhw <= 11.7 & dhw > 0.16) 
+  (year == "2023" & Week2 == "(36,38]" & dhw <= 21.5 & dhw > 1.06) |
+  (year == "2024" & Week2 == "(38,40]" & dhw <= 11.7 & dhw > 0.16) 
 )
-dhw.sp.res22 <- subset(dhw.sp.res,
-  (year == "2014" & Week2 == "(36,38]") |
-  (year == "2015" & Week2 == "(36,38]") |
-  (year == "2023" & Week2 == "(33,35]") |
-  (year == "2024" & Week2 == "(36,38]")
-)
+# dhw.sp.res22 <- subset(dhw.sp.res,
+#   (year == "2014" & Week2 == "(36,38]") |
+#   (year == "2015" & Week2 == "(36,38]") |
+#   (year == "2023" & Week2 == "(33,35]") |
+#   (year == "2024" & Week2 == "(36,38]")
+# )
 
 # Plot
 (dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
@@ -1101,7 +999,7 @@ dhw.sp.res22 <- subset(dhw.sp.res,
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
   coord_cartesian(clip = "off"))
 
-ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
+ggsave(filename = "figures/FigS4new.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
