@@ -165,7 +165,6 @@ load("data/processed/2014.RData")
 load("data/processed/2015.RData")
 load("data/processed/2023.RData")
 load("data/processed/2024.RData")
-df24 <- df24 %>% filter(Subregion != "Tortugas--Tortugas Bank")   # exclude Tortugas Bank bc not present in other years
 df23 <- df23 %>% rename(Depth = EndDepth, Transect = TransectNum)
 
 # Combine all years
@@ -206,9 +205,6 @@ all0 %>%
 
 # Number of corals surveyed each year postfiltering
 all0 %>% count(year)
-
-
-# SHOULD WE FILTER OUT MARQUESAS TOO?? NOT SURVEYED IN 2014 or 2015....
 ```
 
 ## Symbiont metadata for Florida corals
@@ -689,7 +685,8 @@ allf <- all1 %>%
   filter(Species %in% spp_to_include$Species)
 
 # Filter out Marquesas Subregion -- it was not surveyed in 2014 or 2015
-allf <- allf %>% filter(Subregion != "Marquesas")
+# Filter out Tortugas Bank bc only surveyed in 2024
+allf <- allf %>% filter(!Subregion %in% c("Marquesas", "Tortugas--Tortugas Bank"))
 
 ## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
 allg <- allf %>%
@@ -760,10 +757,10 @@ bleach50 <- ed50s.fun_fast(dhw.mod)
 bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-set.seed(1)
-boot.out <- bootMer(dhw.mod, FUN = ed50s.fun_fast, nsim = 100,
-                    seed = 123, re.form = NULL, parallel = "multicore", ncpus = 20)
-saveRDS(boot.out, file = "data/processed/boot.out.rds")
+# set.seed(1)
+# boot.out <- bootMer(dhw.mod, FUN = ed50s.fun_fast, nsim = 100,
+#                     seed = 123, re.form = NULL, parallel = "multicore", ncpus = 20)
+# saveRDS(boot.out, file = "data/processed/boot.out.rds")
 boot.out <- readRDS(file = "data/processed/boot.out.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -805,7 +802,7 @@ dhw.res2 <- as_tibble(dhw.res) %>%
 # Plot
 dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.1) +
   geom_line(aes(color = prob), lwd = 2) +
   geom_text(data = slice(ed50conf, 1:4),
            aes(x = c(8,9.5,20.5, 13.5), y = c(0.8, 0.65, 0.97, 0.18), label = year)) +
@@ -874,39 +871,155 @@ ggplot(nd, aes(x = dhw, y = prob, color = Week2)) +
 
 ```{r}
 # CUMMAXDHW
-allg2 <- allgf %>%
-  filter(!(dhw < cummaxdhw)) # only keep sites that were before or at the dhw peak, not after
+## --- cummaxdhw sanity-check model + plot + ED50 bootstrap (robust) ---
 
-dhw.mod4 <- glmer(cbind(BL, NB) ~ cummaxdhw + year + (cummaxdhw + year | Species) + (year | Subregion),  
-                 family = "binomial", data = allg2, 
-                 verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(emmeans)
+library(ggplot2)
+library(tibble)
+library(grid)      # unit()
+library(scales)
 
-hi <- emmeans(dhw.mod4, specs = c("year", "cummaxdhw"), type = "response",
-        at = list(cummaxdhw = seq(0,23,0.1)))
+## 0) IMPORTANT NOTE ON FILTER
+## This filter keeps observations where dhw is NOT below the running max-to-date.
+## Because dhw <= cummaxdhw by definition, this typically keeps rows where dhw == cummaxdhw
+## (i.e., record-high days). If that’s what you want for this sanity check, keep it.
+allg2 <- allg %>%
+  filter(!(dhw < cummaxdhw))
 
-dhw.bleach.plot <- ggplot(as.tibble(hi), aes(x = cummaxdhw, y = prob, group = year)) +
-  # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
-  geom_line(aes(color = prob), lwd = 2) +
-  #geom_text(data = slice(ed50conf, 1:4), 
-  #          aes(x = c(8,9.5,20.5, 13.5), y = c(0.8, 0.65, 0.97, 0.18), label = year)) +
-  # # Add line segments at ED50s
-  #geom_segment(data = slice(ed50conf, 1:4),
-  #             aes(x = ed50, xend = ed50, y = 0.492, yend = 0), lty = 2, lwd = 0.2) +
-  #geom_point(data = slice(ed50conf, 1:3), aes(y = 0.5, x = ed50), pch = 1, stroke = 0.2) +
-  # Annotate increase in heat tolerance
-  annotate("segment", x = 3.9, xend = 11.5, y = 0.05, lwd = 0.2,
-           arrow = arrow(type = "closed", length = unit(3, "mm"))) +
+## 1) Fit model (explicitly make sure key cols are factors)
+allg2 <- allg2 %>%
+  mutate(
+    year = factor(year),
+    Species = factor(Species),
+    Subregion = factor(Subregion)
+  )
+
+dhw.mod4 <- glmer(
+  cbind(BL, NB) ~ cummaxdhw + year +
+    (cummaxdhw + year | Species) +
+    (year | Subregion),
+  family  = binomial,
+  data    = allg2,
+  verbose = FALSE,
+  nAGQ    = 0,
+  control = glmerControl(optimizer = "nloptwrap")
+)
+
+## 2) Stabilize dataset used by the fitted model (prevents bootMer row-mismatch errors)
+mf_used <- model.frame(dhw.mod4)
+used_idx <- as.integer(rownames(mf_used))
+allg2_used <- allg2[used_idx, ]
+
+dhw.mod4_used <- update(dhw.mod4, data = allg2_used)
+
+## 3) Plot population-average curves (fixed effects only) using emmeans
+## Use CI columns, NOT prob ± SE
+dhw.mod4.res <- emmeans(
+  dhw.mod4_used,
+  specs = c("cummaxdhw", "year"),
+  type  = "response",
+  at    = list(cummaxdhw = seq(0, 23, 0.1)),
+  rg.limit = 20000,
+  level = 0.84,
+  re.form = NA
+)
+
+plot_df <- as_tibble(dhw.mod4.res)
+
+dhw.bleach.plot <- ggplot(plot_df, aes(x = cummaxdhw, y = prob, group = year)) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), linewidth = 0, alpha = 0.1) +
+  geom_line(aes(color = prob), linewidth = 2) +
+  annotate(
+    "segment", x = 3.9, xend = 11.5, y = 0.05, linewidth = 0.2,
+    arrow = arrow(type = "closed", length = unit(3, "mm"))
+  ) +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1), 
-                     labels = scales::label_percent()) +
-  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.1),
+                     labels = label_percent()) +
+  scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1",
                         limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
   theme(legend.position = "none") +
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off")
+
 dhw.bleach.plot
+
+
+## 4) ED50 function (population-average; grid + closest to 0.5)
+ed50s_fun_cummax <- function(mod, step = 0.01, rng = c(0, 23)) {
+  
+  mf <- model.frame(mod)
+  
+  # lock factor levels to fitted model
+  yrs <- levels(mf$year)
+  
+  # valid levels for grouping vars (won't matter because re.form = NA)
+  sp0 <- levels(mf$Species)[1]
+  sr0 <- levels(mf$Subregion)[1]
+  
+  nd <- tidyr::expand_grid(
+    year = factor(yrs, levels = yrs),
+    cummaxdhw = seq(rng[1], rng[2], by = step)
+  ) %>%
+    mutate(
+      Species   = factor(sp0, levels = levels(mf$Species)),
+      Subregion = factor(sr0, levels = levels(mf$Subregion))
+    )
+  
+  nd$prob <- as.numeric(
+    predict(mod, newdata = nd, type = "response",
+            re.form = NA, allow.new.levels = TRUE)
+  )
+  
+  ed50 <- nd %>%
+    group_by(year) %>%
+    slice(which.min(abs(prob - 0.5))) %>%
+    pull(cummaxdhw)
+  
+  names(ed50) <- yrs
+  
+  ref <- yrs[1]  # reference year = first factor level
+  diffs <- ed50[yrs[-1]] - ed50[ref]
+  names(diffs) <- paste0(yrs[-1], "-", ref)
+  
+  c(ed50, diffs)
+}
+
+## 5) Point estimates
+ed50_hat4 <- ed50s_fun_cummax(dhw.mod4_used)
+ed50_hat4
+
+## 6) Bootstrap CIs (robust to prior row-omissions because we refit on allg2_used)
+boot.out4 <- bootMer(
+  dhw.mod4_used,
+  FUN = ed50s_fun_cummax,
+  nsim = 100,    # increase as needed
+  seed = 123,
+  parallel = "multicore",
+  ncpus = 20
+)
+saveRDS(boot.out4, file = "data/processed/boot.out4.rds")
+boot.out4 <- readRDS(file = "data/processed/boot.out4.rds")
+
+lower <- apply(boot.out4$t, 2, function(x) as.numeric(quantile(x, 0.025, na.rm = TRUE)))
+upper <- apply(boot.out4$t, 2, function(x) as.numeric(quantile(x, 0.975, na.rm = TRUE)))
+se    <- apply(boot.out4$t, 2, sd, na.rm = TRUE)
+
+ed50conf4 <- tibble(
+  term  = names(ed50_hat4),
+  ed50  = unname(ed50_hat4),
+  se    = se,
+  lower = lower,
+  upper = upper
+)
+
+ed50conf4
+
+
 ```
 
 ## All corals - ∆ED50, ∆°C
