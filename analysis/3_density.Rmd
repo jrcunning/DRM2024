@@ -121,4 +121,45 @@ diffs <- rbind(pairs(emmeans(mod5, specs = c("Species", "year")), by = "Species"
 saveRDS(diffs, file = "data/processed/dens20142023.rds")
 ```
 
+# Look at 2023 densities
+```{r}
+mydf <- filter(dens, year == "2023", Species %in% c("PSTR", "SSID", "MCAV", "CNAT", "PAST", "SINT", "DLAB"),
+               Subregion %in% c("Upper Keys", "Middle Keys", "Lower Keys", "Tortugas", "Marquesas")) %>%
+  mutate(Subregion = factor(Subregion, levels = c("Tortugas", "Marquesas", "Lower Keys", "Middle Keys", "Upper Keys")))
+mod23 <- glm(n ~ Species * Subregion, family = "poisson", data = mydf)
+
+res <- emmeans(mod23, specs = c("Species", "Subregion"), type = "response")
+
+as_tibble(res) %>%
+  filter(!(Species == "DLAB" & Subregion == "Marquesas")) %>%
+  ggplot(aes(x = Subregion, y = rate/10)) +
+  geom_point(pch = 1) +
+  geom_errorbar(aes(ymin = asymp.LCL/10, ymax = asymp.UCL/10), width = 0.05) +
+  facet_grid(Species~., scales = "free") +
+  expand_limits(y = 0) +
+  labs(y = "Colonies per m2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+mod24 <- glmer(n ~ Species + (1|Species:Subregion), family = "poisson", data = mydf)
+overall <- emmeans(mod24, specs = "Species", type = "response")
+
+write_csv(as_tibble(overall), "test.csv")
+resoverall <- as_tibble(overall) %>%
+  mutate(rate_site = rate * 4,
+         rate_site_upper = asymp.UCL * 4,
+         rate_site_lower = asymp.LCL * 4,
+         rate_30 = 30/rate_site,
+         lower_30 = 30/rate_site_lower,
+         upper_30 = 30/rate_site_upper)
+
+write_csv(resoverall, "overall_densities.csv")
+
+ressubregional <- as_tibble(res) %>%
+    mutate(perm2 = rate/10,
+         pertransect = rate, 
+         perdrmsite = rate * 4,
+         nsites_for160 = 160/perdrmsite)
+write_csv(ressubregional, "subregional_densities.csv")
+```
 
