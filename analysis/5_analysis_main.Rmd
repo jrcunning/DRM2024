@@ -228,6 +228,12 @@ ggplot(dhw_daily, aes(date, dhw_used)) +
     subtitle = sprintf("Rising limb defined as %.0f–%.0f%% of annual max DHW (pre-peak)", 100*p_lo, 100*p_hi)
   ) +
   theme_bw()
+
+ggplot(dhw_all, aes(x = date, y = dhw)) +
+  geom_line(aes(group = Site, color = Subregion), alpha = 0.2) +
+  facet_wrap(~year, scales = "free") +
+  geom_vline(data = peak_dates, aes(xintercept = as.numeric(peak_date_pred)),
+             linetype = "dotted")
 ```
 
 
