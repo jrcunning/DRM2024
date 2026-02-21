@@ -97,7 +97,7 @@ names(abbrev_names) <- names(species_names)
 
 # Import data
 
-## DHW peaks
+## DHW and peak heat stress
 ```{r}
 # Get processed DHW data for all sites surveyed in each year
 dhw2014 <- read_csv("data/processed/2014_dhw_processed.csv")
@@ -130,104 +130,104 @@ dhw_daily <- dhw_daily %>%
          mean_dhw_smooth = zoo::rollmean(mean_dhw, k = 7, fill = NA)) %>%
   ungroup()
 
-# write.csv(dhw_daily, "dhw_daily.csv")
-# 
-# peak_dates <- dhw_daily %>%
-#   group_by(year) %>%
-#   slice_max(mean_dhw, n = 1, with_ties = FALSE) %>%
-#   ungroup()
-# 
-# peak_dates <- peak_dates %>%
-#   mutate(
-#     week = isoweek(date),
-#     Week2 = cut(
-#       week,
-#       breaks = seq(0, 54, by = 2),
-#       right = TRUE
-#     )
-#   )
-# 
-# peak_dates
-# 
-# # Plot
-# ggplot(dhw_daily, aes(x = date_x, color = factor(year))) +
-#   geom_line(aes(y = mean_dhw), linewidth = 0.25) +
-#   geom_line(aes(y = mean_dhw_smooth)) +
-#   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
-#   geom_vline(data = peak_dates, aes(xintercept = date_x, color = factor(year)), linetype = 2)
 
+# --- load ---
+dhw_daily <- dhw_daily %>%
+  mutate(
+    date  = as.Date(date),
+    week  = isoweek(date),
+    Week2 = cut(week, breaks = seq(1, 53, by = 2)),   # matches your definition
+    dhw_used = coalesce(mean_dhw_smooth, mean_dhw),
+    t_num = as.numeric(date)
+  ) %>%
+  filter(!is.na(date), !is.na(dhw_used))
 
+# --- parameters defining the "early rising limb" ---
+p_lo <- 0.05   # 5% of annual max
+p_hi <- 0.60   # 60% of annual max
 
-
-# new
-
-pick_peak_date <- function(df_year,
-                           delta = 1.5,          # DHW units; tune if needed
-                           minpeakdistance = 7,  # days
-                           eps = 1e-4) {
-
-  df_year <- df_year %>% arrange(date)
-
-  x <- df_year$mean_dhw_smooth
-  x <- zoo::na.approx(x, na.rm = FALSE)
-  x[is.na(x)] <- 0
-
-  mx <- max(x, na.rm = TRUE)
-
-  pk <- pracma::findpeaks(
-    x,
-    minpeakdistance = minpeakdistance,
-    minpeakheight   = 0
+# --- function: fit rising limb and compute intersection with annual max ---
+peak_extrapolated <- function(d) {
+  d <- d %>% arrange(date)
+  dhw_max <- max(d$dhw_used, na.rm = TRUE)
+  
+  # observed max date (used only to restrict to pre-peak rising limb)
+  d_peak <- d %>% slice_max(dhw_used, n = 1, with_ties = FALSE)
+  peak_date_obs <- d_peak$date
+  
+  # rising limb subset: pre-peak and between p_lo and p_hi of annual max
+  d_rise <- d %>%
+    filter(date <= peak_date_obs) %>%
+    filter(dhw_used >= p_lo * dhw_max, dhw_used <= p_hi * dhw_max)
+  
+  if (nrow(d_rise) < 5) {
+    return(tibble(
+      year = unique(d$year),
+      dhw_max = dhw_max,
+      peak_date_obs = peak_date_obs,
+      peak_date_pred = as.Date(NA),
+      Week2_pred = factor(NA),
+      n_rise = nrow(d_rise)
+    ))
+  }
+  
+  mod <- lm(dhw_used ~ t_num, data = d_rise)
+  a <- unname(coef(mod)[["(Intercept)"]])
+  b <- unname(coef(mod)[["t_num"]])
+  
+  # intersection with dhw_max: a + b*t = dhw_max
+  t_star <- (dhw_max - a) / b
+  peak_date_pred <- as.Date(t_star, origin = "1970-01-01")
+  
+  tibble(
+    year = unique(d$year),
+    dhw_max = dhw_max,
+    peak_date_obs = peak_date_obs,
+    peak_date_pred = peak_date_pred,
+    Week2_pred = cut(isoweek(peak_date_pred), breaks = seq(1, 52, by = 2)),
+    n_rise = nrow(d_rise)
   )
-
-  # candidate local maxima indices
-  if (is.null(pk)) {
-    p <- which.max(x)
-    h <- x[p]
-  } else {
-    peaks_idx <- pk[, 2]
-    peaks_h   <- x[peaks_idx]
-
-    # keep peaks "close enough" to the annual max
-    keep_idx <- peaks_idx[(mx - peaks_h) <= delta]
-
-    if (length(keep_idx) == 0) {
-      # fallback: highest peak
-      p <- peaks_idx[which.max(peaks_h)]
-    } else {
-      # key rule: earliest near-max peak
-      p <- min(keep_idx)
-    }
-    h <- x[p]
-  }
-
-  # plateau handling: use first day of the plateau block around height h
-  plateau <- which(abs(x - h) <= eps)
-  if (length(plateau) > 0) {
-    runs <- split(plateau, cumsum(c(1, diff(plateau) != 1)))
-    block <- runs[sapply(runs, function(r) any(r == p))][[1]]
-    p <- min(block)
-  }
-
-  df_year[p, , drop = FALSE]
 }
 
 peak_dates <- dhw_daily %>%
   group_by(year) %>%
-  group_modify(~ pick_peak_date(.x, delta = 1.5)) %>%
-  ungroup() %>%
-  mutate(
-    week  = isoweek(date),
-    Week2 = cut(week, breaks = seq(0, 54, by = 2), right = TRUE)
-  )
+  group_modify(~ peak_extrapolated(.x)) %>%
+  ungroup()
 
+# --- verify the exact bins you asked for ---
+peak_dates <- peak_dates %>%
+  select(year, peak_date_pred, Week2 = Week2_pred, dhw_max, peak_date_obs, n_rise)
 peak_dates
 
-ggplot(dhw_daily, aes(x = date_x, color = factor(year))) +
-  geom_line(aes(y = mean_dhw), linewidth = 0.25) +
-  geom_line(aes(y = mean_dhw_smooth)) +
-  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
-  geom_vline(data = peak_dates, aes(xintercept = date_x, color = factor(year)), linetype = 2)
+# --- build fitted line on the rising-limb subset for plotting ---
+rise_fit_df <- dhw_daily %>%
+  inner_join(peak_dates %>% select(year, dhw_max, peak_date_obs, peak_date_pred), by = "year") %>%
+  group_by(year) %>%
+  group_modify(~{
+    d <- .x %>% arrange(date)
+    d_rise <- d %>%
+      filter(date <= unique(d$peak_date_obs)) %>%
+      filter(dhw_used >= p_lo * unique(d$dhw_max), dhw_used <= p_hi * unique(d$dhw_max))
+    mod <- lm(dhw_used ~ t_num, data = d_rise)
+    d_rise %>% mutate(dhw_fit = predict(mod, newdata = d_rise))
+  }) %>%
+  ungroup()
+
+# --- plot: actual DHW + rising regression + horizontal max + intersection point ---
+ggplot(dhw_daily, aes(date, dhw_used)) +
+  geom_line() +
+  facet_wrap(~ year, scales = "free_x", ncol = 2) +
+  geom_line(data = rise_fit_df, aes(y = dhw_fit), linewidth = 1) +
+  geom_hline(data = peak_dates, aes(yintercept = dhw_max), linetype = "dashed") +
+  geom_point(data = peak_dates, aes(x = peak_date_pred, y = dhw_max), size = 2.5) +
+  geom_vline(data = peak_dates, aes(xintercept = as.numeric(peak_date_pred)),
+             linetype = "dotted") +
+  labs(
+    x = NULL, y = "DHW",
+    title = "Peak heat stress timing from extrapolated rising-limb intersection",
+    subtitle = sprintf("Rising limb defined as %.0f–%.0f%% of annual max DHW (pre-peak)", 100*p_lo, 100*p_hi)
+  ) +
+  theme_bw()
 ```
 
 
@@ -284,6 +284,7 @@ all0 %>%
 # Number of corals surveyed each year postfiltering
 all0 %>% count(year)
 ```
+
 
 ## Symbiont metadata for Florida corals
 ```{r import_sym_data}
@@ -756,102 +757,108 @@ all1 <- all0 %>%
 # Keep only those species observed at least 20 times in each year
 spp_to_include <- all1 %>%
   count(Species, year) %>%
+  complete(Species, year, fill = list(n = 0)) %>%
   group_by(Species) %>%
-  dplyr::filter(min(n) >= 20)  # 20 is a good cutoff
+  dplyr::filter(min(n) >= 10)  # 20 is a good cutoff
+unique(spp_to_include$Species)
 
 allf <- all1 %>%
   filter(Species %in% spp_to_include$Species)
-
-# Filter out Marquesas Subregion -- it was not surveyed in 2014 or 2015
-# Filter out Tortugas Bank bc only surveyed in 2024
-allf <- allf %>% filter(!(Subregion %in% c("Marquesas", "Tortugas--Tortugas Bank")))
-
-## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
-allg <- allf %>%
-  group_by(year, Date, Week2, Subregion, Site, dhw, cummaxdhw, Species) %>%
-  summarize(BL = sum(Bleaching2 > 1),
-            NB = sum(Bleaching2 <= 1)) %>%
-  ungroup()
 
 # How many observations including 2014/2015/2023/2024 filtered?
 nrow(allf)
 allf %>% count(year)
 
+## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
+allg <- allf %>%
+  group_by(year, Week2, Subregion, Site, dhw, cummaxdhw, Species) %>%
+  summarize(BL = sum(Bleaching2 > 1),
+            NB = sum(Bleaching2 <= 1)) %>%
+  ungroup()
+
 # Plot raw bleaching prevalence data
 ggplot(allg, aes(x = dhw, y = BL/(BL+NB))) +
   geom_point(aes(size = BL+NB), alpha = 0.1) +
   facet_wrap(~year) +
-  geom_smooth(method = "loess")
-
-ggplot(allg, aes(x = dhw, y = BL/(BL+NB))) +
-  geom_smooth(aes(group = year, color = year), method = "loess")
-
-ggplot(allg, aes(x = cummaxdhw, y = BL/(BL+NB))) +
-  geom_point(aes(size = BL+NB), alpha = 0.1) +
-  facet_wrap(~year) +
-  geom_smooth(method = "loess")
-
-ggplot(allg, aes(x = dhw, y = cummaxdhw)) +
-  geom_point(aes(color = Subregion)) +
-  facet_wrap(~year)
+  geom_smooth(method = "loess", span = 0.2) +
+  coord_cartesian(ylim = c(0, 1))
 ```
 
 ## All corals - ED50s (glmer)
 ```{r bleaching_by_dhw_across_years}
-peak_dates
-nrow(allg)
 # Model differences in bleaching severity between years with DHW as continuous predictor
-dhw.mod <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
+dhw.mod24 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                  family = "binomial", data = allg, 
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-nrow(model.frame(dhw.mod))
-allg %>% filter(is.na(Subregion))
 
 # Function to get ED50s and ∆ED50s
-ed50s.fun_fast <- function(mod) {
+ed50s.fun_fast <- function(mod, peak_dates = NULL) {
+  if (is.null(peak_dates)) {
+    if (!exists("peak_dates", envir = .GlobalEnv, inherits = FALSE)) {
+      stop("No peak_dates provided and no object named 'peak_dates' found in the global environment.")
+    }
+    peak_dates <- get("peak_dates", envir = .GlobalEnv)
+  }
+  
   combos <- peak_dates
   b <- fixef(mod)
-  # global DHW slope (same for all year/week in your model)
-  b_dhw <- unname(b["dhw"])
-  # helper to safely grab coefficients that may not exist (rank deficiency)
-  getb <- function(nm) if (nm %in% names(b)) unname(b[nm]) else 0
-  # compute eta at dhw = 0 for each combo under your parameterization
-  eta0 <- numeric(nrow(combos))
-  for (i in seq_len(nrow(combos))) {
-    yr <- combos$year[i]
-    wk <- combos$Week2[i]
-    eta <- getb("(Intercept)")
-    # year main effects: only present for non-reference years (reference appears to be 2014)
-    if (yr != "2014") eta <- eta + getb(paste0("year", yr))
-    # interaction term uses: yearXXXX:Week2(...)
-    # (note: in your fixef output, even 2014 has interaction columns)
-    eta <- eta + getb(paste0("year", yr, ":Week2", wk))
-    eta0[i] <- eta
+
+  mf <- model.frame(mod)
+
+  # ensure year/Week2 are factors with the model's levels (this will also catch fakes)
+  combos$year  <- factor(as.character(combos$year),  levels = levels(mf$year))
+  combos$Week2 <- factor(as.character(combos$Week2), levels = levels(mf$Week2))
+
+  # explicit checks (friendlier error messages than "new levels" downstream)
+  bad_year  <- setdiff(as.character(peak_dates$year),  levels(mf$year))
+  bad_week2 <- setdiff(as.character(peak_dates$Week2), levels(mf$Week2))
+  if (length(bad_year))  stop("peak_dates has year(s) not in model: ",  paste(bad_year, collapse = ", "))
+  if (length(bad_week2)) stop("peak_dates has Week2 level(s) not in model: ", paste(bad_week2, collapse = ", "))
+
+  # build a fixed-effect design matrix for dhw = 0 rows
+  combos$dhw <- 0
+  tt <- delete.response(terms(mod))
+  X <- model.matrix(tt, combos)
+
+  # handle rank-deficiency: columns in X that were dropped from fixef(mod)
+  miss <- setdiff(colnames(X), names(b))
+  if (length(miss)) {
+    warning("Some fixed-effect columns are not in fixef(mod) (rank deficiency); treating as 0: ",
+            paste(miss, collapse = ", "))
+    b <- c(b, setNames(rep(0, length(miss)), miss))
   }
-  # ED50 is where eta = 0 on logit scale => dhw = -eta0 / b_dhw
-  ed50 <- if (abs(b_dhw) < 1e-12) rep(NA_real_, length(eta0)) else -eta0 / b_dhw
-  res <- c(ed50, ed50[2]-ed50[1], ed50[3]-ed50[1], ed50[4]-ed50[1])
-  setNames(res, c("2014","2015","2023","2024","2015-2014","2023-2014","2024-2014"))
+
+  eta0 <- drop(X %*% b[colnames(X)])
+
+  # ED50 where eta = 0 on logit scale: dhw = -eta0 / beta_dhw
+  if (!("dhw" %in% names(b)) || abs(unname(b["dhw"])) < 1e-12) {
+    ed50 <- rep(NA_real_, length(eta0))
+  } else {
+    ed50 <- -eta0 / unname(b["dhw"])
+  }
+
+  ed50_names <- as.character(combos$year)
+  delta <- ed50[-1] - ed50[1]
+  delta_names <- paste0(as.character(combos$year[-1]), "-", as.character(combos$year[1]))
+
+  res <- c(ed50, delta)
+  setNames(res, c(ed50_names, delta_names))
 }
 
 # Get point estimates for ED50s and ∆ED50s
-bleach50 <- ed50s.fun_fast(dhw.mod)
+bleach50 <- ed50s.fun_fast(dhw.mod24)
 bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-set.seed(1)
-boot.outnull <- bootMer(dhw.mod, FUN = ed50s.fun_fast, nsim = 10, re.form = NULL,
-                    seed = 123, parallel = "multicore", ncpus = 10) 
-saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
+# set.seed(1)
+# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+#                     seed = 123, parallel = "multicore", ncpus = 10) 
+# saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
 boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
 upper <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
 se <- apply(boot.outnull$t, 2, sd)
-
-bleach50
-apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=c(0.025, 0.5, 0.975), na.rm=TRUE)))
-apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=0.5, na.rm=TRUE)))
 
 ed50conf <- tibble(
   year = names(bleach50), 
@@ -859,9 +866,6 @@ ed50conf <- tibble(
   se = se,
   lower = lower,
   upper = upper)
-
-
-# For plotting, Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching), And select just the range of peak DHWs experienced across sites in each year
 
 
 # Get max and min DHW for conducted surveys as bounds
@@ -875,8 +879,8 @@ targets <- peak_dates %>%
   transmute(year = as.character(year), Week2) %>%   # match emmeans labels
   left_join(dhw_ranges, by = "year")
 
-# Get emmeans grid
-dhw.res <- emmeans(dhw.mod, specs = c("dhw", "year", "Week2"), type = "response",
+# Get emmeans grid # For plotting, Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching), And select just the range of peak DHWs experienced across sites in each year
+dhw.res <- emmeans(dhw.mod24, specs = c("dhw", "year", "Week2"), type = "response",
                    re.form = NA,
                    at = list(dhw = seq(0, 23, 0.1), Week2 = unique(peak_dates$Week2)), 
                    rg.limit = 20000, level = 0.84)
@@ -894,13 +898,13 @@ dhw.res3 <- as_tibble(dhw.res) %>%
 # Plot
 dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
   geom_line(aes(color = prob), lwd = 2) +
   geom_line(data = dhw.res3, linetype = 2, linewidth = 0.1) +
   # Add year text labels
   geom_text(data = dhw_ranges,
-           aes(x = maxdhw, y = c(0.68, 0.58, 0.9, 0.19), label = year),
-           hjust = c(0,0,1,0), nudge_y = c(0,0,0.03,-0.05)) +
+           aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year),
+           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0)) +
   # Add line segments at ED50s
   geom_segment(data = slice(ed50conf, 1:4),
               aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = c(1,1,1,2), lwd = 0.1) +
@@ -913,7 +917,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   annotate("segment", x = ed50conf[[4,2]] - 1e-6, xend = ed50conf[[4,2]], y = 0, yend = 0, lwd = 0.2, lty = 1,
            arrow = arrow(type = "open", length = unit(3, "mm"))) +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(-0.025, 0.95), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 
+  scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 
                      labels = scales::label_percent()) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
@@ -953,10 +957,10 @@ finaldegC24 <- degC %>%
 
 # Annotate and save bleaching response curves plot // Fig4
 (dhw.bleach.plot +
-  annotate("text", x = 14.2, y = 0.04, hjust = 0, size = 3, 
+  annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 3, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
-  annotate("text", x = 18.9, y = 0.04, hjust = 0, size = 3, fontface = "italic",
+  annotate("text", x = 18.4, y = 0.04, hjust = 0, size = 3, fontface = "italic",
            label = paste0("+", signif(ed50conf$ed50[[7]], 2), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
 )
@@ -968,7 +972,9 @@ ggsave(filename = "figures/Fig4.png", plot = dhw.bleach.plot, width = 100, heigh
 ## Species - ∆ED50 2014-15-23
 
 ```{r species_bleaching_by_year_dhw, fig.width = 7, fig.height = 7}
+# Exclude 2024 from species-level analysis
 allgno24 <- filter(allg, year != "2024")
+
 # Model differences in bleaching severity between years with DHW
 dhw.sp.mod <- glmer(
   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
@@ -979,12 +985,12 @@ dhw.sp.mod <- glmer(
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
 dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(34,36]","(36,38]","(38,40]")), 
+                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
                       rg.limit = 200000, level = 0.84)
 dhw.sp.res2 <- subset(dhw.sp.res,
-  (year == "2014" & Week2 == "(36,38]" & dhw <= 8.11 & dhw > 0.48) |
-  (year == "2015" & Week2 == "(36,38]" & dhw <= 8.90 & dhw > 0) |
-  (year == "2023" & Week2 == "(36,38]" & dhw <= 21.5 & dhw > 1.06)# |
+  (year == "2014" & Week2 == "(35,37]" & dhw <= 8.11 & dhw > 0.48) |
+  (year == "2015" & Week2 == "(37,39]" & dhw <= 8.90 & dhw > 0) |
+  (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06)# |
   #(year == "2024" & Week2 == "(38,40]" & dhw <= 11.7 & dhw > 0.16) 
 )
 
@@ -1007,19 +1013,19 @@ dhw.sp.res2 <- subset(dhw.sp.res,
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
   coord_cartesian(clip = "off"))
 
-ggsave(filename = "figures/FigS4new5.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
+ggsave(filename = "figures/FigS4new6.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
 ## change in ED50s from 2014-2015, and 2014-2023
 sp.ed50s.fun <- function(dhw.sp.mod) {
   dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.05), Week2 = c("(34,36]", "(36,38]")), 
+                   at = list(dhw = seq(0, 23, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
                    rg.limit = 200000, level = 0.84)
   dhw.sp.res22 <- subset(dhw.sp.res,
-    (year == "2014" & Week2 == "(36,38]") |
-    (year == "2015" & Week2 == "(36,38]") |
-    (year == "2023" & Week2 == "(34,36]")
+    (year == "2014" & Week2 == "(35,37]") |
+    (year == "2015" & Week2 == "(37,39]") |
+    (year == "2023" & Week2 == "(33,35]")
   )
   bleach50 <- as.tibble(dhw.sp.res22) %>%
     group_by(Species, year) %>%
@@ -1041,8 +1047,8 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 10, seed = 123, re.form = NULL,
-                       parallel = "multicore", ncpus = 10)
+sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
+                       parallel = "multicore", ncpus = 20)
 saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
 sp.boot.out <- readRDS(file = "data/processed/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
@@ -1063,7 +1069,7 @@ sp.ed50conf <- tibble(
 ### ∆ED50 --> ∆°C
 ```{r sp.changeED50, fig.width = 7, fig.height = 8}
 # Convert ∆ED50s to degC with error propagation
-sp.degC <- sp.ed50conf2 %>%
+sp.degC <- sp.ed50conf %>%
   filter(year == "2023-2014") %>%
   mutate(degC = ed50 / dhw.per.degC,
          # pmax(ed50, 0.1) uses 0.1 as a constant for cases (PFUR/PDIV) with ed50 = 0 (can't div. by 0), which serves to propagate the absolute error

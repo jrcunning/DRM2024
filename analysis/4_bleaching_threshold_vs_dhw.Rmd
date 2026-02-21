@@ -92,3 +92,30 @@ coefs
 write_csv(coefs, "data/processed/dhw.per.degC.csv")
 ```
 
+```{r}
+
+
+peaks <- temp %>%
+  filter(year %in% c(2014, 2015, 2023, 2024)) %>%
+  #mutate(temp_smooth = zoo::rollmean(temp, k = 7, fill = NA)) %>%
+  group_by(year) %>%
+  slice_max(temp_smooth, n = 1, with_ties = FALSE)
+
+tempfig <- temp %>%
+  filter(year %in% c(2014, 2015, 2023, 2024)) %>%
+  #mutate(temp_smooth = zoo::rollmean(temp, k = 7, fill = NA)) %>%
+  ggplot(aes(x = yday, y = temp)) +
+  geom_line(aes(color = factor(year))) +
+  geom_vline(data = peaks, aes(xintercept = yday, color = factor(year))) +
+  geom_hline(yintercept = mmm + 1, linetype = "dashed") +
+  scale_x_continuous(limits = c(150,350))
+
+dhwfig <- ggplot(dhw_daily, aes(x = yday(date_x), color = factor(year))) +
+  geom_line(aes(y = mean_dhw), linewidth = 0.25) +
+  geom_line(aes(y = mean_dhw_smooth)) +
+  geom_vline(data = peak_dates, aes(xintercept = yday(date_x), color = factor(year)), linetype = 2) +
+  scale_x_continuous(limits = c(150,350))
+
+cowplot::plot_grid(tempfig, dhwfig, ncol = 1, align = "v")
+```
+
