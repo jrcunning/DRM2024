@@ -87,7 +87,7 @@ set.seed(1)
 boot.out_sp <- bootMer(
   dhw.sp.mod,
   FUN = ed50s.fun_fast_sp,
-  nsim = 100,
+  nsim = 10,
   re.form = NULL,
   seed = 123,
   parallel = "multicore",
@@ -107,10 +107,11 @@ ci_sp <- tibble::tibble(
   upper = unname(upper)
 )
 
-sp.ed50conf <- ci_sp %>%
+sp.ed50conf2 <- ci_sp %>%
   filter(grepl("2023-2014", term)) %>%
   separate(term, into = c("Species", "year"), sep = "\\|") %>%
-  mutate(species = fct_reorder(Species, est))
+  mutate(Species = fct_reorder(Species, est),
+         ed50 = est)
 
-ggplot(sp.ed50conf, aes(x = species, y = est)) +
+ggplot(sp.ed50conf2, aes(x = Species, y = ed50)) +
   geom_point()

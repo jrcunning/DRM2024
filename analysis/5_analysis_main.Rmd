@@ -910,18 +910,18 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   # Add year text labels
   geom_text(data = dhw_ranges,
            aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year),
-           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0)) +
+           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,-0.3), size = 3) +
   # Add line segments at ED50s
   geom_segment(data = slice(ed50conf, 1:4),
               aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = c(1,1,1,2), lwd = 0.1) +
   geom_point(data = slice(ed50conf, 1:4), aes(y = 0.5, x = ed50), pch = 1, stroke = 0.2) +
   # Annotate increase in heat tolerance
   annotate("segment", x = ed50conf[[1,2]], xend = ed50conf[[3,2]], y = 0, lwd = 0.2,
-          arrow = arrow(type = "closed", length = unit(3, "mm"))) +
+          arrow = arrow(type = "closed", length = unit(2, "mm"))) +
   annotate("segment", x = ed50conf[[3,2]], xend = ed50conf[[4,2]], y = 0, lwd = 0.2, lty = 2,
-          arrow = arrow(type = "open", length = unit(3, "mm"))) +
+          arrow = arrow(type = "open", length = unit(2, "mm"))) +
   annotate("segment", x = ed50conf[[4,2]] - 1e-6, xend = ed50conf[[4,2]], y = 0, yend = 0, lwd = 0.2, lty = 1,
-           arrow = arrow(type = "open", length = unit(3, "mm"))) +
+           arrow = arrow(type = "open", length = unit(2, "mm"))) +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 
                      labels = scales::label_percent()) +
@@ -963,15 +963,15 @@ finaldegC24 <- degC %>%
 
 # Annotate and save bleaching response curves plot // Fig4
 (dhw.bleach.plot +
-  annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 3, 
+  annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 2, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
-  annotate("text", x = 18.4, y = 0.04, hjust = 0, size = 3, fontface = "italic",
+  annotate("text", x = 18.4, y = 0.04, hjust = 0, size = 2, fontface = "italic",
            label = paste0("+", signif(ed50conf$ed50[[7]], 2), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
 )
 
-ggsave(filename = "figures/Fig4.png", plot = dhw.bleach.plot, width = 100, height = 90, units = "mm")
+ggsave(filename = "figures/Fig4.png", width = 100, height = 90, units = "mm")
 
 ```
 
@@ -1019,7 +1019,7 @@ dhw.sp.res2 <- subset(dhw.sp.res,
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
   coord_cartesian(clip = "off"))
 
-ggsave(filename = "figures/FigS4new6.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
+ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1053,9 +1053,9 @@ sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-                       parallel = "multicore", ncpus = 20)
-saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
+# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 20)
+# saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
 sp.boot.out <- readRDS(file = "data/processed/sp.boot.out.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -1072,10 +1072,105 @@ sp.ed50conf <- tibble(
   separate(year, into = c("Species", "year"), sep = " ")
 ```
 
+# species models with 2024 in
+```{r species_bleaching_by_year_dhw_with_2024, fig.width = 7, fig.height = 7}
+# Model differences in bleaching severity between years with DHW
+dhw.sp.mod.24 <- glmer(
+  cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
+  family = "binomial", data = allg, verbose = FALSE,
+  nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+#### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
+
+# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+# And select just the range of peak DHWs experienced across sites in each year
+dhw.sp.res.24 <- emmeans(dhw.sp.mod.24, specs = c("Species", "dhw", "year", "Week2"), type = "response",
+                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+                      rg.limit = 200000, level = 0.84)
+dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
+  (year == "2014" & Week2 == "(35,37]" & dhw <= 8.11 & dhw > 0.48) |
+  (year == "2015" & Week2 == "(37,39]" & dhw <= 8.90 & dhw > 0) |
+  (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06) |
+  (year == "2024" & Week2 == "(37,39]" & dhw <= 11.7 & dhw > 0.16) 
+)
+
+
+# Plot
+(dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2), aes(x = dhw, y = prob, group = year)) +
+  facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
+  geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
+  geom_hline(aes(yintercept = 0.5), lty = 2, lwd = 0.25) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
+                     labels = scales::label_percent()) +
+  # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+  #                       limits = c(0, 1), midpoint = 0.5) +
+  theme_classic() +
+  theme(legend.position = c(0.8, 0.04),
+        legend.direction = "horizontal",
+        strip.background = element_blank(),
+        strip.text = element_text(face = "italic")) +
+  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
+  coord_cartesian(clip = "off"))
+
+ggsave(filename = "figures/FigS4.24.png", plot = dhw.sp.bleach.plot.24, width = 140, height = 140, units = "mm")
+
+
+# Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
+## change in ED50s from 2014-2015, and 2014-2023
+sp.ed50s.fun.24 <- function(dhw.sp.mod) {
+  dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
+                   at = list(dhw = seq(0, 23, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+                   rg.limit = 200000, level = 0.84)
+  dhw.sp.res22 <- subset(dhw.sp.res,
+    (year == "2014" & Week2 == "(35,37]") |
+    (year == "2015" & Week2 == "(37,39]") |
+    (year == "2023" & Week2 == "(33,35]")
+  )
+  bleach50 <- as.tibble(dhw.sp.res22) %>%
+    group_by(Species, year) %>%
+    slice(which.min(abs(prob - 0.5)))
+  bleachdiffs <- bleach50 %>%
+    group_by(Species) %>%
+    summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
+              "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
+    pivot_longer(2:3)
+  names <- c(paste(bleach50$Species, bleach50$year), paste(bleachdiffs$Species, bleachdiffs$name))
+  vals <- c(bleach50$dhw, bleachdiffs$value)
+  vals <- setNames(vals, names)
+  return(vals)
+}
+
+# Get point estimates for ED50s and ∆ED50s
+sp.bleach50.24 <- sp.ed50s.fun.24(dhw.sp.mod.24)
+
+# Bootstrap ED50s for SE/confidence intervals
+## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
+## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
+# sp.boot.out.24 <- bootMer(dhw.sp.mod.24, FUN = sp.ed50s.fun.24, nsim = 50, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 10)
+# saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
+sp.boot.out.24 <- readRDS(file = "data/processed/sp.boot.out.24.rds")
+## Get confidence intervals from Bootstrap
+sp.lower.24 <- apply(sp.boot.out.24$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
+sp.upper.24 <- apply(sp.boot.out.24$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
+## Get standard error from Bootstrap
+sp.se.24 <- apply(sp.boot.out.24$t, 2, sd)
+
+sp.ed50conf.24 <- tibble(
+  year = names(sp.bleach50.24), 
+  ed50 = sp.bleach50.24,
+  se = sp.se.24,
+  lower = sp.lower.24,
+  upper = sp.upper.24) %>%
+  separate(year, into = c("Species", "year"), sep = " ")
+
+```
+
+
 ### ∆ED50 --> ∆°C
 ```{r sp.changeED50, fig.width = 7, fig.height = 8}
 # Convert ∆ED50s to degC with error propagation
-sp.degC <- sp.ed50conf %>%
+sp.degC <- sp.ed50conf.24 %>%
   filter(year == "2023-2014") %>%
   mutate(degC = ed50 / dhw.per.degC,
          # pmax(ed50, 0.1) uses 0.1 as a constant for cases (PFUR/PDIV) with ed50 = 0 (can't div. by 0), which serves to propagate the absolute error
@@ -1114,6 +1209,8 @@ net <- sp.degC %>%
   left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
+# net <- net %>%
+#   filter(!Species %in% c("PFUR", "PDIV", "AAGA"))
 
 # Model change in tolerance vs. change in density
 # Passing Bablok regression
@@ -1303,7 +1400,7 @@ ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
 
 s5 <- cowplot::plot_grid(decomp, ps, nrow = 2, rel_heights = c(0.55, 0.45), labels = "A")
 s5
-ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
+ggsave(filename = "figures/FigS5with24.png", plot = s5, width = 190, height = 200, units = "mm")
 
 
 
@@ -1331,7 +1428,7 @@ stat_text <- paste0(
            size = 2.5) +
     coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC))))
 
-ggsave(filename = "figures/Fig5.png", plot = fig5,
+ggsave(filename = "figures/Fig5with24.png", plot = fig5,
        width = 110, height = 100, units = "mm")
 ```
 
