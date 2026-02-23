@@ -10,6 +10,7 @@ library(tidyverse)
 ```
 
 
+
 # 2014
 
 ### 2014 DRM data
@@ -166,6 +167,8 @@ df15 <- df15 %>%
                                  4 ~ "Dead"),
                              levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
 ```
+
+
 
 ### 2015 DHW data
 ```{r 2015_dhw}
@@ -488,3 +491,79 @@ df24 %>%
   count(Transect)
 save(df24, file = "data/processed/2024.RData")
 ```
+
+
+# Other Years
+```{r}
+# Import DRM data
+# df <- read_csv("data/drm/export.csv") %>%
+#   mutate(across(where(is.character), as_factor),
+#          Date = as_date(as.character(Date), format = "%m/%d/%Y"))
+
+df <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
+  rename(Depth = Enddepth, TLRate = Tlrate,
+         `Disease Conditions` = Disease_Conditions, 
+         `Other Conditions` = Other_Conditions,
+         oPercRecMort = Opercrecmort, 
+         dPercRecMort = Dpercrecmort)
+
+# Get day of the year number, week, and month for some model fitting
+df <- df %>%
+  mutate(Day = yday(Date),
+         Week = week(Date),
+         Week2 = factor(cut(Week, breaks = seq(1,52,2))),
+         Week = factor(Week),
+         Month = factor(month(Date)))
+
+# How many corals observed?
+nrow(df)
+
+# Change Deerfield to either Broward or South Palm Beach based on Lat = 26.32825
+df[df$Subregion == "Deerfield" & df$Latitude > 26.32825, "Subregion"] <- "South Palm Beach"
+df[df$Subregion == "Deerfield" & df$Latitude < 26.32825, "Subregion"] <- "Broward-Miami"
+
+# Order Subregions from south to north
+df <- df %>%
+  mutate(Subregion = fct_relevel(Subregion, c("Tortugas--Dry Tortugas NP", "Marquesas", "Lower Keys", 
+                                              "Middle Keys", "Mid-Upper Keys Transition", "Upper Keys",
+                                              "Biscayne", "Broward-Miami", "South Palm Beach", 
+                                              "North Palm Beach", "Martin")))
+
+# Order Species alphabetically
+df <- df %>%
+  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+
+# Are there any dead corals?
+dead <- df %>% filter(Old + Recent >= 100)
+df <- anti_join(df, dead)
+
+# Create ordinal variables and factors for bleaching severity
+df <- df %>%
+  mutate(Bleaching2 = case_when((is.na(Bleaching) & !grepl("TRS", `Other Conditions`)) ~ 0,
+                                Bleaching == "P" ~ 1,
+                                Bleaching == "PB" ~ 2,
+                                Bleaching == "BL" ~ 3,
+                                ((Old + Recent) >= 100 & grepl("TRS", `Other Conditions`)) ~ 4),
+         Bleaching3 = factor(case_match(Bleaching2, 
+                                 0 ~ "Healthy",
+                                 1 ~ "Pale",
+                                 2 ~ "Partially Bleached",
+                                 3 ~ "Bleached",
+                                 4 ~ "Dead"),
+                             levels = c("Healthy", "Pale", "Partially Bleached", "Bleached", "Dead")))
+
+pctBL <- df %>%
+  mutate(year = year(Date)) %>%
+  group_by(year, Site) %>%
+  summarize(pctBL = sum(Bleaching2 >= 2) / n()) %>%
+  ungroup()
+
+ggplot(pctBL, aes(x = factor(year), y = pctBL)) + geom_boxplot()
+
+pctBL %>%
+  group_by(year) %>%
+  summarize(p = quantile(pctBL, 0.9, na.rm = TRUE))
+```
+
