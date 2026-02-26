@@ -1610,25 +1610,249 @@ ggsave("figures/FigS7.png", plot = sizefreq, width = 220, height = 220, units = 
 
 
 ```{r}
-net
+sym_shifts <- read_csv("data/processed/symbiont_shifts.csv") %>%
+  left_join(net %>% select(Species, degC, degC.se, ngen, estimate))
 
-shuff <- read_csv("~/Projects/decadal-shifts-/shuff_metrics.csv")
-shuff
+mod_w <- lm(med ~ 0 + I(ngen - 1), data = sym_shifts, weights = w)
+summary(mod_w)
+mod_w_pval <- broom::tidy(mod_w)[1,5]
+mod_u <- lm(med ~ 0 + I(ngen - 1), data = sym_shifts)
+summary(mod_u)
+mod_u_pval <- broom::tidy(mod_u)[1,5]
 
-species_names
+(fig <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
+  geom_point(position = position_jitter(width = 0.15, seed = 3),
+             size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0, linewidth = 0.3,
+                position = position_jitter(width = 0.15, seed = 3)) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8))
 
-# sanity check unmapped
+regression_line_mod_u <- tibble(
+  ngen_seq = seq(1, 4, 1),
+  predicted_med = coef(mod_u)[1] * ngen_seq - coef(mod_u)[1]
+)
+regression_line_mod_w <- tibble(
+  ngen_seq = seq(1, 4, 1),
+  predicted_med = coef(mod_w)[1] * ngen_seq - coef(mod_w)[1]
+)
 
-hi <- shuff %>%
-  filter(analysis == "A_depth_std") %>%
-  pivot_longer(c(3:11), names_to = "shuff_metric") %>%
-  separate(shuff_metric, into = c("metric", "interval"), sep = "_", extra = "merge") %>%
-  left_join(net %>% select(Species, ngen, estimate))
+fig +
+  geom_line(data = regression_line_mod_u, aes(x = ngen_seq, y = predicted_med), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  scale_x_continuous(limits = c(1, 4.2))
 
-ggplot(hi, aes(x = ngen, y = value, group = interval, color = interval)) +
-  geom_jitter(width = 0.1) +
+
+(ssfig <- sym_shifts %>%
+  ggplot(aes(x = med, y = degC)) +
+  geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se)) +
+  geom_errorbar(aes(xmin = lo, xmax = hi)) +
+  geom_point(aes(color = factor(ngen))) +
+  geom_text_repel(aes(label = Species)) +
   geom_smooth(method = "lm", se = FALSE) +
-  facet_wrap(~metric+interval) +
-  geom_text_repel(aes(label = Species))
+  labs(x = "Shift in symbiont composition (Hel dist)", y = "Change in heat tolerance (°C)")
+)
+
+
+# Fit the model, with intercept zero at density change estimate = 0 and med(Hel dist) = 0
+#  Weight observations using the standard error of the degC response
+ols_model_adjusted <- lm(degC ~ 0 + estimate + med, data = sym_shifts, weights = 1/degC.se^2)
+# Check intercept
+predict(ols_model_adjusted, newdata = data.frame(estimate = 0, med = seq(0,1,0.1)))
+# Check residuals
+#plot(ols_model_adjusted)
+
+# Check model summary
+(summary_ols <- summary(ols_model_adjusted))
+med_pval <- broom::tidy(ols_model_adjusted)[2,5]
+
+# Extract model coefficients
+ols_slope_estimate <- coef(ols_model_adjusted)["estimate"]
+ols_slope_helmed <- coef(ols_model_adjusted)["med"]
+
+# Compute contributions of each predictor
+sym_shifts$Estimate_Contribution <- ols_slope_estimate * sym_shifts$estimate
+sym_shifts$helmed_Contribution <- ols_slope_helmed * sym_shifts$med
+
+# Compute residual variation (unexplained variation)
+sym_shifts$Unexplained_Variation <- sym_shifts$degC - (sym_shifts$Estimate_Contribution + sym_shifts$helmed_Contribution)
+
+# Verify that the sum matches observed degC exactly
+sym_shifts$Check_Sum <- sym_shifts$Estimate_Contribution + sym_shifts$helmed_Contribution + sym_shifts$Unexplained_Variation
+all.equal(sym_shifts$Check_Sum, sym_shifts$degC)  # Should return TRUE
+
+# Plot contributions of each predictor to observed degC values
+outres <- sym_shifts %>%
+  select("Species", "degC", "degC.se", 
+         "Estimate_Contribution", "helmed_Contribution", "Unexplained_Variation") %>%
+  pivot_longer(cols = 4:6) %>%
+  arrange(degC) %>%
+  mutate(Species = fct_reorder(Species, degC))
+
+(decomp <- ggplot(outres, aes(x = Species, y = value, fill = name)) +
+  geom_col(position = "stack", alpha = 1) +
+  geom_point(aes(y = degC, shape = "Net change (±SE)"), size = 2) +
+  geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0) +
+  scale_x_discrete(labels = abbrev_names[as.character(outres$Species)]) +
+  scale_fill_manual(name = "Modeled contributions", 
+                      labels = c("Population size", "hel med", "Unexplained"),
+                      values = c("#67a9cf", "#ef8a62", "#C0C0C0")) +
+  scale_shape_manual(name = "", values = 16) +
+  theme_classic() +
+  theme(axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 10),
+        axis.title.y = element_text(size = 12),
+        legend.text = element_text(size = 10),  # Decrease legend text size
+        legend.title = element_text(size = 10),  # Decrease legend title size
+        legend.key.size = unit(0.4, "cm"),  # Reduce legend key size
+        legend.spacing.y = unit(-0.2, "cm")) +  # Reduce vertical space between legend items +
+  theme(legend.position = c(0.12, 0.86),
+        legend.background = element_blank(),  # Transparent legend panel
+        legend.key = element_blank()) +
+  labs(x = "", y = "Change in bleaching threshold (°C)") +
+  guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
+         shape = guide_legend(order = 1, label.theme = element_text(size = 10))))
+
+# Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
+# Compute adjusted degC while preserving species-level variation
+# net_clean$Adj_degC_Estimate1 <- (ols_slope_estimate * net_clean$estimate) + residuals(ols_model_adjusted)
+# net_clean$Adj_degC_Ngen1 <- (ols_slope_ngen * (net_clean$ngen - 1)) + residuals(ols_model_adjusted)
+# net_clean$Residual_Variation1 <- residuals(ols_model_adjusted)
+#^^^ one way to calculate. 
+#VVV another way. equivalent, but more explicit because ngen_centered = 0 and estimate = 0 are specified in predict
+sym_shifts$Adj_degC_Estimate <- predict(ols_model_adjusted, newdata = data.frame(estimate = sym_shifts$estimate, med = 0)) + residuals(ols_model_adjusted)
+sym_shifts$Adj_degC_med <- predict(ols_model_adjusted, newdata = data.frame(estimate = 0, med = sym_shifts$med)) + residuals(ols_model_adjusted)
+sym_shifts$Residual_Variation <- residuals(ols_model_adjusted)
+### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
+
+
+# Generate regression lines data using correct centering
+estimate_seq <- seq(min(sym_shifts$estimate), max(sym_shifts$estimate), length.out = 100)
+med_seq <- seq(0, max(sym_shifts$med), length.out = 100)
+
+regression_line_estimate <- data.frame(
+  estimate = estimate_seq,
+  predicted_degC = ols_slope_estimate * estimate_seq
+)
+
+regression_line_med <- data.frame(
+  med = med_seq,
+  predicted_degC = ols_slope_helmed * med_seq)
+
+# Plot Effect of Estimate on Adjusted degC (Holding ngen = 1, with residuals)
+ggplot(sym_shifts, aes(x = estimate, y = Adj_degC_Estimate)) +
+  geom_line(data = regression_line_estimate, aes(x = estimate, y = predicted_degC), 
+            color = "#67a9cf", linewidth = 1.5, alpha = 1) +
+  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_errorbar(aes(ymin = Adj_degC_Estimate - degC.se, ymax = Adj_degC_Estimate + degC.se), 
+                width = 0, alpha = 0.7, lwd = 0.3) +
+  #geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8) +
+  #scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
+  labs(x = "Change in population size (2014-2023)", 
+       y = "Change in bleaching threshold (°C)\n(adjusted for symshift = 0)") +
+  theme_classic()
+
+# Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
+p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
+  geom_line(data = regression_line_med, aes(x = med, y = predicted_degC), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_errorbar(aes(ymin = Adj_degC_med - degC.se, ymax = Adj_degC_med + degC.se), 
+                width = 0, alpha = 0.7, lwd = 0.3) +
+  annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(med_pval, 5)), 
+           hjust = -0.1, vjust = 1.1) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8) +
+  labs(x = "Change in symbiont composition\n(2001-03 to 2019-20; Hellinger distance)", 
+       y = "Change in bleaching threshold (°C)\n(adjusted for pop. density change = 0)") +
+  scale_size_continuous(range = c(2, 5)) +
+  theme_classic() +
+  coord_cartesian(xlim = c(0, 0.6), ylim = c(0, 2.5))
+
+p1 <- fig +
+  geom_line(data = regression_line_mod_w, aes(x = ngen_seq, y = predicted_med), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  scale_x_continuous(breaks = seq(1, 4, 1), limits = c(1, 4.2)) +
+  coord_cartesian(xlim = c(1, 4.2), ylim = c(0, 0.6)) +
+  annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod_w_pval, 5)), 
+           hjust = -0.1, vjust = 1.1) +
+  theme_classic() +
+  labs(x = "Number of symbiont genera", 
+       y = "Change in symbiont composition\n(2001-03 to 2019-20; Hellinger distance)")
+
+cowplot::plot_grid(p1, p2, nrow = 1, align = "hv")
+
+
+
+
+
+# NOW DO NGEN AND DENSITY FOR THIS SUBSET OF SPECIES
+# STATISTICALLY MODEL DENSITY AND SYMBIONT EFFECTS
+
+# Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
+sym_shifts$ngen_centered <- sym_shifts$ngen - 1
+
+# Fit the model, with intercept zero at estimate = 0 and ngen = 1
+#  Weight observations using the standard error of the degC response
+ols_model_adjusted <- lm(degC ~ 0 + estimate + ngen_centered, data = sym_shifts, weights = 1/degC.se^2)
+# Check intercept
+predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = 0))
+# Check residuals
+#plot(ols_model_adjusted)
+
+# Check model summary
+(summary_ols <- summary(ols_model_adjusted))
+# Partition variance
+
+# Extract model coefficients
+ols_slope_estimate <- coef(ols_model_adjusted)["estimate"]
+ols_slope_ngen <- coef(ols_model_adjusted)["ngen_centered"]
+
+# Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
+# Compute adjusted degC while preserving species-level variation
+# net_clean$Adj_degC_Estimate1 <- (ols_slope_estimate * net_clean$estimate) + residuals(ols_model_adjusted)
+# net_clean$Adj_degC_Ngen1 <- (ols_slope_ngen * (net_clean$ngen - 1)) + residuals(ols_model_adjusted)
+# net_clean$Residual_Variation1 <- residuals(ols_model_adjusted)
+#^^^ one way to calculate. 
+#VVV another way. equivalent, but more explicit because ngen_centered = 0 and estimate = 0 are specified in predict
+sym_shifts$Adj_degC_Estimate2 <- predict(ols_model_adjusted, newdata = data.frame(estimate = sym_shifts$estimate, ngen_centered = 0)) + residuals(ols_model_adjusted)
+sym_shifts$Adj_degC_Ngen <- predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = sym_shifts$ngen_centered)) + residuals(ols_model_adjusted)
+sym_shifts$Residual_Variation <- residuals(ols_model_adjusted)
+### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
+
+# Add jitter to ngen to prevent overlap
+set.seed(42)
+sym_shifts$Jittered_Ngen <- jitter(sym_shifts$ngen, amount = 0.15)
+
+# Generate regression lines data using correct centering
+estimate_seq <- seq(min(sym_shifts$estimate), max(sym_shifts$estimate), length.out = 100)
+ngen_seq <- seq(1, max(sym_shifts$ngen), length.out = 100)
+
+regression_line_estimate <- data.frame(
+  estimate = estimate_seq,
+  predicted_degC = ols_slope_estimate * estimate_seq
+)
+
+regression_line_ngen <- data.frame(
+  ngen = ngen_seq,
+  predicted_degC = ols_slope_ngen * (ngen_seq - 1)
+)
+
+# Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
+p22 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
+  geom_line(data = regression_line_ngen, aes(x = ngen, y = predicted_degC), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
+                width = 0, alpha = 0.7, lwd = 0.3) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8) +
+  labs(x = "Number of symbiont genera", 
+       y = "Change in bleaching threshold (°C)\n(adjusted for density change = 0)") +
+  scale_size_continuous(range = c(2, 5)) +
+  theme_classic()
+
+cowplot::plot_grid(p1, p2, p22, nrow = 1, align = "hv")
 ```
 
