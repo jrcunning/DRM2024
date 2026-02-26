@@ -1,0 +1,1223 @@
+IQ-TREE 2.2.2.3 COVID-edition built Apr  7 2023
+
+Input file name: /app/outputs/analyses/500/20240730T195050/between_sample_distances/C/clade_C_seqs.aligned.fasta
+Type of analysis: ModelFinder + tree reconstruction
+Random seed number: 527228
+
+REFERENCES
+----------
+
+To cite IQ-TREE please use:
+
+Bui Quang Minh, Heiko A. Schmidt, Olga Chernomor, Dominik Schrempf,
+Michael D. Woodhams, Arndt von Haeseler, and Robert Lanfear (2020)
+IQ-TREE 2: New models and efficient methods for phylogenetic inference
+in the genomic era. Mol. Biol. Evol., in press.
+https://doi.org/10.1093/molbev/msaa015
+
+To cite ModelFinder please use: 
+
+Subha Kalyaanamoorthy, Bui Quang Minh, Thomas KF Wong, Arndt von Haeseler,
+and Lars S Jermiin (2017) ModelFinder: Fast model selection for
+accurate phylogenetic estimates. Nature Methods, 14:587–589.
+https://doi.org/10.1038/nmeth.4285
+
+SEQUENCE ALIGNMENT
+------------------
+
+Input data: 505 sequences with 378 nucleotide sites
+Number of constant sites: 167 (= 44.1799% of all sites)
+Number of invariant (constant or ambiguous constant) sites: 167 (= 44.1799% of all sites)
+Number of parsimony informative sites: 134
+Number of distinct site patterns: 306
+
+ModelFinder
+-----------
+
+Best-fit model according to BIC: TN+F+R3
+
+List of models sorted by BIC scores: 
+
+Model                  LogL         AIC      w-AIC        AICc     w-AICc         BIC      w-BIC
+TN+F+R3           -4389.143   10810.286 +    0.209 2077354.286 -        0   14808.139 +    0.467
+K2P+R3            -4401.582   10827.165 - 4.51e-05 2061139.165 -        0   14809.278 +    0.264
+TIM3+F+R3         -4387.869   10809.738 +    0.274 2081421.738 -        0   14811.526 +   0.0859
+TIM2+F+R3         -4388.799   10811.598 +    0.108 2081423.598 -        0   14813.385 -   0.0339
+TIM+F+R3          -4389.002   10812.003 +   0.0884 2081424.003 -        0   14813.791 -   0.0277
+TPM2+R3           -4401.060   10828.119 -  2.8e-05 2065192.119 -        0   14814.167 -   0.0229
+TNe+R3            -4401.080   10828.160 - 2.74e-05 2065192.160 -        0   14814.208 -   0.0225
+TN+F+I+R3         -4389.240   10812.481 +   0.0696 2081424.481 -        0   14814.268 -   0.0218
+TPM3+R3           -4401.613   10829.226 - 1.61e-05 2065193.226 -        0   14815.274 -   0.0132
+K3P+R3            -4401.644   10829.288 - 1.56e-05 2065193.288 -        0   14815.335 -   0.0128
+K2P+I+R3          -4401.763   10829.527 - 1.38e-05 2065193.527 -        0   14815.575 -   0.0113
+TIM3+F+I+R3       -4387.836   10811.672 +    0.104 2085495.672 -        0   14817.394 -  0.00457
+TIM2e+R3          -4400.547   10829.094 - 1.72e-05 2069249.094 -        0   14819.077 -  0.00197
+TIM2+F+I+R3       -4388.907   10813.814 -   0.0358 2085497.814 -        0   14819.536 -  0.00157
+TIM+F+I+R3        -4389.097   10814.194 -   0.0296 2085498.194 -        0   14819.917 -  0.00129
+TIM3e+R3          -4401.095   10830.189 - 9.94e-06 2069250.189 -        0   14820.172 -  0.00114
+TIMe+R3           -4401.139   10830.278 - 9.51e-06 2069250.278 -        0   14820.261 -  0.00109
+TPM2+I+R3         -4401.182   10830.365 - 9.11e-06 2069250.365 -        0   14820.347 -  0.00104
+TNe+I+R3          -4401.260   10830.520 - 8.42e-06 2069250.520 -        0   14820.503 - 0.000965
+HKY+F+R3          -4398.751   10827.501 - 3.81e-05 2073307.501 -        0   14821.419 - 0.000611
+TPM3+I+R3         -4401.724   10831.448 -  5.3e-06 2069251.448 -        0   14821.431 - 0.000607
+K3P+I+R3          -4401.759   10831.517 - 5.12e-06 2069251.517 -        0   14821.500 - 0.000586
+GTR+F+R3          -4387.580   10813.161 -   0.0496 2089573.161 -        0   14822.818 - 0.000303
+TPM3u+F+R3        -4397.347   10826.694 - 5.71e-05 2077370.694 -        0   14824.546 - 0.000128
+TIM2e+I+R3        -4400.665   10831.330 - 5.62e-06 2073311.330 -        0   14825.247 - 9.01e-05
+TVMe+R3           -4401.075   10832.149 - 3.73e-06 2073312.149 -        0   14826.067 - 5.98e-05
+TIM3e+I+R3        -4401.221   10832.442 - 3.22e-06 2073312.442 -        0   14826.360 - 5.16e-05
+TIMe+I+R3         -4401.257   10832.514 - 3.11e-06 2073312.514 -        0   14826.432 - 4.98e-05
+TPM2u+F+R3        -4398.504   10829.008 - 1.79e-05 2077373.008 -        0   14826.861 - 4.02e-05
+K3Pu+F+R3         -4398.665   10829.331 - 1.53e-05 2077373.331 -        0   14827.183 - 3.42e-05
+HKY+F+I+R3        -4398.968   10829.936 - 1.13e-05 2077373.936 -        0   14827.788 - 2.53e-05
+GTR+F+I+R3        -4387.483   10814.965 -   0.0201 2093654.965 -        0   14828.558 - 1.72e-05
+TPM3u+F+I+R3      -4397.470   10828.940 - 1.86e-05 2081440.940 -        0   14830.728 - 5.81e-06
+SYM+R3            -4400.551   10833.103 - 2.32e-06 2077377.103 -        0   14830.955 - 5.19e-06
+TVMe+I+R3         -4401.145   10834.290 - 1.28e-06 2077378.290 -        0   14832.142 - 2.87e-06
+TPM2u+F+I+R3      -4398.664   10831.329 - 5.62e-06 2081443.329 -        0   14833.116 - 1.76e-06
+K3Pu+F+I+R3       -4398.821   10831.642 - 4.81e-06 2081443.642 -        0   14833.429 - 1.51e-06
+GTR+F+R4          -4387.404   10816.809 -    0.008 2097740.809 -        0   14834.336 - 9.57e-07
+TVM+F+R3          -4397.056   10830.112 - 1.03e-05 2085514.112 -        0   14835.834 - 4.53e-07
+SYM+I+R3          -4400.623   10835.246 - 7.93e-07 2081447.246 -        0   14837.034 - 2.48e-07
+GTR+F+I+R4        -4387.360   10818.719 -  0.00308 2101830.719 -        0   14840.181 - 5.15e-08
+TVM+F+I+R3        -4397.149   10832.298 - 3.46e-06 2089592.298 -        0   14841.955 - 2.12e-08
+GTR+F+R2          -4403.778   10841.557 - 3.38e-08 2081453.557 -        0   14843.344 - 1.06e-08
+GTR+F+I+R2        -4401.807   10839.614 - 8.93e-08 2085523.614 -        0   14845.336 - 3.91e-09
+GTR+F+G4          -4409.050   10850.099 - 4.72e-10 2077394.099 -        0   14847.952 - 1.06e-09
+GTR+F+I+G4        -4409.930   10853.860 -  7.2e-11 2081465.860 -        0   14855.647 - 2.26e-11
+GTR+F+I           -4438.746   10909.491 - 5.99e-23 2077453.491 -        0   14907.344 - 1.34e-22
+GTR+F             -4453.209   10936.418 - 8.51e-29 2073416.418 -        0   14930.336 - 1.36e-27
+JC+R3             -4535.986   11093.973 - 5.22e-63 2057357.973 +        1   15072.151 - 2.19e-58
+JC+I+R3           -4536.107   11096.214 -  1.7e-63 2061408.214 -        0   15078.327 - 9.98e-60
+F81+F+R3          -4532.877   11093.754 - 5.82e-63 2069513.754 -        0   15083.736 - 6.67e-61
+F81+F+I+R3        -4533.029   11096.059 - 1.84e-63 2073576.059 -        0   15089.977 - 2.95e-62
+
+AIC, w-AIC   : Akaike information criterion scores and weights.
+AICc, w-AICc : Corrected AIC scores and weights.
+BIC, w-BIC   : Bayesian information criterion scores and weights.
+
+Plus signs denote the 95% confidence sets.
+Minus signs denote significant exclusion.
+
+SUBSTITUTION PROCESS
+--------------------
+
+Model of substitution: TN+F+R3
+
+Rate parameter R:
+
+  A-C: 1.0000
+  A-G: 5.7380
+  A-T: 1.0000
+  C-G: 1.0000
+  C-T: 3.7930
+  G-T: 1.0000
+
+State frequencies: (empirical counts from alignment)
+
+  pi(A) = 0.1657
+  pi(C) = 0.2406
+  pi(G) = 0.2457
+  pi(T) = 0.348
+
+Rate matrix Q:
+
+  A    -1.259    0.1516    0.8885    0.2193
+  C    0.1045    -1.091    0.1548    0.8319
+  G    0.5993    0.1516   -0.9703    0.2193
+  T    0.1045    0.5751    0.1548   -0.8344
+
+Model of rate heterogeneity: FreeRate with 3 categories
+Site proportion and rates:  (0.6618,0.5687) (0.3243,1.649) (0.01389,6.388)
+
+ Category  Relative_rate  Proportion
+  1         0.5687         0.6618
+  2         1.649          0.3243
+  3         6.388          0.01389
+
+MAXIMUM LIKELIHOOD TREE
+-----------------------
+
+Log-likelihood of the tree: -4342.9945 (s.e. 248.8561)
+Unconstrained log-likelihood (without tree): -2099.2915
+Number of free parameters (#branches + #model parameters): 1016
+Akaike information criterion (AIC) score: 10717.9890
+Corrected Akaike information criterion (AICc) score: 2077261.9890
+Bayesian information criterion (BIC) score: 14715.8415
+
+**************************** WARNING ****************************
+Number of parameters (K, model parameters and branch lengths): 1016
+Sample size (n, alignment length): 378
+
+Given that K>=n, the parameter estimates might be inaccurate.
+Thus, phylogenetic estimates should be interpreted with caution.
+
+Ideally, it is desirable that n >> K. When selecting optimal models,
+1. use AIC or BIC if n > 40K;
+2. use AICc or BIC if 40K >= n > K;
+3. be extremely cautious if n <= K
+
+To improve the situation (3), consider the following options:
+  1. Increase the sample size (n)
+  2. Decrease the number of parameters (K) to be estimated. If
+     possible:
+     a. Remove the least important sequences from the alignment
+     b. Specify some of the parameter values for the substitution
+        model (e.g., the nucleotide or amino acid frequencies)
+     c. Specify some of the parameter values for the rates-across-
+        sites model (e.g., the shape parameter for the discrete
+        Gamma distribution, the proportion of invariable sites, or
+        the rates of change for different rate categories under
+        the FreeRate model)
+
+Reference:
+Burnham KR, Anderson DR (2002). Model Selection and Multimodel
+Inference: A Practical Information-Theoretic Approach. Springer,
+New York.
+************************ END OF WARNING ***********************
+
+Total tree length (sum of branch lengths): 2.1393
+Sum of internal branch lengths: 0.6089 (28.4626% of tree length)
+
+WARNING: 368 near-zero internal branches (<0.0026) should be treated with caution
+         Such branches are denoted by '**' in the figure below
+
+NOTE: Tree is UNROOTED although outgroup taxon '1' is drawn at root
+
++**1
+|
+|                                +**2
+|                             +**|
+|                             |  |                                                    +**2772996
+|                             |  |                                         +----------|
+|                             |  |                                         |          |                     +--3655755
+|                             |  |                                         |          |                  +**|
+|                             |  |                                         |          |                  |  +--3376803
+|                             |  |                                         |          |               +**|
+|                             |  |                                         |          |               |  +**45023
+|                             |  |                                         |          |            +**|
+|                             |  |                                         |          |            |  |  +--1601749
+|                             |  |                                         |          |            |  +**|
+|                             |  |                                         |          |            |     +-----------4228029
+|                             |  |                                         |          |     +------|
+|                             |  |                                         |          |     |      |     +**4227860
+|                             |  |                                         |          |     |      |  +**|
+|                             |  |                                         |          |     |      |  |  |        +--891788
+|                             |  |                                         |          |     |      |  |  |     +--|
+|                             |  |                                         |          |     |      |  |  |     |  +**1390186
+|                             |  |                                         |          |     |      |  |  |  +**|
+|                             |  |                                         |          |     |      |  |  |  |  +**1240891
+|                             |  |                                         |          |     |      |  |  +**|
+|                             |  |                                         |          |     |      |  |     +**50098
+|                             |  |                                         |          |     |      +--|
+|                             |  |                                         |          |     |         +--4227861
+|                             |  |                                         |          |  +**|
+|                             |  |                                         |          |  |  |           +**1272284
+|                             |  |                                         |          |  |  |        +**|
+|                             |  |                                         |          |  |  |        |  |     +**4227721
+|                             |  |                                         |          |  |  |        |  |  +--|
+|                             |  |                                         |          |  |  |        |  |  |  |      +**4227899
+|                             |  |                                         |          |  |  |        |  |  |  +------|
+|                             |  |                                         |          |  |  |        |  |  |         +------4227900
+|                             |  |                                         |          |  |  |        |  +**|
+|                             |  |                                         |          |  |  |        |     |  +--891783
+|                             |  |                                         |          |  |  |        |     +--|
+|                             |  |                                         |          |  |  |        |        +**1390181
+|                             |  |                                         |          |  |  |     +**|
+|                             |  |                                         |          |  |  |     |  +**50097
+|                             |  |                                         |          |  |  |  +**|
+|                             |  |                                         |          |  |  |  |  +**4227859
+|                             |  |                                         |          |  |  +--|
+|                             |  |                                         |          |  |     +--4227862
+|                             |  |                                         |          +--|
+|                             |  |                                         |             |        +--2773475
+|                             |  |                                         |             |     +**|
+|                             |  |                                         |             |     |  |     +**4228034
+|                             |  |                                         |             |     |  |  +--|
+|                             |  |                                         |             |     |  |  |  +--4228035
+|                             |  |                                         |             |     |  +--|
+|                             |  |                                         |             |     |     +**3376809
+|                             |  |                                         |             |  +**|
+|                             |  |                                         |             |  |  |  +--3654257
+|                             |  |                                         |             |  |  +**|
+|                             |  |                                         |             |  |     +--4227751
+|                             |  |                                         |             +**|
+|                             |  |                                         |                +**37587
+|                             |  |                                      +--|
+|                             |  |                                      |  |              +**862
+|                             |  |                                      |  |           +--|
+|                             |  |                                      |  |           |  +--27927
+|                             |  |                                      |  |        +--|
+|                             |  |                                      |  |        |  +**863
+|                             |  |                                      |  |     +--|
+|                             |  |                                      |  |     |  +**865
+|                             |  |                                      |  |  +--|
+|                             |  |                                      |  |  |  +**871
+|                             |  |                                      |  +--|
+|                             |  |                                      |     +**866
+|                             |  |                                   +--|
+|                             |  |                                   |  +**875
+|                             |  |                                +**|
+|                             |  |                                |  |                                                                                                                                                                     +--2772999
+|                             |  |                                |  |                                                                                                                                                              +------|
+|                             |  |                                |  |                                                                                                                                                              |      +**1391611
+|                             |  |                                |  |                                                                                                                                                           +**|
+|                             |  |                                |  |                                                                                                                                                           |  +--71479
+|                             |  |                                |  |                                                                                                                                                        +**|
+|                             |  |                                |  |                                                                                                                                                        |  |           +**895106
+|                             |  |                                |  |                                                                                                                                                        |  |        +--|
+|                             |  |                                |  |                                                                                                                                                        |  |        |  |      +--2769799
+|                             |  |                                |  |                                                                                                                                                        |  |        |  +------|
+|                             |  |                                |  |                                                                                                                                                        |  |        |         +**1147920
+|                             |  |                                |  |                                                                                                                                                        |  |     +**|
+|                             |  |                                |  |                                                                                                                                                        |  |     |  |  +**1148001
+|                             |  |                                |  |                                                                                                                                                        |  |     |  +--|
+|                             |  |                                |  |                                                                                                                                                        |  |     |     +**71478
+|                             |  |                                |  |                                                                                                                                                        |  |  +**|
+|                             |  |                                |  |                                                                                                                                                        |  |  |  +--71480
+|                             |  |                                |  |                                                                                                                                                        |  +**|
+|                             |  |                                |  |                                                                                                                                                        |     +**2554
+|                             |  |                                |  |                                                                                                                                                     +--|
+|                             |  |                                |  |                                                                                                                                                     |  +--341788
+|                             |  |                                |  |                                                                                                                                                  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |              +--385070
+|                             |  |                                |  |                                                                                                                                                  |  |           +--|
+|                             |  |                                |  |                                                                                                                                                  |  |           |  +**23471
+|                             |  |                                |  |                                                                                                                                                  |  |        +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                   +--2097
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                                    +**22620
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                                 +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                                 |  |  +**517
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                                 |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                                 |     +**4228067
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                              +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                              |  |          +--4228066
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                              |  +----------|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |                              |             +**21562
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |              +---------------|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |              |               +------14440
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |           +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |           |  |  +--4227878
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |           |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |           |     +--4227966
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |        +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |        |  +--5592
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |     |  |  +------4228076
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |     |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |     |     +**9771
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |  |  |  +---4227787
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |  |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |  |     |  +----------1402224
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  |  |        +**7794
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |     |  +**19236
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |     +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |        |  +**38268
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |        +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                                |           +**38270
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                             +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                             |  +--895
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                          +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                          |  +--2239
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |              +--901409
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |           +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |           |  +--128702
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |           +**1341883
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |     +**4227772
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |        +--4227775
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |     |  +--4227839
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |     +--4227785
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |  |  |     +**4227836
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |  |  |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |  |  |  |  +--4227840
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  |  |     +------4227837
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  |  |     +**62859
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  |  |     +--4227838
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |        |     +--4227783
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |     +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |     |  +--4227780
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  |  |  +-------------4228018
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |     |  +**4227777
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |     +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |        |        +--4227779
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |     |  +**62806
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |  |     +--4227774
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |  |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |  |  |  +**4227790
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |     |         +**4227781
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |     |  +------|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |     |  |      +--4227842
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  |  |        +--4227789
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                       |     +--4227773
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                    +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                    |  +--1372
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                 +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                 |  |  +**25598
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                 |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                 |     |  +--38275
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                 |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |                 |        +--38286
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |              +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |              |  +--11191
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |  |     +**38989
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |  |  |  |  +**43207
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |  |  |     +--107869
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |           |     +--4227959
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |        +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |        |  |  +**99334
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |        |  +--|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |        |     +**23653
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |     |  +**71372
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |  |  |  +--62794
+|                             |  |                                |  |                                                                                                                                                  |  |        |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |        |     +--12353
+|                             |  |                                |  |                                                                                                                                                  |  |     +**|
+|                             |  |                                |  |                                                                                                                                                  |  |     |  +--985
+|                             |  |                                |  |                                                                                                                                                  |  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |  |  |  +--2625
+|                             |  |                                |  |                                                                                                                                                  |  +**|
+|                             |  |                                |  |                                                                                                                                                  |     |  +--368
+|                             |  |                                |  |                                                                                                                                                  |     +--|
+|                             |  |                                |  |                                                                                                                                                  |        |        +**4228133
+|                             |  |                                |  |                                                                                                                                                  |        |     +**|
+|                             |  |                                |  |                                                                                                                                                  |        |     |  +**40923
+|                             |  |                                |  |                                                                                                                                                  |        |  +**|
+|                             |  |                                |  |                                                                                                                                                  |        |  |  +**3332
+|                             |  |                                |  |                                                                                                                                                  |        +**|
+|                             |  |                                |  |                                                                                                                                                  |           +--335646
+|                             |  |                                |  |                                                                                                                                               +**|
+|                             |  |                                |  |                                                                                                                                               |  +--271545
+|                             |  |                                |  |                                                                                                                                            +**|
+|                             |  |                                |  |                                                                                                                                            |  +--44822
+|                             |  |                                |  |                                                                                                                                         +**|
+|                             |  |                                |  |                                                                                                                                         |  +--26258
+|                             |  |                                |  |                                                                                                                                      +**|
+|                             |  |                                |  |                                                                                                                                      |  |  +--831
+|                             |  |                                |  |                                                                                                                                      |  +--|
+|                             |  |                                |  |                                                                                                                                      |     +**7154
+|                             |  |                                |  |                                                                                                                                   +**|
+|                             |  |                                |  |                                                                                                                                   |  |  +--128165
+|                             |  |                                |  |                                                                                                                                   |  +--|
+|                             |  |                                |  |                                                                                                                                   |     +**3240
+|                             |  |                                |  |                                                                                                                                +**|
+|                             |  |                                |  |                                                                                                                                |  +--23098
+|                             |  |                                |  |                                                                                                                             +**|
+|                             |  |                                |  |                                                                                                                             |  +------4227784
+|                             |  |                                |  |                                                                                                                          +**|
+|                             |  |                                |  |                                                                                                                          |  +--102997
+|                             |  |                                |  |                                                                                                                       +**|
+|                             |  |                                |  |                                                                                                                       |  +--40218
+|                             |  |                                |  |                                                                                                                    +**|
+|                             |  |                                |  |                                                                                                                    |  +------4227965
+|                             |  |                                |  |                                                                                                                 +**|
+|                             |  |                                |  |                                                                                                                 |  +**32
+|                             |  |                                |  |                                                                                                              +**|
+|                             |  |                                |  |                                                                                                              |  +--37583
+|                             |  |                                |  |                                                                                                           +**|
+|                             |  |                                |  |                                                                                                           |  |     +------110
+|                             |  |                                |  |                                                                                                           |  |  +--|
+|                             |  |                                |  |                                                                                                           |  |  |  |  +**308
+|                             |  |                                |  |                                                                                                           |  |  |  +**|
+|                             |  |                                |  |                                                                                                           |  |  |     +--21085
+|                             |  |                                |  |                                                                                                           |  +--|
+|                             |  |                                |  |                                                                                                           |     +**20948
+|                             |  |                                |  |                                                                                                        +**|
+|                             |  |                                |  |                                                                                                        |  |  +--5020
+|                             |  |                                |  |                                                                                                        |  +--|
+|                             |  |                                |  |                                                                                                        |     |      +**7095
+|                             |  |                                |  |                                                                                                        |     +------|
+|                             |  |                                |  |                                                                                                        |            +--880146
+|                             |  |                                |  |                                                                                                     +**|
+|                             |  |                                |  |                                                                                                     |  |  +**54087
+|                             |  |                                |  |                                                                                                     |  +--|
+|                             |  |                                |  |                                                                                                     |     +**103346
+|                             |  |                                |  |                                                                                                  +**|
+|                             |  |                                |  |                                                                                                  |  |  +--832
+|                             |  |                                |  |                                                                                                  |  +--|
+|                             |  |                                |  |                                                                                                  |     +**42493
+|                             |  |                                |  |                                                                                               +**|
+|                             |  |                                |  |                                                                                               |  +--51768
+|                             |  |                                |  |                                                                                            +**|
+|                             |  |                                |  |                                                                                            |  +--42117
+|                             |  |                                |  |                                                                                         +**|
+|                             |  |                                |  |                                                                                         |  +--59
+|                             |  |                                |  |                                                                                      +**|
+|                             |  |                                |  |                                                                                      |  |  +------3107525
+|                             |  |                                |  |                                                                                      |  +**|
+|                             |  |                                |  |                                                                                      |     +**4228172
+|                             |  |                                |  |                                                                                   +**|
+|                             |  |                                |  |                                                                                   |  |     +**71
+|                             |  |                                |  |                                                                                   |  |  +**|
+|                             |  |                                |  |                                                                                   |  |  |  |  +**21682
+|                             |  |                                |  |                                                                                   |  |  |  +**|
+|                             |  |                                |  |                                                                                   |  |  |     +**38327
+|                             |  |                                |  |                                                                                   |  +--|
+|                             |  |                                |  |                                                                                   |     |  +**2850
+|                             |  |                                |  |                                                                                   |     +--|
+|                             |  |                                |  |                                                                                   |        +--107337
+|                             |  |                                |  |                                                                                +**|
+|                             |  |                                |  |                                                                                |  |  +--4227782
+|                             |  |                                |  |                                                                                |  +--|
+|                             |  |                                |  |                                                                                |     |  +**3086270
+|                             |  |                                |  |                                                                                |     +**|
+|                             |  |                                |  |                                                                                |        +**2043
+|                             |  |                                |  |                                                                             +**|
+|                             |  |                                |  |                                                                             |  |  +**4139
+|                             |  |                                |  |                                                                             |  +--|
+|                             |  |                                |  |                                                                             |     +**4227776
+|                             |  |                                |  |                                                                          +**|
+|                             |  |                                |  |                                                                          |  +--4227788
+|                             |  |                                |  |                                                                       +**|
+|                             |  |                                |  |                                                                       |  +**53915
+|                             |  |                                |  |                                                                    +**|
+|                             |  |                                |  |                                                                    |  |  +--18746
+|                             |  |                                |  |                                                                    |  +**|
+|                             |  |                                |  |                                                                    |     +**98926
+|                             |  |                                |  |                                                                 +**|
+|                             |  |                                |  |                                                                 |  +--38281
+|                             |  |                                |  |                                                              +**|
+|                             |  |                                |  |                                                              |  |     +**6396
+|                             |  |                                |  |                                                              |  |  +**|
+|                             |  |                                |  |                                                              |  |  |  +**38767
+|                             |  |                                |  |                                                              |  +--|
+|                             |  |                                |  |                                                              |     |           +----------37134
+|                             |  |                                |  |                                                              |     |        +**|
+|                             |  |                                |  |                                                              |     |        |  +--39364
+|                             |  |                                |  |                                                              |     |     +**|
+|                             |  |                                |  |                                                              |     |     |  +--384334
+|                             |  |                                |  |                                                              |     |  +**|
+|                             |  |                                |  |                                                              |     |  |  +**20940
+|                             |  |                                |  |                                                              |     +--|
+|                             |  |                                |  |                                                              |        +--48433
+|                             |  |                                |  |                                                           +**|
+|                             |  |                                |  |                                                           |  +**2907
+|                             |  |                                |  |                                                        +**|
+|                             |  |                                |  |                                                        |  |           +**41
+|                             |  |                                |  |                                                        |  |        +**|
+|                             |  |                                |  |                                                        |  |        |  |  +**2849836
+|                             |  |                                |  |                                                        |  |        |  +**|
+|                             |  |                                |  |                                                        |  |        |     +--44823
+|                             |  |                                |  |                                                        |  |     +**|
+|                             |  |                                |  |                                                        |  |     |  +**4228055
+|                             |  |                                |  |                                                        |  |  +**|
+|                             |  |                                |  |                                                        |  |  |  +--37265
+|                             |  |                                |  |                                                        |  +**|
+|                             |  |                                |  |                                                        |     +**37245
+|                             |  |                                |  |                                                     +**|
+|                             |  |                                |  |                                                     |  |        +--17032
+|                             |  |                                |  |                                                     |  |     +**|
+|                             |  |                                |  |                                                     |  |     |  +--892227
+|                             |  |                                |  |                                                     |  |  +**|
+|                             |  |                                |  |                                                     |  |  |  +**982
+|                             |  |                                |  |                                                     |  +--|
+|                             |  |                                |  |                                                     |     +**1338204
+|                             |  |                                |  |                                                  +**|
+|                             |  |                                |  |                                                  |  |     +**47580
+|                             |  |                                |  |                                                  |  |  +**|
+|                             |  |                                |  |                                                  |  |  |  +--1390021
+|                             |  |                                |  |                                                  |  +--|
+|                             |  |                                |  |                                                  |     +--3661815
+|                             |  |                                |  |                                               +**|
+|                             |  |                                |  |                                               |  +**108
+|                             |  |                                |  |                                            +**|
+|                             |  |                                |  |                                            |  +--4227964
+|                             |  |                                |  |                                         +**|
+|                             |  |                                |  |                                         |  |                +--10442
+|                             |  |                                |  |                                         |  |             +**|
+|                             |  |                                |  |                                         |  |             |  |        +--10443
+|                             |  |                                |  |                                         |  |             |  |     +**|
+|                             |  |                                |  |                                         |  |             |  |     |  |          +**4227841
+|                             |  |                                |  |                                         |  |             |  |     |  +----------|
+|                             |  |                                |  |                                         |  |             |  |     |             +--4227843
+|                             |  |                                |  |                                         |  |             |  |  +**|
+|                             |  |                                |  |                                         |  |             |  |  |  +**1118
+|                             |  |                                |  |                                         |  |             |  +--|
+|                             |  |                                |  |                                         |  |             |     |  +**2555
+|                             |  |                                |  |                                         |  |             |     +--|
+|                             |  |                                |  |                                         |  |             |        +--15837
+|                             |  |                                |  |                                         |  |          +**|
+|                             |  |                                |  |                                         |  |          |  +**2553
+|                             |  |                                |  |                                         |  +----------|
+|                             |  |                                |  |                                         |             +--1108
+|                             |  |                                |  |                                      +**|
+|                             |  |                                |  |                                      |  +--37580
+|                             |  |                                |  |                                   +**|
+|                             |  |                                |  |                                   |  +**38278
+|                             |  |                                |  |                                +**|
+|                             |  |                                |  |                                |  |  +--23633
+|                             |  |                                |  |                                |  +**|
+|                             |  |                                |  |                                |     +**71406
+|                             |  |                                |  |                             +**|
+|                             |  |                                |  |                             |  |  +**22806
+|                             |  |                                |  |                             |  +--|
+|                             |  |                                |  |                             |     +**1354
+|                             |  |                                |  |                          +**|
+|                             |  |                                |  |                          |  |  +**2818646
+|                             |  |                                |  |                          |  +**|
+|                             |  |                                |  |                          |     +--1903216
+|                             |  |                                |  |                       +**|
+|                             |  |                                |  |                       |  |     +**161
+|                             |  |                                |  |                       |  |  +**|
+|                             |  |                                |  |                       |  |  |  +**2311825
+|                             |  |                                |  |                       |  +--|
+|                             |  |                                |  |                       |     |  +**830
+|                             |  |                                |  |                       |     +--|
+|                             |  |                                |  |                       |        +**10223
+|                             |  |                                |  |                    +**|
+|                             |  |                                |  |                    |  |     +**4676
+|                             |  |                                |  |                    |  |  +**|
+|                             |  |                                |  |                    |  |  |  |  +--4227778
+|                             |  |                                |  |                    |  |  |  +**|
+|                             |  |                                |  |                    |  |  |     +--2848464
+|                             |  |                                |  |                    |  +--|
+|                             |  |                                |  |                    |     +**37578
+|                             |  |                                |  |                 +**|
+|                             |  |                                |  |                 |  +**38282
+|                             |  |                                |  |              +**|
+|                             |  |                                |  |              |  +**38269
+|                             |  |                                |  |           +**|
+|                             |  |                                |  |           |  |  +**80
+|                             |  |                                |  |           |  +**|
+|                             |  |                                |  |           |     +--1399390
+|                             |  |                                |  |        +**|
+|                             |  |                                |  |        |  +**39557
+|                             |  |                                |  |     +**|
+|                             |  |                                |  |     |  +**2520
+|                             |  |                                |  |  +**|
+|                             |  |                                |  |  |  |                          +----------------3662253
+|                             |  |                                |  |  |  |                       +**|
+|                             |  |                                |  |  |  |                       |  +--40211
+|                             |  |                                |  |  |  |                    +**|
+|                             |  |                                |  |  |  |                    |  +--1405487
+|                             |  |                                |  |  |  |                 +**|
+|                             |  |                                |  |  |  |                 |  +**1402249
+|                             |  |                                |  |  |  |              +**|
+|                             |  |                                |  |  |  |              |  |           +--1409625
+|                             |  |                                |  |  |  |              |  |        +**|
+|                             |  |                                |  |  |  |              |  |        |  +--1404437
+|                             |  |                                |  |  |  |              |  |     +**|
+|                             |  |                                |  |  |  |              |  |     |  +--40212
+|                             |  |                                |  |  |  |              |  |  +**|
+|                             |  |                                |  |  |  |              |  |  |  |     +--40208
+|                             |  |                                |  |  |  |              |  |  |  |  +**|
+|                             |  |                                |  |  |  |              |  |  |  |  |  |  +--1402197
+|                             |  |                                |  |  |  |              |  |  |  |  |  +**|
+|                             |  |                                |  |  |  |              |  |  |  |  |     |  +**1402198
+|                             |  |                                |  |  |  |              |  |  |  |  |     +**|
+|                             |  |                                |  |  |  |              |  |  |  |  |        +**1404621
+|                             |  |                                |  |  |  |              |  |  |  +**|
+|                             |  |                                |  |  |  |              |  |  |     |  +--40209
+|                             |  |                                |  |  |  |              |  |  |     +**|
+|                             |  |                                |  |  |  |              |  |  |        +--1402220
+|                             |  |                                |  |  |  |              |  +**|
+|                             |  |                                |  |  |  |              |     |     +--40210
+|                             |  |                                |  |  |  |              |     |  +**|
+|                             |  |                                |  |  |  |              |     |  |  +--1402196
+|                             |  |                                |  |  |  |              |     +**|
+|                             |  |                                |  |  |  |              |        |  +**1402201
+|                             |  |                                |  |  |  |              |        +**|
+|                             |  |                                |  |  |  |              |           +**1402250
+|                             |  |                                |  |  |  |           +**|
+|                             |  |                                |  |  |  |           |  +**40206
+|                             |  |                                |  |  |  |        +**|
+|                             |  |                                |  |  |  |        |  |                       +**1405360
+|                             |  |                                |  |  |  |        |  |                    +**|
+|                             |  |                                |  |  |  |        |  |                    |  +--4227845
+|                             |  |                                |  |  |  |        |  |                 +--|
+|                             |  |                                |  |  |  |        |  |                 |  +--1411000
+|                             |  |                                |  |  |  |        |  |              +--|
+|                             |  |                                |  |  |  |        |  |              |  +**4227575
+|                             |  |                                |  |  |  |        |  |           +--|
+|                             |  |                                |  |  |  |        |  |           |  +**4227576
+|                             |  |                                |  |  |  |        |  |        +--|
+|                             |  |                                |  |  |  |        |  |        |  +**4227577
+|                             |  |                                |  |  |  |        |  |     +--|
+|                             |  |                                |  |  |  |        |  |     |  +**4227574
+|                             |  |                                |  |  |  |        |  |  +--|
+|                             |  |                                |  |  |  |        |  |  |  +**1410989
+|                             |  |                                |  |  |  |        |  +--|
+|                             |  |                                |  |  |  |        |     +**1404411
+|                             |  |                                |  |  |  |     +--|
+|                             |  |                                |  |  |  |     |  +--------------1402200
+|                             |  |                                |  |  |  |  +**|
+|                             |  |                                |  |  |  |  |  +--1408360
+|                             |  |                                |  |  |  +--|
+|                             |  |                                |  |  |     |  +**40213
+|                             |  |                                |  |  |     +**|
+|                             |  |                                |  |  |        +--40927
+|                             |  |                                |  +--|
+|                             |  |                                |     |              +--307
+|                             |  |                                |     |           +--|
+|                             |  |                                |     |           |  +--1084936
+|                             |  |                                |     |        +--|
+|                             |  |                                |     |        |  +--4228019
+|                             |  |                                |     |     +**|
+|                             |  |                                |     |     |  |        +**776829
+|                             |  |                                |     |     |  |     +**|
+|                             |  |                                |     |     |  |     |  |           +**37581
+|                             |  |                                |     |     |  |     |  |        +**|
+|                             |  |                                |     |     |  |     |  |        |  |        +----------------------------------------------4227786
+|                             |  |                                |     |     |  |     |  |        |  |     +**|
+|                             |  |                                |     |     |  |     |  |        |  |     |  +**685437
+|                             |  |                                |     |     |  |     |  |        |  |  +--|
+|                             |  |                                |     |     |  |     |  |        |  |  |  +**891943
+|                             |  |                                |     |     |  |     |  |        |  +**|
+|                             |  |                                |     |     |  |     |  |        |     |                                 +--4228068
+|                             |  |                                |     |     |  |     |  |        |     |     +---------------------------|
+|                             |  |                                |     |     |  |     |  |        |     |     |                           +**4228069
+|                             |  |                                |     |     |  |     |  |        |     |  +--|
+|                             |  |                                |     |     |  |     |  |        |     |  |  +**2010
+|                             |  |                                |     |     |  |     |  |        |     +**|
+|                             |  |                                |     |     |  |     |  |        |        +--21974
+|                             |  |                                |     |     |  |     |  |     +**|
+|                             |  |                                |     |     |  |     |  |     |  +**39632
+|                             |  |                                |     |     |  |     |  |  +**|
+|                             |  |                                |     |     |  |     |  |  |  +**71161
+|                             |  |                                |     |     |  |     |  +**|
+|                             |  |                                |     |     |  |     |     +--2769867
+|                             |  |                                |     |     |  |  +**|
+|                             |  |                                |     |     |  |  |  +--24346
+|                             |  |                                |     |     |  +**|
+|                             |  |                                |     |     |     |  +**23499
+|                             |  |                                |     |     |     +**|
+|                             |  |                                |     |     |        +--4228054
+|                             |  |                                |     |  +**|
+|                             |  |                                |     |  |  +--8520
+|                             |  |                                |     +**|
+|                             |  |                                |        |  +**2414
+|                             |  |                                |        +--|
+|                             |  |                                |           +--1464691
+|                             |  |                             +**|
+|                             |  |                             |  |  +--2666
+|                             |  |                             |  +**|
+|                             |  |                             |     |  +**17016
+|                             |  |                             |     +--|
+|                             |  |                             |        +**17102
+|                             |  |                          +**|
+|                             |  |                          |  +**15019
+|                             |  |                       +**|
+|                             |  |                       |  |        +**99
+|                             |  |                       |  |     +**|
+|                             |  |                       |  |     |  |                     +**743646
+|                             |  |                       |  |     |  |                  +--|
+|                             |  |                       |  |     |  |                  |  +--4227898
+|                             |  |                       |  |     |  |           +------|
+|                             |  |                       |  |     |  |           |      +**53033
+|                             |  |                       |  |     |  |        +--|
+|                             |  |                       |  |     |  |        |  +**53031
+|                             |  |                       |  |     |  |     +**|
+|                             |  |                       |  |     |  |     |  +--1553683
+|                             |  |                       |  |     |  |  +--|
+|                             |  |                       |  |     |  |  |  +**771604
+|                             |  |                       |  |     |  +**|
+|                             |  |                       |  |     |     +--439190
+|                             |  |                       |  |  +--|
+|                             |  |                       |  |  |  +------2467029
+|                             |  |                       |  +**|
+|                             |  |                       |     |     +**17583
+|                             |  |                       |     |  +**|
+|                             |  |                       |     |  |  +**8064
+|                             |  |                       |     +--|
+|                             |  |                       |        +**196544
+|                             |  |                    +**|
+|                             |  |                    |  +--16815
+|                             |  |                 +**|
+|                             |  |                 |  |        +**20795
+|                             |  |                 |  |     +--|
+|                             |  |                 |  |     |  +--------------4227681
+|                             |  |                 |  |  +**|
+|                             |  |                 |  |  |  +--14308
+|                             |  |                 |  +**|
+|                             |  |                 |     |  +--55924
+|                             |  |                 |     +**|
+|                             |  |                 |        +--386256
+|                             |  |              +**|
+|                             |  |              |  |           +--8731
+|                             |  |              |  |        +**|
+|                             |  |              |  |        |  +**11408
+|                             |  |              |  |     +**|
+|                             |  |              |  |     |  +**860
+|                             |  |              |  |  +**|
+|                             |  |              |  |  |  +--26584
+|                             |  |              |  +**|
+|                             |  |              |     +--90662
+|                             |  |           +**|
+|                             |  |           |  |                    +**15
+|                             |  |           |  |                 +**|
+|                             |  |           |  |                 |  |  +**95
+|                             |  |           |  |                 |  +**|
+|                             |  |           |  |                 |     +--273764
+|                             |  |           |  |              +**|
+|                             |  |           |  |              |  |  +--224
+|                             |  |           |  |              |  +**|
+|                             |  |           |  |              |     +--526577
+|                             |  |           |  |           +--|
+|                             |  |           |  |           |  +--480190
+|                             |  |           |  |        +**|
+|                             |  |           |  |        |  |  +**26673
+|                             |  |           |  |        |  +--|
+|                             |  |           |  |        |     +**21507
+|                             |  |           |  |     +**|
+|                             |  |           |  |     |  |     +**20
+|                             |  |           |  |     |  |  +--|
+|                             |  |           |  |     |  |  |  |     +----------4227678
+|                             |  |           |  |     |  |  |  |  +--|
+|                             |  |           |  |     |  |  |  |  |  +**91624
+|                             |  |           |  |     |  |  |  +**|
+|                             |  |           |  |     |  |  |     |  +**33387
+|                             |  |           |  |     |  |  |     +--|
+|                             |  |           |  |     |  |  |        +--4228077
+|                             |  |           |  |     |  +**|
+|                             |  |           |  |     |     |  +**13094
+|                             |  |           |  |     |     +--|
+|                             |  |           |  |     |        +------1320925
+|                             |  |           |  |  +**|
+|                             |  |           |  |  |  +**40308
+|                             |  |           |  +**|
+|                             |  |           |     +**1221986
+|                             |  |        +**|
+|                             |  |        |  |           +**7
+|                             |  |        |  |        +**|
+|                             |  |        |  |        |  |  +------4228016
+|                             |  |        |  |        |  +--|
+|                             |  |        |  |        |     +------4228075
+|                             |  |        |  |     +**|
+|                             |  |        |  |     |  +------2820551
+|                             |  |        |  |  +**|
+|                             |  |        |  |  |  |  +--132
+|                             |  |        |  |  |  +**|
+|                             |  |        |  |  |     |     +**8532
+|                             |  |        |  |  |     |  +**|
+|                             |  |        |  |  |     |  |  |                 +**8538
+|                             |  |        |  |  |     |  |  |              +**|
+|                             |  |        |  |  |     |  |  |              |  |  +--881075
+|                             |  |        |  |  |     |  |  |              |  +--|
+|                             |  |        |  |  |     |  |  |              |     +**1380
+|                             |  |        |  |  |     |  |  |           +**|
+|                             |  |        |  |  |     |  |  |           |  |  +**195504
+|                             |  |        |  |  |     |  |  |           |  +**|
+|                             |  |        |  |  |     |  |  |           |     +**1379
+|                             |  |        |  |  |     |  |  |        +--|
+|                             |  |        |  |  |     |  |  |        |  +--1384
+|                             |  |        |  |  |     |  |  |     +**|
+|                             |  |        |  |  |     |  |  |     |  +--138876
+|                             |  |        |  |  |     |  |  |  +**|
+|                             |  |        |  |  |     |  |  |  |  |        +--881092
+|                             |  |        |  |  |     |  |  |  |  |     +**|
+|                             |  |        |  |  |     |  |  |  |  |     |  |        +------4227534
+|                             |  |        |  |  |     |  |  |  |  |     |  |     +**|
+|                             |  |        |  |  |     |  |  |  |  |     |  |     |  +--156434
+|                             |  |        |  |  |     |  |  |  |  |     |  |  +--|
+|                             |  |        |  |  |     |  |  |  |  |     |  |  |  +**1392
+|                             |  |        |  |  |     |  |  |  |  |     |  +**|
+|                             |  |        |  |  |     |  |  |  |  |     |     +--257441
+|                             |  |        |  |  |     |  |  |  |  |  +**|
+|                             |  |        |  |  |     |  |  |  |  |  |  +**1398
+|                             |  |        |  |  |     |  |  |  |  +**|
+|                             |  |        |  |  |     |  |  |  |     +**857
+|                             |  |        |  |  |     |  |  +--|
+|                             |  |        |  |  |     |  |     |     +**905
+|                             |  |        |  |  |     |  |     |  +--|
+|                             |  |        |  |  |     |  |     |  |  +--1525272
+|                             |  |        |  |  |     |  |     +**|
+|                             |  |        |  |  |     |  |        |  +--27658
+|                             |  |        |  |  |     |  |        +**|
+|                             |  |        |  |  |     |  |           +------1799936
+|                             |  |        |  |  |     +**|
+|                             |  |        |  |  |        |  +--2667
+|                             |  |        |  |  |        +--|
+|                             |  |        |  |  |           +**833
+|                             |  |        |  +**|
+|                             |  |        |     |        +------2072726
+|                             |  |        |     |     +--|
+|                             |  |        |     |     |  +**28311
+|                             |  |        |     |  +**|
+|                             |  |        |     |  |  +--2682
+|                             |  |        |     +**|
+|                             |  |        |        |     +----------------------43678
+|                             |  |        |        |  +**|
+|                             |  |        |        |  |  +**40305
+|                             |  |        |        +--|
+|                             |  |        |           +--1109
+|                             |  |     +**|
+|                             |  |     |  |                 +**117
+|                             |  |     |  |              +--|
+|                             |  |     |  |              |  +------1193264
+|                             |  |     |  |           +**|
+|                             |  |     |  |           |  +**196
+|                             |  |     |  |        +--|
+|                             |  |     |  |        |  +--62853
+|                             |  |     |  |     +**|
+|                             |  |     |  |     |  |     +--356
+|                             |  |     |  |     |  |  +**|
+|                             |  |     |  |     |  |  |  +**17875
+|                             |  |     |  |     |  +--|
+|                             |  |     |  |     |     +------15472
+|                             |  |     |  |  +**|
+|                             |  |     |  |  |  +--119
+|                             |  |     |  +**|
+|                             |  |     |     |     +------1577362
+|                             |  |     |     |  +**|
+|                             |  |     |     |  |  +------4227874
+|                             |  |     |     +**|
+|                             |  |     |        |  +**47858
+|                             |  |     |        +--|
+|                             |  |     |           |  +**32386
+|                             |  |     |           +**|
+|                             |  |     |              +--1681353
+|                             |  |  +**|
+|                             |  |  |  |           +**114
+|                             |  |  |  |        +**|
+|                             |  |  |  |        |  |  +------4227961
+|                             |  |  |  |        |  +**|
+|                             |  |  |  |        |     +--271501
+|                             |  |  |  |     +--|
+|                             |  |  |  |     |  |  +--21949
+|                             |  |  |  |     |  +**|
+|                             |  |  |  |     |     +--278330
+|                             |  |  |  |  +**|
+|                             |  |  |  |  |  +--90775
+|                             |  |  |  +**|
+|                             |  |  |     |     +--6839
+|                             |  |  |     |  +**|
+|                             |  |  |     |  |  +--1105
+|                             |  |  |     +**|
+|                             |  |  |        |  +------4227875
+|                             |  |  |        +--|
+|                             |  |  |           +**22201
+|                             |  +**|
+|                             |     |     +--848
+|                             |     |  +**|
+|                             |     |  |  +----------273927
+|                             |     +**|
+|                             |        |  +--864
+|                             |        +**|
+|                             |           |  +--1514747
+|                             |           +--|
+|                             |              +--3765650
+|                          +**|
+|                          |  |           +**4134
+|                          |  |        +--|
+|                          |  |        |  +**21709
+|                          |  |     +**|
+|                          |  |     |  +**15583
+|                          |  |  +**|
+|                          |  |  |  |  +**834
+|                          |  |  |  +**|
+|                          |  |  |     +----------4227963
+|                          |  +**|
+|                          |     |     +------405599
+|                          |     |  +**|
+|                          |     |  |  +----------4227879
+|                          |     +**|
+|                          |        |  +--21069
+|                          |        +--|
+|                          |           +**828
+|                       +**|
+|                       |  |           +**4
+|                       |  |        +**|
+|                       |  |        |  +--1111
+|                       |  |     +**|
+|                       |  |     |  |  +**849
+|                       |  |     |  +**|
+|                       |  |     |     +--15529
+|                       |  |  +**|
+|                       |  |  |  |  +--835
+|                       |  |  |  +**|
+|                       |  |  |     +------1285825
+|                       |  +**|
+|                       |     |  +**6276
+|                       |     +**|
+|                       |        +--37125
+|                    +**|
+|                    |  |     +--91106
+|                    |  |  +**|
+|                    |  |  |  +**878021
+|                    |  +**|
+|                    |     +------1312301
+|                 +**|
+|                 |  |  +------4227880
+|                 |  +--|
+|                 |     +**5553
+|              +--|
+|              |  |            +**5
+|              |  |         +**|
+|              |  |         |  |  +--566
+|              |  |         |  +**|
+|              |  |         |     +--90782
+|              |  |      +**|
+|              |  |      |  |  +------4227876
+|              |  |      |  +**|
+|              |  |      |     +--742605
+|              |  +------|
+|              |         |        +--583991
+|              |         |     +**|
+|              |         |     |  +--475976
+|              |         |  +**|
+|              |         |  |  +**326
+|              |         +--|
+|              |            +--483
+|           +**|
+|           |  |  +------4227679
+|           |  +**|
+|           |     |  +**33564
+|           |     +**|
+|           |        +--1658857
+|        +**|
+|        |  +--21885
+|     +**|
+|     |  |  +**43320
+|     |  +**|
+|     |     |     +**44722
+|     |     |  +**|
+|     |     |  |  |  +--44748
+|     |     |  |  +**|
+|     |     |  |     +--44749
+|     |     +--|
+|     |        +--44723
+|  +**|
+|  |  |                          +**23
+|  |  |                       +--|
+|  |  |                       |  +--------------4227682
+|  |  |                    +**|
+|  |  |                    |  |  +------4228017
+|  |  |                    |  +**|
+|  |  |                    |     +--37848
+|  |  |                 +**|
+|  |  |                 |  |           +--102
+|  |  |                 |  |        +**|
+|  |  |                 |  |        |  +------921460
+|  |  |                 |  |     +**|
+|  |  |                 |  |     |  |           +**106
+|  |  |                 |  |     |  |        +**|
+|  |  |                 |  |     |  |        |  +**113
+|  |  |                 |  |     |  |     +**|
+|  |  |                 |  |     |  |     |  |     +--486
+|  |  |                 |  |     |  |     |  |  +**|
+|  |  |                 |  |     |  |     |  |  |  +--93426
+|  |  |                 |  |     |  |     |  +**|
+|  |  |                 |  |     |  |     |     |  +--823
+|  |  |                 |  |     |  |     |     +**|
+|  |  |                 |  |     |  |     |        |     +------4227960
+|  |  |                 |  |     |  |     |        |  +--|
+|  |  |                 |  |     |  |     |        |  |  +**52561
+|  |  |                 |  |     |  |     |        +**|
+|  |  |                 |  |     |  |     |           +-------------4228078
+|  |  |                 |  |     |  |  +**|
+|  |  |                 |  |     |  |  |  |     +--92353
+|  |  |                 |  |     |  |  |  |  +**|
+|  |  |                 |  |     |  |  |  |  |  +--64098
+|  |  |                 |  |     |  |  |  +**|
+|  |  |                 |  |     |  |  |     |  +--92491
+|  |  |                 |  |     |  |  |     +**|
+|  |  |                 |  |     |  |  |        +--443
+|  |  |                 |  |     |  +--|
+|  |  |                 |  |     |     +--131
+|  |  |                 |  |  +**|
+|  |  |                 |  |  |  +--92110
+|  |  |                 |  +**|
+|  |  |                 |     |           +**43328
+|  |  |                 |     |        +**|
+|  |  |                 |     |        |  +--91470
+|  |  |                 |     |     +**|
+|  |  |                 |     |     |  +--33270
+|  |  |                 |     |  +**|
+|  |  |                 |     |  |  +------1618664
+|  |  |                 |     +**|
+|  |  |                 |        |  +--49825
+|  |  |                 |        +**|
+|  |  |                 |           |  +**68413
+|  |  |                 |           +**|
+|  |  |                 |              +--22181
+|  |  |              +**|
+|  |  |              |  |                 +--43670
+|  |  |              |  |              +**|
+|  |  |              |  |              |  |  +--43672
+|  |  |              |  |              |  +**|
+|  |  |              |  |              |     +--49985
+|  |  |              |  |           +**|
+|  |  |              |  |           |  |  +**43694
+|  |  |              |  |           |  +**|
+|  |  |              |  |           |     |  +**37647
+|  |  |              |  |           |     +**|
+|  |  |              |  |           |        |  +--50166
+|  |  |              |  |           |        +**|
+|  |  |              |  |           |           +--3376319
+|  |  |              |  |        +--|
+|  |  |              |  |        |  +--43671
+|  |  |              |  |     +**|
+|  |  |              |  |     |  +**22174
+|  |  |              |  |  +**|
+|  |  |              |  |  |  |  +--4228020
+|  |  |              |  |  |  +--|
+|  |  |              |  |  |     +**44021
+|  |  |              |  +**|
+|  |  |              |     +--93194
+|  |  |           +**|
+|  |  |           |  |              +**82
+|  |  |           |  |           +**|
+|  |  |           |  |           |  |     +--229
+|  |  |           |  |           |  |  +**|
+|  |  |           |  |           |  |  |  +--470793
+|  |  |           |  |           |  +**|
+|  |  |           |  |           |     |  +--452951
+|  |  |           |  |           |     +**|
+|  |  |           |  |           |        |  +--750565
+|  |  |           |  |           |        +--|
+|  |  |           |  |           |           +**22163
+|  |  |           |  |        +--|
+|  |  |           |  |        |  +--33521
+|  |  |           |  |     +**|
+|  |  |           |  |     |  +--68471
+|  |  |           |  |  +**|
+|  |  |           |  |  |  |     +**322
+|  |  |           |  |  |  |  +--|
+|  |  |           |  |  |  |  |  |  +------4227877
+|  |  |           |  |  |  |  |  +**|
+|  |  |           |  |  |  |  |     +--278075
+|  |  |           |  |  |  +**|
+|  |  |           |  |  |     +--33663
+|  |  |           |  +**|
+|  |  |           |     +**85
+|  |  |        +**|
+|  |  |        |  |     +--222
+|  |  |        |  |  +**|
+|  |  |        |  |  |  +------892135
+|  |  |        |  +**|
+|  |  |        |     |  +------92453
+|  |  |        |     +**|
+|  |  |        |        +--91360
+|  |  |     +**|
+|  |  |     |  |     +**32956
+|  |  |     |  |  +**|
+|  |  |     |  |  |  |     +**189
+|  |  |     |  |  |  |  +**|
+|  |  |     |  |  |  |  |  +**37845
+|  |  |     |  |  |  +--|
+|  |  |     |  |  |     |  +**37846
+|  |  |     |  |  |     +--|
+|  |  |     |  |  |        +**37850
+|  |  |     |  +**|
+|  |  |     |     +**37847
+|  |  |  +**|
+|  |  |  |  |        +**276
+|  |  |  |  |     +--|
+|  |  |  |  |     |  +------43679
+|  |  |  |  |  +**|
+|  |  |  |  |  |  +--316
+|  |  |  |  +**|
+|  |  |  |     |  +------4227680
+|  |  |  |     +**|
+|  |  |  |        +----------4227873
+|  |  +**|
+|  |     |           +--89
+|  |     |        +**|
+|  |     |        |  +--71629
+|  |     |     +**|
+|  |     |     |  |        +**33385
+|  |     |     |  |     +**|
+|  |     |     |  |     |  +------4227962
+|  |     |     |  |  +**|
+|  |     |     |  |  |  +--765
+|  |     |     |  +**|
+|  |     |     |     +--93018
+|  |     |  +**|
+|  |     |  |  |        +**230
+|  |     |  |  |     +--|
+|  |     |  |  |     |  +------968148
+|  |     |  |  |  +**|
+|  |     |  |  |  |  +--68479
+|  |     |  |  +**|
+|  |     |  |     +--92697
+|  |     +**|
+|  |        |           +**208
+|  |        |        +**|
+|  |        |        |  +--746802
+|  |        |     +**|
+|  |        |     |  |  +**227
+|  |        |     |  +--|
+|  |        |     |     +--550844
+|  |        |  +**|
+|  |        |  |  +--49033
+|  |        +**|
+|  |           |  +--760
+|  |           +**|
+|  |              +------2463149
++**|
+|  |     +--1276255
+|  |  +**|
+|  |  |  +--653
+|  +**|
+|     +**21732
+|
+|        +--3108874
+|     +--|
+|     |  |        +--3107622
+|     |  |     +**|
+|     |  |     |  +--894003
+|     |  |  +**|
+|     |  |  |  |  +--4228022
+|     |  |  |  +**|
+|     |  |  |     +--892889
+|     |  +**|
+|     |     +**62855
+|  +--|
+|  |  +**62851
++**|
+   +--45416
+
+Tree in newick format:
+
+(1:0.0000023529,(((((((((((2:0.0000023529,(((((((((((((((2772996:0.0000028553,((((((3655755:0.0038363392,3376803:0.0038367841):0.0000028594,45023:0.0000023529):0.0000028684,(1601749:0.0038323177,4228029:0.0131092133):0.0000027498):0.0000027476,((4227860:0.0000027542,(((891788:0.0038497862,1390186:0.0000027097):0.0038987718,1240891:0.0000027010):0.0000025799,50098:0.0000023529):0.0000020506):0.0000027879,4227861:0.0038470525):0.0038094151):0.0076535997,((((1272284:0.0000023529,((4227721:0.0000023976,(4227899:0.0000024416,4227900:0.0077744809):0.0077460522):0.0038570752,(891783:0.0038598732,1390181:0.0000023529):0.0039091193):0.0000025401):0.0000027303,50097:0.0000023529):0.0000025960,4227859:0.0000023529):0.0000026205,4227862:0.0038588319):0.0038191236):0.0000021088,(((2773475:0.0038316085,((4228034:0.0000028844,4228035:0.0038321116):0.0038327788,3376809:0.0000028498):0.0038467828):0.0000022756,(3654257:0.0038463271,4227751:0.0038306814):0.0000027421):0.0000026869,37587:0.0000023529):0.0000026591):0.0038068809):0.0115469301,(((((862:0.0000023366,27927:0.0038706101):0.0038112158,863:0.0000026123):0.0037997989,865:0.0000020139):0.0038178624,871:0.0000024144):0.0038419489,866:0.0000028320):0.0038911117):0.0038483599,875:0.0000027226):0.0038033387,((((((((((((((((((((((((((((((((((((((((((((((((((((((2772999:0.0039035529,1391611:0.0000029007):0.0078624965,71479:0.0038101482):0.0000027728,((((895106:0.0000028323,(2769799:0.0038050213,1147920:0.0000020130):0.0076747269):0.0038276971,(1148001:0.0000020135,71478:0.0000023529):0.0039012261):0.0000029104,71480:0.0038305338):0.0000025326,2554:0.0000023440):0.0000021767):0.0000027489,341788:0.0038166526):0.0038165075,(((((385070:0.0038139179,23471:0.0000028439):0.0038172794,((((((((((((2097:0.0038166145,((((((((22620:0.0000023529,(517:0.0000023529,4228067:0.0000023529):0.0000025701):0.0000025774,(4228066:0.0038374460,21562:0.0000023529):0.0115784086):0.0000029796,14440:0.0076731650):0.0167779305,(4227878:0.0038620458,4227966:0.0038512473):0.0038014447):0.0000023702,5592:0.0038166350):0.0000028261,(4228076:0.0076972723,9771:0.0000028360):0.0038169343):0.0000028247,(4227787:0.0042842178,(1402224:0.0117326487,7794:0.0000024661):0.0000021986):0.0038149844):0.0000028404,(19236:0.0000027545,(38268:0.0000023529,38270:0.0000026295):0.0000022825):0.0038163094):0.0000028410):0.0000028160,895:0.0038219287):0.0000028147,2239:0.0038169186):0.0000028133,(((((901409:0.0038140022,128702:0.0038199239):0.0000027402,((((1341883:0.0000023529,((4227772:0.0000028516,(((4227775:0.0038075923,4227839:0.0038127017):0.0000024320,((4227785:0.0038127109,((4227836:0.0000026009,4227840:0.0038031931):0.0038073024,4227837:0.0076557288):0.0000025003):0.0000028350,62859:0.0000023529):0.0000026572):0.0000026846,4227838:0.0038265569):0.0038071711):0.0038075781,4227783:0.0038125504):0.0000026920):0.0000028533,4227780:0.0038135631):0.0038135308,4228018:0.0154683765):0.0000028474,(4227777:0.0000026005,4227779:0.0038107257):0.0038255208):0.0000024017):0.0000020932,62806:0.0000023529):0.0000022515,((4227774:0.0038148081,4227790:0.0000027586):0.0038149180,((4227781:0.0000020344,4227842:0.0038140907):0.0076848770,4227789:0.0038139963):0.0000021252):0.0000025761):0.0000027653,4227773:0.0038135873):0.0038312131):0.0000027575,1372:0.0038219795):0.0000026810,(25598:0.0000021457,(38275:0.0038137641,38286:0.0038142352):0.0000020094):0.0038175694):0.0000026790,11191:0.0038204327):0.0000026725,((38989:0.0000024301,(43207:0.0000023529,107869:0.0039004918):0.0000028545):0.0000028492,4227959:0.0038359477):0.0038163808):0.0000028268,(99334:0.0000019930,23653:0.0000023529):0.0038213428):0.0000023528,71372:0.0000026536):0.0000022749,62794:0.0038207597):0.0000024399,12353:0.0038175944):0.0000027219):0.0000029650,985:0.0038213839):0.0000025845,2625:0.0038177307):0.0000021220,(368:0.0038409797,(((4228133:0.0000023529,40923:0.0000023529):0.0000028459,3332:0.0000023529):0.0000026044,335646:0.0038267533):0.0000027138):0.0038227700):0.0000026198):0.0000026639,271545:0.0038267635):0.0000026169,44822:0.0038302099):0.0000023994,26258:0.0038208092):0.0000026178,(831:0.0038411467,7154:0.0000024994):0.0038173556):0.0000028575,(128165:0.0038223776,3240:0.0000023529):0.0038227933):0.0000028575,23098:0.0038167508):0.0000029559,4227784:0.0076816458):0.0000023528,102997:0.0038338662):0.0000026845,40218:0.0038168751):0.0000025476,4227965:0.0076974961):0.0000023532,32:0.0000023529):0.0000023528,37583:0.0038329929):0.0000028396,((110:0.0078401208,(308:0.0000027265,21085:0.0038595858):0.0000021996):0.0038404259,20948:0.0000024104):0.0038225171):0.0000027938,(5020:0.0037575776,(7095:0.0000023529,880146:0.0038125047):0.0078274585):0.0039247184):0.0000024543,(54087:0.0020481943,103346:0.0020430521):0.0035701130):0.0000026254,(832:0.0038389891,42493:0.0000028226):0.0038165406):0.0000025915,51768:0.0038399851):0.0000024342,42117:0.0038327275):0.0000023048,59:0.0038325421):0.0000026847,(3107525:0.0076585014,4228172:0.0000023529):0.0000023664):0.0000027437,((71:0.0000023529,(21682:0.0000010247,38327:0.0000010247):0.0000025214):0.0000027590,(2850:0.0000023495,107337:0.0038483441):0.0038388903):0.0038215477):0.0000028119,(4227782:0.0038001495,(3086270:0.0000023529,2043:0.0000023529):0.0000024337):0.0038034894):0.0000023338,(4139:0.0000027984,4227776:0.0000021913):0.0038075624):0.0000027650,4227788:0.0038038120):0.0000028093,53915:0.0000023529):0.0000024452,(18746:0.0036586463,98926:0.0022733521):0.0017643914):0.0000029143,38281:0.0038174197):0.0000028546,((6396:0.0000023529,38767:0.0000025495):0.0000023600,((((37134:0.0115943237,39364:0.0038376604):0.0000023144,384334:0.0038299786):0.0000027600,20940:0.0000023529):0.0000026062,48433:0.0038210412):0.0038200363):0.0038284721):0.0000023528,2907:0.0000023529):0.0000025596,((((41:0.0000023529,(2849836:0.0025264706,44823:0.0039113745):0.0012104317):0.0000021227,4228055:0.0000023529):0.0000021111,37265:0.0039028286):0.0000553829,37245:0.0000023529):0.0000025254):0.0000025062,(((17032:0.0038483724,892227:0.0038209828):0.0000023850,982:0.0000028405):0.0000023947,1338204:0.0000022287):0.0037699037):0.0000028146,((47580:0.0000023529,1390021:0.0038196469):0.0000023528,3661815:0.0037674430):0.0037812695):0.0000023528,108:0.0000023529):0.0000027868,4227964:0.0038413880):0.0000028168,(((10442:0.0038041924,(((10443:0.0037986497,(4227841:0.0000028215,4227843:0.0037828137):0.0114874092):0.0000028251,1118:0.0000028327):0.0000023381,(2555:0.0000026298,15837:0.0038027714):0.0037973274):0.0037982012):0.0000027427,2553:0.0000028421):0.0000022721,1108:0.0038158492):0.0115161344):0.0000028121,37580:0.0038178123):0.0000027508,38278:0.0000023529):0.0000025110,(23633:0.0038284727,71406:0.0000023529):0.0000028108):0.0000027763,(22806:0.0000029365,1354:0.0000020837):0.0038216031):0.0000026957,(2818646:0.0020349142,1903216:0.0036444647):0.0019275767):0.0000023019,((161:0.0000010247,2311825:0.0000010247):0.0000028524,(830:0.0000027892,10223:0.0000027964):0.0038418031):0.0038112681):0.0000028220,((4676:0.0000023529,(4227778:0.0038232257,2848464:0.0038309019):0.0000027802):0.0000027604,37578:0.0000023529):0.0037906010):0.0000027978,38282:0.0000023529):0.0000010524,38269:0.0000023529):0.0000025879,(80:0.0000023529,1399390:0.0037671271):0.0000020275):0.0000029366,39557:0.0000023529):0.0000028081,2520:0.0000023529):0.0000022226,(((((((((3662253:0.0182328160,40211:0.0038128609):0.0000020085,1405487:0.0038381515):0.0000028333,1402249:0.0000023529):0.0000021475,((((1409625:0.0038406218,1404437:0.0038309811):0.0000022588,40212:0.0038261752):0.0000024414,((40208:0.0038292140,(1402197:0.0039982262,(1402198:0.0000023529,1404621:0.0000023529):0.0000019996):0.0000026282):0.0000024846,(40209:0.0038137731,1402220:0.0038175322):0.0000026095):0.0000027791):0.0000020092,((40210:0.0038131534,1402196:0.0038129088):0.0000029378,(1402201:0.0000028493,1402250:0.0000023529):0.0000026094):0.0000020508):0.0000019954):0.0000023172,40206:0.0000023529):0.0000010248,((((((((1405360:0.0000023529,4227845:0.0037903227):0.0000022978,1411000:0.0037961662):0.0037897103,4227575:0.0000027856):0.0037901903,4227576:0.0000028031):0.0038050893,4227577:0.0000023428):0.0037992431,4227574:0.0000028540):0.0037999310,1410989:0.0000028364):0.0038012801,1404411:0.0000027535):0.0038019647):0.0000028445,1402200:0.0157170267):0.0038023072,1408360:0.0038370081):0.0000026831,(40213:0.0000026929,40927:0.0038254752):0.0000026800):0.0038160581):0.0000025131,(((((307:0.0037948265,1084936:0.0038029054):0.0038566313,4228019:0.0038164035):0.0038363736,(((776829:0.0000023529,((((37581:0.0000023529,(((4227786:0.0491258571,685437:0.0000024899):0.0000024333,891943:0.0000023529):0.0038244129,(((4228068:0.0038072680,4228069:0.0000024134):0.0300367663,2010:0.0000023985):0.0041142736,21974:0.0038346254):0.0000027932):0.0000019856):0.0000029698,39632:0.0000023529):0.0000024207,71161:0.0000023529):0.0000027631,2769867:0.0037936043):0.0000021125):0.0000028340,24346:0.0038442151):0.0000021578,(23499:0.0000023529,4228054:0.0038251909):0.0000025694):0.0000024198):0.0000025420,8520:0.0038223265):0.0000028592,(2414:0.0000028971,1464691:0.0038295312):0.0038171585):0.0000028678):0.0038180027):0.0000019935,(2666:0.0038450167,(17016:0.0000010247,17102:0.0000010247):0.0038211043):0.0000026826):0.0000023917,15019:0.0000023376):0.0000026588,(((99:0.0000028662,((((((743646:0.0000024116,4227898:0.0038449925):0.0038364801,53033:0.0000022850):0.0076867053,53031:0.0000022717):0.0038366620,1553683:0.0038451702):0.0000024010,771604:0.0000020553):0.0038457797,439190:0.0038406915):0.0000022829):0.0000027867,2467029:0.0077503333):0.0038447649,((17583:0.0000021867,8064:0.0000023529):0.0000021321,196544:0.0000027559):0.0038325990):0.0000020405):0.0000027528,16815:0.0038482161):0.0000028255,(((20795:0.0000027784,4227681:0.0156841312):0.0038482661,14308:0.0038492362):0.0000028700,(55924:0.0039790822,386256:0.0038729707):0.0000024105):0.0000026806):0.0000021342,((((8731:0.0038406590,11408:0.0000023529):0.0000015988,860:0.0000023529):0.0000029347,26584:0.0038486211):0.0000027706,90662:0.0038695916):0.0000026437):0.0000023217,(((((((15:0.0000023529,(95:0.0000023529,273764:0.0038485597):0.0000025912):0.0000020666,(224:0.0038478039,526577:0.0038476912):0.0000023528):0.0000024347,480190:0.0038523821):0.0038675603,(26673:0.0020109590,21507:0.0020048134):0.0036804556):0.0000027610,((20:0.0000028502,((4227678:0.0115907479,91624:0.0000026751):0.0038388527,(33387:0.0000027044,4228077:0.0038462658):0.0038894328):0.0000020599):0.0038444957,(13094:0.0000026069,1320925:0.0078175707):0.0038455887):0.0000021151):0.0000027706,40308:0.0000023529):0.0000019981,1221986:0.0000023529):0.0000023345):0.0000021181,((((7:0.0020539334,(4228016:0.0077189176,4228075:0.0077565256):0.0036244191):0.0020569498,2820551:0.0077453390):0.0000029522,(132:0.0038593928,((8532:0.0000023529,((((((8538:0.0000022205,(881075:0.0038654584,1380:0.0000021311):0.0038480656):0.0000026700,(195504:0.0000023529,1379:0.0000023529):0.0000028206):0.0000027232,1384:0.0038487191):0.0038430077,138876:0.0038643805):0.0000026998,(((881092:0.0038468692,(((4227534:0.0077362260,156434:0.0038419358):0.0000021588,1392:0.0000023529):0.0038422899,257441:0.0038465283):0.0000027696):0.0000023211,1398:0.0000023529):0.0000023466,857:0.0000023529):0.0000022146):0.0000028556,((905:0.0000020207,1525272:0.0038572464):0.0038406935,(27658:0.0036195494,1799936:0.0079355530):0.0002349982):0.0000024714):0.0038414800):0.0000021372,(2667:0.0038596424,833:0.0000023529):0.0038487367):0.0000026778):0.0000026894):0.0000028668,(((2072726:0.0077071071,28311:0.0000028702):0.0038452508,2682:0.0041179812):0.0000026426,((43678:0.0247186698,40305:0.0000021436):0.0000024417,1109:0.0040630805):0.0038555954):0.0000025414):0.0000023920):0.0000023528,((((((117:0.0000023033,1193264:0.0077003992):0.0038331518,196:0.0000024553):0.0000027539,62853:0.0038826319):0.0038419027,((356:0.0038639469,17875:0.0000021961):0.0000028630,15472:0.0077530187):0.0038453961):0.0000019902,119:0.0038487814):0.0000022508,((1577362:0.0077192070,4227874:0.0077720323):0.0000024700,(47858:0.0020628292,(32386:0.0000023529,1681353:0.0038827301):0.0020581702):0.0035962864):0.0000028689):0.0000020317):0.0000012385,((((114:0.0000027001,(4227961:0.0077651589,271501:0.0038469027):0.0000026641):0.0000028525,(21949:0.0038386820,278330:0.0038421851):0.0000025198):0.0038592824,90775:0.0038629826):0.0000028856,((6839:0.0038595915,1105:0.0038494335):0.0000027400,(4227875:0.0077212974,22201:0.0000023730):0.0038649127):0.0000026782):0.0000023528):0.0000020885,((848:0.0038441301,273927:0.0116761436):0.0000025441,(864:0.0038501303,(1514747:0.0038408456,3765650:0.0038725909):0.0038521221):0.0000021500):0.0000027839):0.0000016888):0.0000020176,((((4134:0.0000028717,21709:0.0000024227):0.0038436885,15583:0.0000023529):0.0000021092,(834:0.0019143753,4227963:0.0116636925):0.0020217961):0.0000025409,((405599:0.0077296553,4227879:0.0117460021):0.0000021497,(21069:0.0038510855,828:0.0000028536):0.0038556180):0.0000027795):0.0000021794):0.0000020239,((((4:0.0000023529,1111:0.0038590031):0.0000028865,(849:0.0000023529,15529:0.0038556529):0.0000026096):0.0000021707,(835:0.0039608473,1285825:0.0077419582):0.0000026703):0.0000027375,(6276:0.0020164306,37125:0.0036822985):0.0019953031):0.0000023688):0.0000027492,((91106:0.0038565390,878021:0.0000023529):0.0000027752,1312301:0.0077234232):0.0000028627):0.0000027256,(4227880:0.0077038295,5553:0.0000020260):0.0038445831):0.0000027917,(((5:0.0000023529,(566:0.0039027095,90782:0.0038524082):0.0000025192):0.0000027440,(4227876:0.0077488311,742605:0.0038515770):0.0000026552):0.0000028583,(((583991:0.0038390350,475976:0.0038387922):0.0000023136,326:0.0000023529):0.0000026659,483:0.0038456963):0.0038489948):0.0077424089):0.0037176155,(4227679:0.0076400994,(33564:0.0000023529,1658857:0.0038054593):0.0000020857):0.0020058623):0.0019886676,21885:0.0038325371):0.0000029131,(43320:0.0020459412,((44722:0.0000023529,(44748:0.0038303752,44749:0.0038390755):0.0000028645):0.0000022172,44723:0.0038296479):0.0035720063):0.0020515534):0.0000027174,(((((((((23:0.0000021307,4227682:0.0157831035):0.0038334551,(4228017:0.0077195845,37848:0.0038377872):0.0000023012):0.0000023060,((((102:0.0038533920,921460:0.0077232835):0.0000021382,((((106:0.0000023529,113:0.0000023529):0.0000019991,((486:0.0038360148,93426:0.0038350276):0.0000024254,(823:0.0038347059,((4227960:0.0077346117,52561:0.0000026507):0.0038467287,4228078:0.0155535376):0.0000026969):0.0000023652):0.0000023782):0.0000021321,((92353:0.0038339775,64098:0.0038295705):0.0000026168,(92491:0.0038353572,443:0.0038303063):0.0000028326):0.0000027731):0.0000026478,131:0.0038302853):0.0038469841):0.0000028576,92110:0.0038453029):0.0000027424,((((43328:0.0020259374,91470:0.0037433327):0.0019926897,33270:0.0038328119):0.0000027649,1618664:0.0076882688):0.0000028020,(49825:0.0038362414,(68413:0.0020466235,22181:0.0035703013):0.0020513153):0.0000029555):0.0000023997):0.0000023528):0.0000029504,((((((43670:0.0038523018,(43672:0.0038301516,49985:0.0038358696):0.0000024067):0.0000020082,(43694:0.0000023529,(37647:0.0000023529,(50166:0.0038439463,3376319:0.0038567914):0.0000027827):0.0000023528):0.0000020090):0.0000025347,43671:0.0038291246):0.0036747854,22174:0.0020010013):0.0019992152,(4228020:0.0038476826,44021:0.0000026421):0.0038327029):0.0000028464,93194:0.0038597741):0.0000029044):0.0000023680,(((((82:0.0000023529,((229:0.0038348610,470793:0.0038611818):0.0000024231,(452951:0.0038380693,(750565:0.0038380373,22163:0.0000026064):0.0038558009):0.0000027081):0.0000023102):0.0000028689,33521:0.0038571839):0.0038452058,68471:0.0038402409):0.0000028682,((322:0.0000023529,(4227877:0.0076965492,278075:0.0038304549):0.0000019929):0.0038495956,33663:0.0038333782):0.0000022526):0.0000029443,85:0.0000023529):0.0000024219):0.0000023528,((222:0.0038326143,892135:0.0077389934):0.0000028547,(92453:0.0077553084,91360:0.0038323188):0.0000027556):0.0000023528):0.0000023759,((32956:0.0021145961,((189:0.0000010247,37845:0.0000010247):0.0000021521,(37846:0.0000025193,37850:0.0000025539):0.0037959743):0.0035390754):0.0019638214,37847:0.0000023529):0.0000026374):0.0000022073,(((276:0.0000019375,43679:0.0077093283):0.0038383760,316:0.0038413107):0.0000026991,(4227680:0.0076974223,4227873:0.0115867593):0.0000024764):0.0000025729):0.0000020550,((((89:0.0038328531,71629:0.0038333078):0.0000023528,(((33385:0.0019796070,4227962:0.0075883657):0.0019764055,765:0.0038377125):0.0000027977,93018:0.0038470691):0.0000024900):0.0000022715,(((230:0.0000025579,968148:0.0078068478):0.0038333006,68479:0.0038328397):0.0000027571,92697:0.0038418142):0.0000028540):0.0000026536,((((208:0.0000023529,746802:0.0038439470):0.0020496659,(227:0.0000028769,550844:0.0038361223):0.0035826567):0.0020546234,49033:0.0038332773):0.0000025693,(760:0.0038332614,2463149:0.0076873740):0.0000022951):0.0000019971):0.0000019925):0.0000021453):0.0000021281,((1276255:0.0038005925,653:0.0038131622):0.0000023528,21732:0.0000023529):0.0000023370):0.0000023528,(((3108874:0.0038462034,(((3107622:0.0038404209,894003:0.0038397860):0.0000026418,(4228022:0.0038920917,892889:0.0038307466):0.0000027754):0.0000024622,62855:0.0000023529):0.0000026338):0.0038593585,62851:0.0000020910):0.0038369215,45416:0.0038375621):0.0000027586);
+
+ALISIM COMMAND
+--------------
+To simulate an alignment of the same length as the original alignment, using the tree and model parameters estimated from this analysis, you can use the following command:
+
+--alisim simulated_MSA -t /app/outputs/analyses/500/20240730T195050/between_sample_distances/C/clade_C_seqs.aligned.fasta.treefile -m "TN{5.73804,3.79297}+F{0.165733,0.240578,0.245696,0.347992}+R3{0.661818,0.568678,0.324289,1.64945,0.0138925,6.38759}" --length 378
+
+To mimic the alignment used to produce this analysis, i.e. simulate an alignment of the same length as the original alignment, using the tree and model parameters estimated from this analysis *and* copying the same gap positions as the original alignment, you can use the following command:
+
+iqtree -s /app/outputs/analyses/500/20240730T195050/between_sample_distances/C/clade_C_seqs.aligned.fasta --alisim mimicked_MSA
+
+To simulate any number of alignments in either of the two commandlines above, use the --num-alignments options, for example mimic 100 alignments you would use the command line:
+
+iqtree -s /app/outputs/analyses/500/20240730T195050/between_sample_distances/C/clade_C_seqs.aligned.fasta --alisim mimicked_MSA --num-alignments 100
+
+For more information on using AliSim, please visit: www.iqtree.org/doc/AliSim
+
+TIME STAMP
+----------
+
+Date and time: Tue Jul 30 15:39:47 2024
+Total CPU time used: 594.263 seconds (0h:9m:54s)
+Total wall-clock time used: 299.772 seconds (0h:4m:59s)
+

@@ -1,0 +1,610 @@
+---
+title: "symbionts"
+author: "R. Cunning"
+date: "2026-02-26"
+output: html_document
+---
+
+# Process ITS2 data
+```{r}
+library(tidyverse)
+library(janitor)
+library(phyloseq)
+library(stringr)
+library(readxl)
+
+## ============================================================
+## 1) Read + prep metadata (and restrict to FL samples)
+## ============================================================
+md <- readxl::read_xls("data/sym_composition/decadalshifts_SST.xls") %>%
+  mutate(
+    year = as.integer(str_sub(collection_date, 1, 4)),
+    era  = case_when(
+      year < 2005  ~ "2001-03",
+      year >= 2023 ~ "2024",
+      TRUE         ~ "2019-21"
+    ),
+    era = factor(era, levels = c("2001-03", "2019-21", "2024"))
+  )
+
+fl_md <- md %>%
+  filter(collection_region == "FL") %>%
+  distinct(sample_name, .keep_all = TRUE)
+
+## ============================================================
+## 2) Read ITS2 VARIANTS (your original method, with minimal QC)
+##    - builds phyloseq with DIV x sample counts + clade taxonomy
+## ============================================================
+
+# Pawar run
+sam0 <- read_tsv("data/sym_composition/20240723T194127_Pawar_Run /post_med_seqs/500_20240730T092802_DBV_20240730T195050.seqs.absolute.abund_and_meta.txt") %>%
+  clean_names() %>%
+  select(sample_uid, sample_name, fastq_fwd_file_name, fastq_rev_file_name, data_set_uid, data_set_name,
+         host_genus, host_species, collection_latitude, collection_longitude, collection_date, collection_depth, post_med_absolute) %>%
+  slice(1:(n() - 1)) # Remove last row - not a sample
+sam1 <- as.matrix(sam0)
+#hie <- as_tibble(sam1) %>% left_join(md, by = "sample_name")
+rownames(sam1) <- sam0$sample_name
+sam <- sample_data(data.frame(sam1))
+
+taxnames <- read_tsv(
+  file = "data/sym_composition/20240723T194127_Pawar_Run /post_med_seqs/500_20240730T092802_DBV_20240730T195050.seqs.absolute.abund_and_meta.txt",
+  n_max = 0) %>%
+  select(-(1:39)) %>%
+  names(.)
+tax0 <- data_frame(
+  DIV = taxnames,
+  clade = str_extract(DIV, "[A-Z]")
+)
+tax1 <- as.matrix(tax0)
+rownames(tax1) <- tax0$DIV
+tax <- tax_table(tax1)
+
+otu0 <- read_tsv(
+  file = "data/sym_composition/20240723T194127_Pawar_Run /post_med_seqs/500_20240730T092802_DBV_20240730T195050.seqs.absolute.abund_and_meta.txt") %>% 
+  select(-1, -(3:39))
+otu1 <- as.matrix(otu0[, -1])
+rownames(otu1) <- otu0$sample_name
+otu <- otu_table(otu1, taxa_are_rows = FALSE)
+
+variants_pawar <- phyloseq(otu, tax, sam)
+
+# Conn run
+sam0 <- read_tsv("data/sym_composition/20250717T180136_conntr1/post_med_seqs/610_20250905T171203_DBV_20250910T163211.seqs.absolute.abund_and_meta.txt") %>%
+  clean_names() %>%
+  select(sample_uid, sample_name, fastq_fwd_file_name, fastq_rev_file_name, data_set_uid, data_set_name,
+         host_genus, host_species, collection_latitude, collection_longitude, collection_date, collection_depth, post_med_absolute) %>%
+  slice(1:(n() - 1)) # Remove last row - not a sample
+sam1 <- as.matrix(sam0)
+rownames(sam1) <- sam0$sample_name
+sam <- sample_data(data.frame(sam1))
+
+taxnames <- read_tsv(
+  file = "data/sym_composition/20250717T180136_conntr1/post_med_seqs/610_20250905T171203_DBV_20250910T163211.seqs.absolute.abund_and_meta.txt",
+  n_max = 0) %>%
+  select(-(1:39)) %>%
+  names(.)
+tax0 <- data_frame(
+  DIV = taxnames,
+  clade = str_extract(DIV, "[A-Z]")
+)
+tax1 <- as.matrix(tax0)
+rownames(tax1) <- tax0$DIV
+tax <- tax_table(tax1)
+
+otu0 <- read_tsv(
+  file = "data/sym_composition/20250717T180136_conntr1/post_med_seqs/610_20250905T171203_DBV_20250910T163211.seqs.absolute.abund_and_meta.txt") %>% 
+  select(-1, -(3:39))
+otu1 <- as.matrix(otu0[, -1])
+rownames(otu1) <- otu0$sample_name
+otu <- otu_table(otu1, taxa_are_rows = FALSE)
+
+variants_conn <- phyloseq(otu, tax, sam)
+
+## ============================================================
+## 3) Filter to FL samples + merge runs
+## ============================================================
+## safest way to filter phyloseq by sample IDs
+variants_pawar_fl <- subset_samples(variants_pawar, sample_name %in% fl_md$sample_name)
+variants_conn_fl <- subset_samples(variants_conn, sample_name %in% fl_md$sample_name)
+
+variants_merged <- merge_phyloseq(variants_pawar, variants_conn_fl)
+
+## ============================================================
+## 4) QC: drop low-read samples + drop zero-sum taxa
+## ============================================================
+low <- sample_sums(variants_merged) < 50
+table(low)
+variants <- subset_samples(variants_merged, !low)
+variants <- prune_taxa(taxa_sums(variants) != 0, variants)
+# New: remove G?
+variants <- prune_taxa(
+  as.vector(tax_table(variants)[, "clade"]) != "G",
+  variants
+)
+
+## ============================================================
+## 5) Build `out`: clade-level relative abundance + dominant clade + metadata
+## ============================================================
+outnew <- variants %>%
+  transform_sample_counts(function(x) x / sum(x)) %>%
+  psmelt() %>%
+  as_tibble() %>%
+  transmute(
+    sample_name,
+    clade = as.character(clade),
+    rel_abund = as.numeric(Abundance)
+  ) %>%
+  group_by(sample_name, clade) %>%
+  summarize(rel_abund = sum(rel_abund), .groups = "drop") %>%
+  pivot_wider(names_from = clade, values_from = rel_abund, values_fill = 0) %>%
+  mutate(across(any_of(c("A","B","C","D","G")), ~replace_na(.x, 0))) %>%
+  mutate(
+    dominant_clade = {
+      clades <- intersect(c("A","B","C","D","G"), names(.))
+      m <- as.matrix(select(., all_of(clades)))
+      clades[max.col(m, ties.method = "first")]
+    }
+  ) %>%
+  left_join(
+    fl_md %>%
+      select(
+        sample_name,
+        host_genus, host_species,
+        collection_date, era,
+        collection_subregion,
+        collection_site,
+        collection_latitude, collection_longitude,
+        collection_depth_ft
+      ),
+    by = "sample_name"
+  ) %>%
+  rename(
+    date      = collection_date,
+    subregion = collection_subregion,
+    site      = collection_site,
+    latitude  = collection_latitude,
+    longitude = collection_longitude,
+    depth     = collection_depth_ft
+  ) %>%
+  relocate(sample_name, host_genus, host_species, date, era, subregion, site,
+           latitude, longitude, depth, dominant_clade, .before = 1)
+
+## 
+
+write_csv(outnew, file = "data/processed/symbiont_composition.csv")
+
+```
+
+
+# Analyze symbiont composition shifts per species
+```{r}
+# ============================================================
+# Symbiont community shift (Upper Keys)
+# Era comparison: 2001–03 vs 2019–21
+#
+# Core idea:
+#   For each Species, compare the *mean clade composition* between eras.
+#   Because symbionts can vary with depth and depth sampling can differ by era,
+#   we STANDARDIZE depth within Species when feasible:
+#
+#   Feasible rule (automatic):
+#     - If BOTH eras have ≥ MIN_N non-missing depths AND pooled depth has
+#       enough spread to form >2 unique quantile bin edges, then:
+#         -> reweight each era to match the pooled depth-bin distribution
+#     - Otherwise:
+#         -> fall back to simple (unweighted) means for that species
+#
+# Output:
+#   - point estimates of TV / Hellinger / JSD per species
+#   - bootstrap uncertainty (median + CI) by resampling within era
+# ============================================================
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(purrr)
+
+# ----------------------------
+# CONFIG
+# ----------------------------
+SPECIES_COL <- "host_species"
+SUBREGION   <- "Upper Keys"
+ERA1 <- "2001-03"
+ERA2 <- "2019-21"
+
+CLADE_COLS <- c("A","B","C","D")
+
+MIN_N  <- 4        # require at least this many samples per era (per species)
+N_BINS <- 3        # quantile bins for depth standardization (matches your prior)
+B      <- 500     # bootstrap replicates
+CONF   <- 0.84     # CI level (0.84 -> 8th–92nd percentiles; set 0.95 if desired)
+
+# If you want matched-site filtering later, add it here (currently "all Upper Keys"):
+USE_MATCHED_SITES <- FALSE
+matched_sites <- c("cheeca","conch","pickles","triangles","little grecian","outer reef","hens and chickens")
+
+# ============================================================
+# 1) SPECIES LABEL -> 4-LETTER CODE -> AGGREGATED CODE
+# ============================================================
+
+species_names <- c(
+  AAGA="Agaricia agaricites", AFRA="Agaricia fragilis", AGAR="Agaricia sp.",
+  AGRA="Agaricia grahamae",   AHUM="Agaricia humilis",  ALAM="Agaricia lamarcki",
+  ACER="Acropora cervicornis", APAL="Acropora palmata", APRO="Acropora prolifera",
+  CNAT="Colpophyllia natans", DCYL="Dendrogyra cylindrus", DLAB="Diploria labyrinthiformis",
+  DSTO="Dichocoenia stokesii", EFAS="Eusmilia fastigiata", FFRA="Favia fragum",
+  HCUC="Helioseris cucullata", ISIN="Isophyllia sinuosa", IRIG="Isophyllia rigida",
+  ISOP="Isophyllia sp.", MADR="Madracis sp.", MANG="Mussa angulosa", MARE="Manicina areolata",
+  MCAV="Montastraea cavernosa", MDEC="Madracis decactis", MFER="Mycetophyllia ferox",
+  MALI="Mycetophyllia aliciae", MLAM="Mycetophyllia lamarckiana", MFOR="Madracis formosa",
+  MJAC="Meandrina jacksoni", MMEA="Meandrina meandrites", MSEN="Madracis senaria",
+  MYCE="Mycetophyllia sp.", OANN="Orbicella annularis", OCUL="Oculina sp.",
+  ODIF="Oculina diffusa", OFAV="Orbicella faveolata", OFRA="Orbicella franksi",
+  ORBI="Orbicella sp.", PAST="Porites astreoides", PBRA="Porites branneri",
+  PBRC="Porites (branching)", PCLI="Pseudodiploria clivosa", PDIV="Porites divaricata",
+  PFUR="Porites furcata", PORI="Porites sp.", PPOR="Porites porites",
+  PSTR="Pseudodiploria strigosa", SBOU="Solenastrea bournoni", SCOL="Scolymia sp.",
+  SHYA="Solenastrea hyades", SIDE="Siderastrea sp.", SINT="Stephanocoenia intersepta",
+  SOLE="Solenastrea sp.", SRAD="Siderastrea radians", SSID="Siderastrea siderea",
+  UNKN="Unknown"
+)
+
+lookup <- tibble(code = names(species_names), species_name = unname(species_names)) %>%
+  distinct(species_name, .keep_all = TRUE) %>%
+  mutate(species_lc = str_to_lower(species_name),
+         epithet_lc = str_to_lower(word(species_name, -1)))
+
+code_from_species <- function(x) {
+  x  <- as.character(x)
+  xl <- str_to_lower(str_squish(x))
+  out <- ifelse(str_detect(x, "^[A-Z]{4}$"), x, NA_character_)
+  out <- coalesce(out, lookup$code[match(xl, lookup$species_lc)])
+  out <- coalesce(out, lookup$code[match(xl, lookup$epithet_lc)])
+  coalesce(out, "UNKN")
+}
+
+aggregate_species_code <- function(code) {
+  case_when(
+    code %in% c("AFRA","AGAR","AGRA","AHUM","ALAM") ~ "AGAR",
+    code %in% c("MALI","MLAM","MYCE","MFER")        ~ "MYCE",
+    code %in% c("IRIG","ISIN","ISOP")               ~ "ISOP",
+    code %in% c("OCUL","ODIF")                      ~ "OCUL",
+    code %in% c("SHYA","SBOU")                      ~ "SOLE",
+    code %in% c("OFAV","OFRA","OANN")               ~ "ORBI",
+    TRUE ~ code
+  )
+}
+
+# ============================================================
+# 2) DISTANCE METRICS (on mean compositions)
+# ============================================================
+
+tv_dist <- function(p, q) 0.5 * sum(abs(p - q))
+
+hellinger_dist <- function(p, q) {
+  sqrt(0.5 * sum((sqrt(p) - sqrt(q))^2))
+}
+
+jsd_dist <- function(p, q) {
+  m <- 0.5 * (p + q)
+  kl <- function(a, b) {
+    keep <- a > 0
+    sum(a[keep] * (log2(a[keep]) - log2(b[keep])))
+  }
+  sqrt(0.5 * kl(p, m) + 0.5 * kl(q, m))
+}
+
+# weighted mean composition of clade proportions
+mean_comp <- function(df, w = NULL) {
+  X <- as.matrix(select(df, all_of(CLADE_COLS)))
+  storage.mode(X) <- "double"
+  if (is.null(w)) w <- rep(1, nrow(df))
+  if (sum(w) == 0) w <- rep(1, nrow(df))
+  w <- w / sum(w)
+  p <- colSums(X * w)
+  p / sum(p)
+}
+
+# ============================================================
+# 3) DEPTH STANDARDIZATION HELPERS (automatic feasibility)
+# ============================================================
+
+depth_edges <- function(depth, n_bins = N_BINS) {
+  # quantile edges on pooled depths; return NULL if not enough unique edges
+  edges <- quantile(depth, probs = seq(0, 1, length.out = n_bins + 1), na.rm = TRUE)
+  edges <- unique(as.numeric(edges))
+  if (length(edges) <= 2) return(NULL)
+  edges
+}
+
+weights_to_pooled_depth <- function(g, edges) {
+  # Add bins
+  g <- g %>% mutate(depth_bin = cut(depth, breaks = edges, include.lowest = TRUE))
+  
+  # pooled target distribution (across both eras, within this species)
+  target <- g %>% count(depth_bin) %>% mutate(p = n / sum(n))
+  idx <- target$depth_bin
+  
+  # per-era weights to match pooled target
+  weights_for <- function(subg) {
+    src <- subg %>% count(depth_bin) %>% mutate(p = n / sum(n))
+    src <- tibble(depth_bin = idx) %>%
+      left_join(src, by = "depth_bin") %>%
+      mutate(p = replace_na(p, 0))
+    
+    w <- target$p / ifelse(src$p == 0, NA_real_, src$p)
+    w[is.na(w) | is.infinite(w)] <- 0
+    w[match(subg$depth_bin, idx)]
+  }
+  
+  g1 <- filter(g, era == ERA1)
+  g2 <- filter(g, era == ERA2)
+  
+  list(
+    p1 = mean_comp(g1, weights_for(g1)),
+    p2 = mean_comp(g2, weights_for(g2))
+  )
+}
+
+# ============================================================
+# 4) ONE-SPECIES POINT ESTIMATE (auto depth std when feasible)
+# ============================================================
+
+shift_one_species <- function(g, min_n = MIN_N, n_bins = N_BINS) {
+  
+  g1 <- filter(g, era == ERA1)
+  g2 <- filter(g, era == ERA2)
+  if (nrow(g1) < min_n || nrow(g2) < min_n) return(NULL)
+  
+  # feasibility: need enough non-missing depths in BOTH eras + usable bin edges
+  g_depth <- g %>% filter(!is.na(depth))
+  ok_depth_counts <- sum(g_depth$era == ERA1) >= min_n && sum(g_depth$era == ERA2) >= min_n
+  
+  if (ok_depth_counts) {
+    edges <- depth_edges(g_depth$depth, n_bins = n_bins)
+  } else {
+    edges <- NULL
+  }
+  
+  if (!is.null(edges)) {
+    # depth-standardized means
+    pq <- weights_to_pooled_depth(g_depth, edges)
+    p1 <- pq$p1; p2 <- pq$p2
+    depth_std_used <- TRUE
+  } else {
+    # fallback: unweighted means (uses all rows, including NA depth)
+    p1 <- mean_comp(g1)
+    p2 <- mean_comp(g2)
+    depth_std_used <- FALSE
+  }
+  
+  tibble(
+    n1 = nrow(g1), n2 = nrow(g2),
+    depth_std = depth_std_used,
+    TV = tv_dist(p1, p2),
+    Hellinger = hellinger_dist(p1, p2),
+    JSD = jsd_dist(p1, p2)
+  )
+}
+
+# ============================================================
+# 5) BOOTSTRAP UNCERTAINTY (resample within era; auto depth std each draw)
+# ============================================================
+
+boot_shift_one_species <- function(g, B = 1000, conf = 0.84, min_n = MIN_N, n_bins = N_BINS) {
+  g1 <- filter(g, era == ERA1)
+  g2 <- filter(g, era == ERA2)
+  if (nrow(g1) < min_n || nrow(g2) < min_n) return(NULL)
+  
+  draws <- replicate(B, {
+    b1 <- g1[sample.int(nrow(g1), nrow(g1), replace = TRUE), , drop = FALSE]
+    b2 <- g2[sample.int(nrow(g2), nrow(g2), replace = TRUE), , drop = FALSE]
+    s  <- shift_one_species(bind_rows(b1, b2), min_n = min_n, n_bins = n_bins)
+    # shift_one_species returns a 1-row tibble; convert to named numeric
+    c(TV = s$TV, Hellinger = s$Hellinger, JSD = s$JSD, depth_std = as.numeric(s$depth_std))
+  })
+  
+  draws <- as.data.frame(t(draws))
+  
+  lo <- (1 - conf) / 2
+  hi <- 1 - lo
+  
+  tibble(
+    n1 = nrow(g1), n2 = nrow(g2),
+    depth_std_frac = mean(draws$depth_std > 0),
+    TV_med = median(draws$TV), TV_lo = quantile(draws$TV, lo), TV_hi = quantile(draws$TV, hi),
+    Hel_med = median(draws$Hellinger), Hel_lo = quantile(draws$Hellinger, lo), Hel_hi = quantile(draws$Hellinger, hi),
+    JSD_med = median(draws$JSD), JSD_lo = quantile(draws$JSD, lo), JSD_hi = quantile(draws$JSD, hi)
+  )
+}
+
+# ============================================================
+# 6) PREP DATA (Upper Keys, eras, clade normalization, species codes)
+# ============================================================
+
+stopifnot(SPECIES_COL %in% names(outnew))
+
+dat <- outnew %>%
+  mutate(
+    Species_raw = .data[[SPECIES_COL]],
+    Species     = aggregate_species_code(code_from_species(Species_raw)),
+    era         = factor(era, levels = c("2001-03","2019-21","2024"), ordered = TRUE),
+    depth       = as.numeric(depth),
+    site_std    = str_to_lower(str_squish(site)) %>%
+      str_replace_all("^tavernier rocks$", "hens and chickens")
+  ) %>%
+  filter(subregion == SUBREGION, era %in% c(ERA1, ERA2)) %>%
+  { if (USE_MATCHED_SITES) filter(., site_std %in% matched_sites) else . } %>%
+  mutate(across(all_of(CLADE_COLS), ~replace_na(.x, 0))) %>%
+  rowwise() %>%
+  mutate(
+    s = sum(c_across(all_of(CLADE_COLS))),
+    across(all_of(CLADE_COLS), ~ ifelse(s > 0, .x / s, .x))
+  ) %>%
+  ungroup() %>%
+  select(-s)
+
+# restrict to species that meet MIN_N in BOTH eras (avoid silent dropping later)
+keepers <- dat %>%
+  count(Species, era) %>%
+  pivot_wider(names_from = era, values_from = n, values_fill = 0) %>%
+  filter(.data[[ERA1]] >= MIN_N, .data[[ERA2]] >= MIN_N,
+         Species != "UNKN") %>%
+  pull(Species)
+
+dat_keep <- dat %>% filter(Species %in% keepers)
+
+# ============================================================
+# 7) RUN: point estimates + bootstrap CIs
+# ============================================================
+
+# Point estimates (Species will be re-attached automatically by group_modify)
+res_point <- dat_keep %>%
+  group_by(Species) %>%
+  group_modify(~{
+    out <- shift_one_species(.x)
+    if (is.null(out)) tibble() else out
+  }) %>%
+  ungroup() %>%
+  arrange(desc(TV))
+
+# Bootstrap uncertainty (auto depth std per draw)
+# Bootstrap CIs (Species will be re-attached automatically)
+res_boot <- dat_keep %>%
+  group_by(Species) %>%
+  group_modify(~{
+    out <- boot_shift_one_species(.x, B = B, conf = CONF)
+    if (is.null(out)) tibble() else out
+  }) %>%
+  ungroup() %>%
+  arrange(desc(TV_med))
+
+# Outputs
+res_point
+res_boot
+
+
+ress <- res_boot %>%
+  select(Species, med = Hel_med, lo = Hel_lo, hi = Hel_hi) %>%
+  #left_join(net %>% select(Species, ngen)) %>%
+  mutate(
+    se = (hi - lo) / 2,
+    w = 1 / se^2
+  )
+
+write_csv(ress, file = "data/processed/symbiont_shifts.csv")
+
+mod_w <- lm(med ~ ngen, data = ress, weights = w)
+summary(mod_w)
+mod_u <- lm(med ~ ngen, data = ress)
+summary(mod_u)
+
+fig <- ggplot(ress, aes(x = ngen, y = med, color = Species)) +
+  geom_point(position = position_jitter(width = 0.2, seed = 1)) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0,
+                position = position_jitter(width = 0.2, seed = 1)) +
+  geom_text_repel(aes(label = Species)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggpubr::stat_cor()
+
+
+fig +
+  geom_abline(intercept = coef(mod_w)[1], slope = coef(mod_w)[2])
+
+
+
+```
+
+# visualize community shifts
+```{r}
+library(ggplot2)
+
+# raw sample set
+comp_mean <- dat_keep %>%
+  group_by(Species, era) %>%
+  summarize(across(all_of(CLADE_COLS), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  pivot_longer(all_of(CLADE_COLS), names_to = "clade", values_to = "p")
+
+ggplot(comp_mean, aes(x = era, y = p, fill = clade)) +
+  geom_col(width = 0.85) +
+  facet_wrap(~ Species, ncol = 4) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = NULL, y = "Mean clade composition", fill = "Clade") +
+  theme_bw()
+
+
+
+# depth-standardized
+
+mean_comp_df <- function(df, w = NULL) {
+  X <- as.matrix(dplyr::select(df, all_of(CLADE_COLS)))
+  storage.mode(X) <- "double"
+  if (is.null(w)) w <- rep(1, nrow(df))
+  if (sum(w) == 0) w <- rep(1, nrow(df))
+  w <- w / sum(w)
+  p <- colSums(X * w)
+  p / sum(p)
+}
+
+# return one row per Species x era with either depth-std or simple means
+species_era_compositions <- function(g, min_n = MIN_N, n_bins = N_BINS) {
+  g1 <- dplyr::filter(g, era == ERA1)
+  g2 <- dplyr::filter(g, era == ERA2)
+  if (nrow(g1) < min_n || nrow(g2) < min_n) return(NULL)
+
+  g_depth <- g %>% dplyr::filter(!is.na(depth))
+  ok_depth_counts <- sum(g_depth$era == ERA1) >= min_n && sum(g_depth$era == ERA2) >= min_n
+  edges <- if (ok_depth_counts) depth_edges(g_depth$depth, n_bins = n_bins) else NULL
+
+  if (!is.null(edges)) {
+    g_depth <- g_depth %>% mutate(depth_bin = cut(depth, breaks = edges, include.lowest = TRUE))
+    target <- g_depth %>% count(depth_bin) %>% mutate(p = n / sum(n))
+    idx <- target$depth_bin
+
+    weights_for <- function(subg) {
+      src <- subg %>% count(depth_bin) %>% mutate(p = n / sum(n))
+      src <- tibble(depth_bin = idx) %>%
+        left_join(src, by = "depth_bin") %>%
+        mutate(p = replace_na(p, 0))
+      w <- target$p / ifelse(src$p == 0, NA_real_, src$p)
+      w[is.na(w) | is.infinite(w)] <- 0
+      w[match(subg$depth_bin, idx)]
+    }
+
+    g1d <- filter(g_depth, era == ERA1)
+    g2d <- filter(g_depth, era == ERA2)
+
+    p1 <- mean_comp_df(g1d, weights_for(g1d))
+    p2 <- mean_comp_df(g2d, weights_for(g2d))
+    depth_std_used <- TRUE
+  } else {
+    p1 <- mean_comp_df(g1)
+    p2 <- mean_comp_df(g2)
+    depth_std_used <- FALSE
+  }
+
+  bind_rows(
+    tibble(era = ERA1, depth_std = depth_std_used) %>% bind_cols(as_tibble_row(p1)),
+    tibble(era = ERA2, depth_std = depth_std_used) %>% bind_cols(as_tibble_row(p2))
+  )
+}
+
+comp_std <- dat_keep %>%
+  group_by(Species) %>%
+  group_modify(~{
+    tmp <- species_era_compositions(.x)
+    if (is.null(tmp)) tibble() else tmp
+  }) %>%
+  ungroup() %>%
+  pivot_longer(all_of(CLADE_COLS), names_to = "clade", values_to = "p")
+
+ggplot(comp_std, aes(x = era, y = p, fill = clade)) +
+  geom_col(width = 0.85) +
+  facet_wrap(~ Species, ncol = 4) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = NULL, y = "Depth-standardized mean clade composition", fill = "Clade") +
+  theme_bw()
+```
+
