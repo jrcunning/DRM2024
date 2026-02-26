@@ -495,26 +495,6 @@ ress <- res_boot %>%
   )
 
 write_csv(ress, file = "data/processed/symbiont_shifts.csv")
-
-mod_w <- lm(med ~ ngen, data = ress, weights = w)
-summary(mod_w)
-mod_u <- lm(med ~ ngen, data = ress)
-summary(mod_u)
-
-fig <- ggplot(ress, aes(x = ngen, y = med, color = Species)) +
-  geom_point(position = position_jitter(width = 0.2, seed = 1)) +
-  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0,
-                position = position_jitter(width = 0.2, seed = 1)) +
-  geom_text_repel(aes(label = Species)) +
-  geom_smooth(method = "lm", se = FALSE) +
-  ggpubr::stat_cor()
-
-
-fig +
-  geom_abline(intercept = coef(mod_w)[1], slope = coef(mod_w)[2])
-
-
-
 ```
 
 # visualize community shifts
