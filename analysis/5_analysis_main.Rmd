@@ -1608,3 +1608,27 @@ sizefreq <- sizefreq +
 ggsave("figures/FigS7.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
 
+
+```{r}
+net
+
+shuff <- read_csv("~/Projects/decadal-shifts-/shuff_metrics.csv")
+shuff
+
+species_names
+
+# sanity check unmapped
+
+hi <- shuff %>%
+  filter(analysis == "A_depth_std") %>%
+  pivot_longer(c(3:11), names_to = "shuff_metric") %>%
+  separate(shuff_metric, into = c("metric", "interval"), sep = "_", extra = "merge") %>%
+  left_join(net %>% select(Species, ngen, estimate))
+
+ggplot(hi, aes(x = ngen, y = value, group = interval, color = interval)) +
+  geom_jitter(width = 0.1) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~metric+interval) +
+  geom_text_repel(aes(label = Species))
+```
+
