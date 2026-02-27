@@ -1815,5 +1815,6 @@ p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 # FINAL FIGURE for proxy validation
 cowplot::plot_grid(p1, p2, p3, nrow = 1, align = "h")
 
+ggsave(filename = "figures/FigSX.png", width = 300, height = 105, units = "mm")
 ```
 
