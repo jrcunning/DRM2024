@@ -161,7 +161,7 @@ CLADE_COLS <- c("A","B","C","D")
 
 MIN_N  <- 4        # minimum samples per era per species
 N_BINS <- 3        # number of pooled depth quantile bins per species
-B      <- 500      # bootstrap draws
+B      <- 1000      # bootstrap draws
 CONF   <- 0.84     # CI level (0.84 -> 8th–92nd percentiles)
 lo <- (1 - CONF) / 2
 hi <- 1 - lo
@@ -424,6 +424,7 @@ res_point <- species_comp %>%
 #       the pooled depth distribution and quantile bin edges.
 # ============================================================
 
+set.seed(123)
 res_boot <- dat_keep %>%
   group_by(Species) %>%
   group_modify(~{
@@ -491,10 +492,13 @@ ress <- res_boot %>%
 
 write_csv(ress, file = "data/processed/symbiont_shifts.csv")
 
-
 # ============================================================
 # 8) PLOT community compositions for each era in each species
 # ============================================================
+species_names_it <- setNames(
+ paste0("italic('", species_names, "')"),
+ names(species_names)
+)
 
 figsy <- comp_std %>% left_join(ress) %>%
   mutate(genus = case_match(clade, "A" ~ "Symbiodinium", "B" ~ "Breviolum", 
