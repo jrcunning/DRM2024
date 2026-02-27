@@ -978,101 +978,101 @@ ggsave(filename = "figures/Fig4.png", width = 100, height = 90, units = "mm")
 ## Species - ∆ED50 2014-15-23
 
 ```{r species_bleaching_by_year_dhw, fig.width = 7, fig.height = 7}
-# Exclude 2024 from species-level analysis
-allgno24 <- filter(allg, year != "2024")
-
-# Model differences in bleaching severity between years with DHW
-dhw.sp.mod <- glmer(
-  cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
-  family = "binomial", data = allgno24, verbose = FALSE,
-  nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-#### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-
-# Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-# And select just the range of peak DHWs experienced across sites in each year
-dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
-                      rg.limit = 200000, level = 0.84)
-dhw.sp.res2 <- subset(dhw.sp.res,
-  (year == "2014" & Week2 == "(35,37]" & dhw <= 8.11 & dhw > 0.48) |
-  (year == "2015" & Week2 == "(37,39]" & dhw <= 8.90 & dhw > 0) |
-  (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06)# |
-  #(year == "2024" & Week2 == "(38,40]" & dhw <= 11.7 & dhw > 0.16) 
-)
-
-
-# Plot
-(dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
-  facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
-  geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
-  geom_hline(aes(yintercept = 0.5), lty = 2, lwd = 0.25) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
-                     labels = scales::label_percent()) +
-  # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-  #                       limits = c(0, 1), midpoint = 0.5) +
-  theme_classic() +
-  theme(legend.position = c(0.8, 0.04),
-        legend.direction = "horizontal",
-        strip.background = element_blank(),
-        strip.text = element_text(face = "italic")) +
-  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
-  coord_cartesian(clip = "off"))
-
-ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
-
-
-# Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
-## change in ED50s from 2014-2015, and 2014-2023
-sp.ed50s.fun <- function(dhw.sp.mod) {
-  dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
-                   rg.limit = 200000, level = 0.84)
-  dhw.sp.res22 <- subset(dhw.sp.res,
-    (year == "2014" & Week2 == "(35,37]") |
-    (year == "2015" & Week2 == "(37,39]") |
-    (year == "2023" & Week2 == "(33,35]")
-  )
-  bleach50 <- as.tibble(dhw.sp.res22) %>%
-    group_by(Species, year) %>%
-    slice(which.min(abs(prob - 0.5)))
-  bleachdiffs <- bleach50 %>%
-    group_by(Species) %>%
-    summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
-              "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
-    pivot_longer(2:3)
-  names <- c(paste(bleach50$Species, bleach50$year), paste(bleachdiffs$Species, bleachdiffs$name))
-  vals <- c(bleach50$dhw, bleachdiffs$value)
-  vals <- setNames(vals, names)
-  return(vals)
-}
-
-# Get point estimates for ED50s and ∆ED50s
-sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
-
-# Bootstrap ED50s for SE/confidence intervals
-## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
-## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 20)
-# saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
-sp.boot.out <- readRDS(file = "data/processed/sp.boot.out.rds")
-## Get confidence intervals from Bootstrap
-sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
-sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
-## Get standard error from Bootstrap
-sp.se <- apply(sp.boot.out$t, 2, sd)
-
-sp.ed50conf <- tibble(
-  year = names(sp.bleach50), 
-  ed50 = sp.bleach50,
-  se = sp.se,
-  lower = sp.lower,
-  upper = sp.upper) %>%
-  separate(year, into = c("Species", "year"), sep = " ")
+# # Exclude 2024 from species-level analysis
+# allgno24 <- filter(allg, year != "2024")
+# 
+# # Model differences in bleaching severity between years with DHW
+# dhw.sp.mod <- glmer(
+#   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
+#   family = "binomial", data = allgno24, verbose = FALSE,
+#   nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+# #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
+# 
+# # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
+# # And select just the range of peak DHWs experienced across sites in each year
+# dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
+#                       at = list(dhw = seq(0, 23, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+#                       rg.limit = 200000, level = 0.84)
+# dhw.sp.res2 <- subset(dhw.sp.res,
+#   (year == "2014" & Week2 == "(35,37]" & dhw <= 8.11 & dhw > 0.48) |
+#   (year == "2015" & Week2 == "(37,39]" & dhw <= 8.90 & dhw > 0) |
+#   (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06)# |
+#   #(year == "2024" & Week2 == "(38,40]" & dhw <= 11.7 & dhw > 0.16) 
+# )
+# 
+# 
+# # Plot
+# (dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
+#   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
+#   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
+#   geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
+#   geom_hline(aes(yintercept = 0.5), lty = 2, lwd = 0.25) +
+#   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
+#                      labels = scales::label_percent()) +
+#   # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
+#   #                       limits = c(0, 1), midpoint = 0.5) +
+#   theme_classic() +
+#   theme(legend.position = c(0.8, 0.04),
+#         legend.direction = "horizontal",
+#         strip.background = element_blank(),
+#         strip.text = element_text(face = "italic")) +
+#   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
+#   coord_cartesian(clip = "off"))
+# 
+# ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
+# 
+# 
+# # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
+# ## change in ED50s from 2014-2015, and 2014-2023
+# sp.ed50s.fun <- function(dhw.sp.mod) {
+#   dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
+#                    at = list(dhw = seq(0, 23, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+#                    rg.limit = 200000, level = 0.84)
+#   dhw.sp.res22 <- subset(dhw.sp.res,
+#     (year == "2014" & Week2 == "(35,37]") |
+#     (year == "2015" & Week2 == "(37,39]") |
+#     (year == "2023" & Week2 == "(33,35]")
+#   )
+#   bleach50 <- as.tibble(dhw.sp.res22) %>%
+#     group_by(Species, year) %>%
+#     slice(which.min(abs(prob - 0.5)))
+#   bleachdiffs <- bleach50 %>%
+#     group_by(Species) %>%
+#     summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
+#               "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
+#     pivot_longer(2:3)
+#   names <- c(paste(bleach50$Species, bleach50$year), paste(bleachdiffs$Species, bleachdiffs$name))
+#   vals <- c(bleach50$dhw, bleachdiffs$value)
+#   vals <- setNames(vals, names)
+#   return(vals)
+# }
+# 
+# # Get point estimates for ED50s and ∆ED50s
+# sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
+# 
+# # Bootstrap ED50s for SE/confidence intervals
+# ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
+# ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
+# # sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
+# #                        parallel = "multicore", ncpus = 20)
+# # saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
+# sp.boot.out <- readRDS(file = "data/processed/sp.boot.out.rds")
+# ## Get confidence intervals from Bootstrap
+# sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
+# sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
+# ## Get standard error from Bootstrap
+# sp.se <- apply(sp.boot.out$t, 2, sd)
+# 
+# sp.ed50conf <- tibble(
+#   year = names(sp.bleach50), 
+#   ed50 = sp.bleach50,
+#   se = sp.se,
+#   lower = sp.lower,
+#   upper = sp.upper) %>%
+#   separate(year, into = c("Species", "year"), sep = " ")
 ```
 
-# species models with 2024 in
+## Species - ∆ED50 2014-15-23-24
 ```{r species_bleaching_by_year_dhw_with_2024, fig.width = 7, fig.height = 7}
 # Model differences in bleaching severity between years with DHW
 dhw.sp.mod.24 <- glmer(
@@ -1316,13 +1316,14 @@ out <- net_clean %>%
   arrange(degC) %>%
   mutate(Species = fct_reorder(Species, degC))
 
+
 (decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   geom_col(position = "stack", alpha = 1) +
   geom_point(aes(y = degC, shape = "Net change (±SE)"), size = 2) +
   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0) +
   scale_x_discrete(labels = abbrev_names[as.character(out$Species)]) +
-  scale_fill_manual(name = "Modeled contributions", 
-                      labels = c("Population size", "Symbiont genera", "Unexplained"),
+  scale_fill_manual(name = "Model-estimated drivers", 
+                      labels = c("∆ pop. density", "# symbiont genera", "unexplained"),
                       values = c("#67a9cf", "#ef8a62", "#C0C0C0")) +
   scale_shape_manual(name = "", values = 16) +
   theme_classic() +
@@ -1353,7 +1354,7 @@ net_clean$Residual_Variation <- residuals(ols_model_adjusted)
 
 # Add jitter to ngen to prevent overlap
 set.seed(42)
-net_clean$Jittered_Ngen <- jitter(net_clean$ngen, amount = 0.15)
+net_clean$Jittered_Ngen <- jitter(net_clean$ngen, amount = 0.1)
 
 # Generate regression lines data using correct centering
 estimate_seq <- seq(min(net_clean$estimate), max(net_clean$estimate), length.out = 100)
@@ -1410,7 +1411,7 @@ p1 <- ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
                            fontface = "italic", size = 3, seed = 8) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
   
-  labs(x = "Change in population size (2014-2023)", 
+  labs(x = "Change in population density (2014-2023)", 
        y = "Change in bleaching threshold (°C)\n(adjusted for symbiont genera = 1)") +
   theme_classic()
 
@@ -1642,8 +1643,10 @@ sizefreq <- sizefreq +
 ggsave("figures/FigS7.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
 
-
+# Symbiont genera as proxy for compositional change
 ```{r}
+# Use symbiont shift data calculated in symbiont_shifts.Rmd for a subset of species
+
 # ============================================================
 # 1) Proxy justification: Symbiont diversity predicts realized community change (ngen → hellinger dist (med))
 # ============================================================
@@ -1710,17 +1713,33 @@ sym_shifts$Adj_degC_med <- predict(mod1, newdata = data.frame(estimate = 0, med 
 # Generate regression lines data using correct centering
 med_seq <- seq(0, max(sym_shifts$med), length.out = 100)
 
-regression_line_med <- data.frame(
+pred_med <- predict(
+  mod1,
+  newdata = data.frame(estimate = 0, med = med_seq),
+  se.fit = TRUE
+)
+
+regression_line_med <- tibble(
   med = med_seq,
-  predicted_degC = coef(mod1)["(Intercept)"] + coef(mod1)["med"] * med_seq)
+  fit = as.numeric(pred_med$fit),
+  se  = as.numeric(pred_med$se.fit)
+) %>%
+  mutate(lo = fit - 1.96 * se,
+         hi = fit + 1.96 * se)
+
+# regression_line_med <- data.frame(
+#   med = med_seq,
+#   predicted_degC = coef(mod1)["(Intercept)"] + coef(mod1)["med"] * med_seq)
 
 # Plot Effect of med (sym shift) on Adjusted degC (Holding estimate = 0, with residuals)
 p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
-  geom_line(data = regression_line_med, aes(x = med, y = predicted_degC), 
+  geom_line(data = regression_line_med, aes(x = med, y = fit), 
             color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_ribbon(data = regression_line_med, aes(ymin = lo, ymax = hi, y = fit),
+              alpha = 0.1) +
   geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
-  geom_errorbar(aes(ymin = Adj_degC_med - degC.se, ymax = Adj_degC_med + degC.se), 
-                width = 0, alpha = 0.7, lwd = 0.3) +
+  #geom_errorbar(aes(ymin = Adj_degC_med - degC.se, ymax = Adj_degC_med + degC.se), 
+  #              width = 0, alpha = 0.7, lwd = 0.3) +
   annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod1_pval, 5)), 
            hjust = -0.1, vjust = 1.1) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
@@ -1762,18 +1781,27 @@ sym_shifts$Jittered_Ngen <- jitter(sym_shifts$ngen, amount = 0.15)
 # Generate regression lines data using correct centering
 ngen_seq <- seq(1, max(sym_shifts$ngen), length.out = 100)
 
-regression_line_ngen <- data.frame(
+regression_line_ngen <- tibble(
   ngen = ngen_seq,
-  predicted_degC = coef(mod2)["(Intercept)"] + coef(mod2)["ngen_centered"] * (ngen_seq - 1)
-)
+  fit = as.numeric(pred_ngen$fit),
+  se  = as.numeric(pred_ngen$se.fit)
+) %>%
+  mutate(lo = fit - 1.96 * se,
+         hi = fit + 1.96 * se)
+# regression_line_ngen <- data.frame(
+#   ngen = ngen_seq,
+#   predicted_degC = coef(mod2)["(Intercept)"] + coef(mod2)["ngen_centered"] * (ngen_seq - 1)
+# )
 
 # Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
 p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
-  geom_line(data = regression_line_ngen, aes(x = ngen, y = predicted_degC), 
+  geom_line(data = regression_line_ngen, aes(x = ngen, y = fit), 
             color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_ribbon(data = regression_line_ngen, aes(ymin = lo, ymax = hi, y = fit, x = ngen),
+              alpha = 0.1) +
   geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
-  geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
-                width = 0, alpha = 0.7, lwd = 0.3) +
+  #geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
+  #              width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, seed = 8) +
   annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod2_pval, 5)), 
