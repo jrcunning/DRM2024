@@ -1011,14 +1011,13 @@ finaldegC24 <- degC %>%
   select(degC, degC.lower, degC.upper)
 
 # Annotate and save bleaching response curves plot // Fig4
-(dhw.bleach.plot +
+fig4 <- dhw.bleach.plot +
   annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 2, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
   annotate("text", x = 18.4, y = 0.04, hjust = 0, size = 2, fontface = "italic",
            label = paste0("+", signif(ed50conf$ed50[[7]], 2), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
-)
 
 ggsave(filename = "figures/Fig4.png", width = 100, height = 90, units = "mm")
 
@@ -1146,22 +1145,41 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
 # Plot
 (dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.15) +
   geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
-  geom_hline(aes(yintercept = 0.5), lty = 2, lwd = 0.25) +
+  geom_hline(aes(yintercept = 0.5), lty = 1, lwd = 0.1) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
                      labels = scales::label_percent()) +
-  # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-  #                       limits = c(0, 1), midpoint = 0.5) +
   theme_classic() +
-  theme(legend.position = c(0.8, 0.04),
-        legend.direction = "horizontal",
+  theme(legend.position = c(0.8, 0.06),
+        legend.direction = "vertical",
+        legend.key.height = grid::unit(0.35, "lines"),
         strip.background = element_blank(),
         strip.text = element_text(face = "italic")) +
-  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
+  labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "Year") +
   coord_cartesian(clip = "off"))
 
-ggsave(filename = "figures/FigS4.24.png", plot = dhw.sp.bleach.plot.24, width = 140, height = 140, units = "mm")
+ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot.24, width = 140, height = 140, units = "mm")
+
+fig4
+spfig <- dhw.sp.bleach.plot.24 +
+  scale_x_continuous(breaks = seq(0, 20, 4), labels = c(0, "", 8, "", 16, ""))+#, labels = rep("", 6)) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, "", 1))+#, labels = rep("", 3)) +
+  facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 4) +
+  labs(color = "") +
+  theme(legend.position = c(0.9, 0.06),
+        legend.margin = margin(t = 0, b = 0, l = 0, r = 0),
+        #axis.text = element_blank(),
+        #axis.title = element_blank(),
+        legend.title = element_text(size = 7, margin = margin(t = 0, b = 0, l = 0, r = 0)),
+        legend.text = element_text(size = 7),
+        strip.text = element_text(size = 6, margin = margin(t = 0, b = 0, l = 0, r = 0)),
+        axis.line  = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3))
+
+fig4alt <- cowplot::plot_grid(fig4, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
+fig4alt
+ggsave(filename = "figures/Fig4alt.png", width = 200, height = 110, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1484,7 +1502,7 @@ ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
 
 s5 <- cowplot::plot_grid(decomp, ps, nrow = 2, rel_heights = c(0.55, 0.45), labels = "A")
 s5
-ggsave(filename = "figures/FigS5with24.png", plot = s5, width = 190, height = 200, units = "mm")
+ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
 
 
 
@@ -1512,11 +1530,11 @@ stat_text <- paste0(
            size = 2.5) +
     coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC))))
 
-ggsave(filename = "figures/Fig5with24.png", plot = fig5,
+ggsave(filename = "figures/Fig5.png", plot = fig5,
        width = 110, height = 100, units = "mm")
 ```
 
-# Coral colony size analyses
+# Coral size analyses
 
 ## Bleaching in large vs. small colonies in 2023
 
@@ -1635,7 +1653,7 @@ sizefreq <- ggplot(allw, aes(x = log(Width2), fill = factor(year), color = facto
                      labels = c(4, 16, 64, 256)) +
   labs(x = "Log Colony Width (cm)", y = "Density", fill = "Year", color = "Year") +
   theme_classic() +
-  theme(legend.position = "none",
+  theme(legend.position = c(0.8, 0.06),
         strip.text = element_text(face = "italic", hjust = 0),
         strip.background = element_blank())
 
@@ -1645,49 +1663,33 @@ wmod <- lmer(log(Width2) ~ year * Species + (1|Species:Subregion), data = allw)
 # Get EMMs
 emms <- emmeans(wmod, specs = "year", by = "Species")
 
-# Test for significant difference in 2023
-sigs <- rbind(contrast(emms, "pairwise")) %>%
-  as_tibble() %>%
-  filter(p.value < 0.01)
+# Test for significant differences
+grps <- as_tibble(multcomp::cld(emms, Letters = letters))
 
 
 # Convert from log scale to actual size
 emms_size <- summary(emms) %>%
   mutate(Estimated_Size = exp(emmean)) %>%
-  select(Species, year, Estimated_Size)
-
-# Calculate the difference between 2023 and 2014-2015
-size_change0 <- emms_size %>%
-  pivot_wider(names_from = year, values_from = Estimated_Size) %>%
-  mutate(Change = `2023` - `2014/15`,
-         pct = (`2023` - `2014/15`) / `2014/15`)# %>% # Change in mean size
-  #filter(Species %in% sigs$Species)
-
-pos <- allw %>%
-  group_by(Species, year) %>%
-  summarize(max.y = max(density(Width2)$y),
-            max.x = max(log(Width2))) %>%
-  group_by(Species) %>%
-  summarize(max.y = max(max.y),
-            max.x = max.x)
-
-size_change1 <- full_join(pos, size_change0)
-
-size_change2 <- size_change1 %>%
-  pivot_longer(cols = c("2014/15", "2023"), names_to = "year", values_to = "Estimated_Size") %>%
-  mutate(log_size = log(Estimated_Size))
+  select(Species, year, Estimated_Size) %>%
+  left_join(grps) %>%
+  mutate(
+  label = purrr::map2(
+    round(Estimated_Size, 1),
+    trimws(.group),
+    ~ bquote(.(.x)^.(.y))
+  )
+)
 
 sizefreq <- sizefreq +
-  geom_text(data = size_change1, inherit.aes = FALSE,
-            aes(x = Inf, y = Inf, label = paste0("avg.=", round(`2014/15`, 1), "cm")), 
-            vjust = 1, hjust = 1, color = "#F8766D", size = 3) +
-  geom_text(data = size_change1, inherit.aes = FALSE,
-            aes(x = Inf, y = Inf, label = paste0("avg.=", round(`2023`, 1), "cm")), 
-            vjust = 2.5, hjust = 1, color = "#619CFF", size = 3) +
-  geom_text(data = sigs, inherit.aes = FALSE,
-            aes(x = Inf, y = Inf, label = paste0("p=", signif(p.value,2))),
-            vjust = 4, hjust = 1, color = "black", size = 3, fontface = "bold") +
-  theme(legend.position = c(0.7, 0.1))
+  geom_text(data = emms_size %>% filter(year == "2014/15"), 
+            aes(x = Inf, y = Inf, label = label), 
+            parse = TRUE, vjust = 1, hjust = 1, size = 3, color = "#F8766D") +
+  geom_text(data = emms_size %>% filter(year == "2023"), 
+            aes(x = Inf, y = Inf, label = label), 
+            parse = TRUE, vjust = 2.5, hjust = 1, size = 3, color = "#619CFF") +
+  geom_text(data = emms_size %>% filter(year == "2024"), 
+            aes(x = Inf, y = Inf, label = label), 
+            parse = TRUE, vjust = 4, hjust = 1, size = 3, color = "#00BA38") 
 
 ggsave("figures/FigS7.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
