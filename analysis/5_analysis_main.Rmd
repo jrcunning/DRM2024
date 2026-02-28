@@ -94,6 +94,17 @@ abbrev_names <- as_tibble(species_names) %>%
   unite(genus, species, col = "name", sep = " ")
 abbrev_names <- c(abbrev_names$name)
 names(abbrev_names) <- names(species_names)
+
+# P-value labelling helper
+label_p_expr <- function(p, accuracy = 1e-4, digits = 4) {
+  fmt <- function(x) sub("^0\\.", ".", formatC(x, format = "f", digits = digits))
+  if (is.na(p)) return(NA_character_)
+  if (p < accuracy) {
+    paste0('italic(P) < "', fmt(accuracy), '"')
+  } else {
+    paste0('italic(P) == "', fmt(p), '"')
+  }
+}
 ```
 
 # Import data
@@ -1364,6 +1375,13 @@ predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = 0
 ols_slope_estimate <- coef(ols_model_adjusted)["estimate"]
 ols_slope_ngen <- coef(ols_model_adjusted)["ngen_centered"]
 
+# Extract coefficients and p-values for plotting
+estimate_coef <- round(summary_ols$coefficients["estimate", "Estimate"], 3)
+estimate_pval <- signif(summary_ols$coefficients["estimate", "Pr(>|t|)"], 3)
+ngen_coef <- round(summary_ols$coefficients["ngen_centered", "Estimate"], 3)
+ngen_pval <- signif(summary_ols$coefficients["ngen_centered", "Pr(>|t|)"], 3)
+r2_value <- round(summary_ols$r.squared, 3)
+
 # Compute contributions of each predictor
 net_clean$Estimate_Contribution <- ols_slope_estimate * net_clean$estimate
 net_clean$Ngen_Contribution <- ols_slope_ngen * (net_clean$ngen - 1)
@@ -1383,29 +1401,58 @@ out <- net_clean %>%
   arrange(degC) %>%
   mutate(Species = fct_reorder(Species, degC))
 
+out <- out %>%
+  mutate(
+    name = factor(
+      name,
+      levels = c("Unexplained_Variation", "Estimate_Contribution",
+                 "Ngen_Contribution")
+    )
+  )
+
+# Compute percent of total modeled change in degC due to predictors
+pct_change_degC_explained <- out %>%
+  group_by(name) %>%
+  summarize(tot = sum(abs(value))) %>%
+  mutate(pct = tot/sum(tot) * 100)
+pct_tab <- pct_change_degC_explained
+pct_symb <- pct_tab$pct[pct_tab$name == "Ngen_Contribution"]
+pct_density <- pct_tab$pct[pct_tab$name == "Estimate_Contribution"]
+pct_unexp <- pct_tab$pct[pct_tab$name == "Unexplained_Variation"]
+pct_modeled <- pct_symb + pct_density
+label_decomp <- sprintf(
+  "Modeled drivers account for %.0f%% of total |Δ°C|\n(Symbionts %.0f%%, Density %.0f%%)",
+  pct_modeled,
+  pct_symb,
+  pct_density
+)
 
 (decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   geom_col(position = "stack", alpha = 1) +
-  geom_point(aes(y = degC, shape = "Net change (±SE)"), size = 2) +
+  geom_point(aes(y = degC, shape = "Observed change (±SE)"), size = 2) +
   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0) +
   scale_x_discrete(labels = abbrev_names[as.character(out$Species)]) +
   scale_fill_manual(name = "Model-estimated drivers", 
-                      labels = c("∆ pop. density", "# symbiont genera", "unexplained"),
-                      values = c("#67a9cf", "#ef8a62", "#C0C0C0")) +
+                      labels = c("unexplained", "∆ pop. density", "# sym. genera"),
+                      values = c( "#C0C0C0","#67a9cf", "#ef8a62")) +
   scale_shape_manual(name = "", values = 16) +
+  annotate("text", x = Inf, y = -Inf, hjust = 1, vjust = -0.4, label = label_decomp, size = 2.47) +
   theme_classic() +
-  theme(axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 10),
+  theme(plot.margin = margin(5.5, 5.5, -10, 5.5),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 10),
         axis.title.y = element_text(size = 12),
-        legend.text = element_text(size = 10),  # Decrease legend text size
-        legend.title = element_text(size = 10),  # Decrease legend title size
-        legend.key.size = unit(0.4, "cm"),  # Reduce legend key size
+        legend.text = element_text(size = 7),  # Decrease legend text size
+        legend.title = element_text(size = 8),  # Decrease legend title size
+        legend.key.size = unit(0.3, "cm"),  # Reduce legend key size
         legend.spacing.y = unit(-0.2, "cm")) +  # Reduce vertical space between legend items +
-  theme(legend.position = c(0.12, 0.86),
+  theme(legend.position = c(0.17, 0.9),
         legend.background = element_blank(),  # Transparent legend panel
         legend.key = element_blank()) +
-  labs(x = "", y = "Change in bleaching threshold (°C)") +
+  labs(x = "", y = "Change in bleaching threshold\n2014–23 (°C)") +
   guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
-         shape = guide_legend(order = 1, label.theme = element_text(size = 10))))
+         shape = guide_legend(order = 1, label.theme = element_text(size = 8))))
+
+
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 # Compute adjusted degC while preserving species-level variation
@@ -1427,10 +1474,6 @@ net_clean$Jittered_Ngen <- jitter(net_clean$ngen, amount = 0.1)
 estimate_seq <- seq(min(net_clean$estimate), max(net_clean$estimate), length.out = 100)
 ngen_seq <- seq(min(net_clean$ngen), max(net_clean$ngen), length.out = 100)
 
-# regression_line_estimate <- data.frame(
-#   estimate = estimate_seq,
-#   predicted_degC = coef(ols_model_adjusted)["(Intercept)"] + ols_slope_estimate * estimate_seq
-# )
 pred_est <- predict(
   ols_model_adjusted,
   newdata = data.frame(estimate = estimate_seq, ngen_centered = 0),
@@ -1443,13 +1486,6 @@ regression_line_estimate <- tibble(
   lo = fit - 1.96 * pred_est$se.fit,
   hi = fit + 1.96 * pred_est$se.fit
 )
-
-
-
-# regression_line_ngen <- data.frame(
-#   ngen = ngen_seq,
-#   predicted_degC = coef(ols_model_adjusted)["(Intercept)"] + ols_slope_ngen * (ngen_seq - 1)
-# )
 
 pred_ngen <- predict(
   ols_model_adjusted,
@@ -1475,11 +1511,12 @@ p1 <- ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
   #              width = 0, alpha = 0.7, lwd = 0.3) +
   #geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, seed = 8) +
+                           fontface = "italic", size = 2.47, seed = 8) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
-  
+  annotate("text", x = Inf, y = Inf, hjust = 1.2, vjust = 2,
+           label = label_p_expr(estimate_pval), parse = TRUE) +
   labs(x = "Change in population density (2014-2023)", 
-       y = "Change in bleaching threshold (°C)\n(adjusted for symbiont genera = 1)") +
+       y = "Modeled change in bleaching threshold\n(°C; adjusted for symbiont genera = 1)") +
   theme_classic()
 
 # Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
@@ -1492,9 +1529,11 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
   #geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
   #              width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, seed = 8) +
+                           fontface = "italic", size = 2.47, seed = 8) +
+  annotate("text", x = -Inf, y = Inf, hjust = -0.2, vjust = 2,
+           label = label_p_expr(ngen_pval), parse = TRUE) +
   labs(x = "Number of symbiont genera", 
-       y = "Change in bleaching threshold (°C)\n(adjusted for density change = 0)") +
+       y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
   theme_classic()
 
@@ -1505,33 +1544,13 @@ s5
 ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
 
 
+cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
+ggsave(filename = "figures/Fig5alt.png", width = 300, height = 95, units = "mm")
 
-# Add statistical info to Fig5
-# Extract coefficients and p-values for plotting
-estimate_coef <- round(summary_ols$coefficients["estimate", "Estimate"], 3)
-estimate_pval <- signif(summary_ols$coefficients["estimate", "Pr(>|t|)"], 3)
-ngen_coef <- round(summary_ols$coefficients["ngen_centered", "Estimate"], 3)
-ngen_pval <- signif(summary_ols$coefficients["ngen_centered", "Pr(>|t|)"], 3)
-r2_value <- round(summary_ols$r.squared, 3)
+cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
+ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
 
-# ✅ Define annotation text
-stat_text <- paste0(
-  "Population Effect: ", "p = ", estimate_pval, "\n",
-  "Symbiont Effect: ", "p = ", ngen_pval, "\n",
-  "R² = ", r2_value
-)
 
-# ✅ Add right-aligned annotations in the top-right corner
-(fig5 <- dens_sym_viz +
-    annotate("text", 
-           x = max(net$estimate + net$SE), y = max(PBfit$degC),  # Top-right corner
-           label = stat_text, 
-           hjust = 1, vjust = 1,  # Right-align text
-           size = 2.5) +
-    coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC))))
-
-ggsave(filename = "figures/Fig5.png", plot = fig5,
-       width = 110, height = 100, units = "mm")
 ```
 
 # Coral size analyses
