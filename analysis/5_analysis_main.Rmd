@@ -1156,8 +1156,8 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
 # Plot
 (dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.15) +
-  geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
+  geom_line(aes(color = year), lwd = 0.75, alpha = 0.9) +
   geom_hline(aes(yintercept = 0.5), lty = 1, lwd = 0.1) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
                      labels = scales::label_percent()) +
@@ -1178,6 +1178,12 @@ spfig <- dhw.sp.bleach.plot.24 +
   scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, "", 1))+#, labels = rep("", 3)) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 4) +
   labs(color = "") +
+  scale_color_manual(values = c(
+  "2014" = "#F9C74F",  # golden yellow-orange
+  "2015" = "#F6E84A",  # warm yellow
+  "2023" = "#F9844A",  # strong orange
+  "2024" = "#90BE6D"   # muted green (coolest year)
+)) +
   theme(legend.position = c(0.9, 0.06),
         legend.margin = margin(t = 0, b = 0, l = 0, r = 0),
         #axis.text = element_blank(),
