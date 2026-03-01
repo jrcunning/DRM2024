@@ -9,6 +9,18 @@ output: html_document
 library(tidyverse)
 ```
 
+```{r}
+# List all valid DRM species codes
+species_codes <- c("AAGA","ACER","ACRO","AFRA","AGAR","AGRA","AHUM","ALAM",
+                   "APAL","APRO","ATEN","AUND","CARB","CNAT","DCYL","DIPL",
+                   "DLAB","DSTO","EFAS","FFRA","HCUC","IRIG","ISIN","ISOP",
+                   "MADR","MALC","MALI","MANG","MARE","MAUR","MCAV","MCOM",
+                   "MDEC","MEAN","MFER","MFOR","MILL","MJAC","MLAM","MMEA",
+                   "MPHA","MSEN","MYCE","OANN","OCUL","ODIF","OFAV","OFRA",
+                   "ORBI","OVAR","PAME","PAST","PBRA","PCLI","PDIV","PFUR",
+                   "PORI","PPOR","PSEU","PSTR","SBOU","SCOL","SCUB","SHYA",
+                   "SIDE","SINT","SLAC","SOLE","SRAD","SSID","SWEL","UNKN")
+```
 
 
 # 2014
@@ -46,7 +58,7 @@ df14 <- df14 %>%
 
 # Order Species alphabetically
 df14 <- df14 %>%
-  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+  mutate(Species = factor(Species, levels = species_codes))
 
 # Are there any dead corals?
 # dead <- df14 %>% filter(Old + Recent >= 100)
@@ -141,7 +153,7 @@ df15 <- df15 %>%
 
 # Order Species alphabetically
 df15 <- df15 %>%
-  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+  mutate(Species = factor(Species, levels = species_codes))
 
 # Are there any dead corals?
 # dead <- df15 %>% filter(Old + Recent >= 100)
@@ -259,7 +271,7 @@ df23 <- df23 %>%
 
 # Order Species alphabetically
 df23 <- df23 %>%
-  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+  mutate(Species = factor(Species, levels = species_codes))
 
 # Dead corals
 dead <- df23 %>%
@@ -410,8 +422,9 @@ df24 <- df24 %>%
                                               "North Palm Beach", "Martin")))
 
 # Order Species alphabetically
+df24
 df24 <- df24 %>%
-  mutate(Species = factor(Species, levels = sort(levels(df$Species))))
+  mutate(Species = factor(Species, levels = species_codes))
 
 # Are there any dead corals?
 dead <- df24 %>% filter(Old + Recent >= 100)
