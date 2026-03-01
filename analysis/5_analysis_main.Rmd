@@ -730,7 +730,9 @@ eds <- imap_dfr(
 
 # Uncertainty on the ED90-ED10 difference is unreliable and incomparable across species since many did not actually reach 90% bleaching within the observed DHW range and therefore this end of the DRC is unconstrained. So we will compute a bounded estimate within the observed DHW range (truncate at 23).
 
-# Ancillary result: OFAV ED50 vs ED10
+# Ancillary results 
+range(eds$Diff_trunc)
+# OFAV ED50 vs ED10
 eds %>%
   filter(Species == "OFAV")
 eds %>%
@@ -781,7 +783,7 @@ anno <- tibble(
 # Plot
 pos <- position_jitter(width = 0.1, seed = 20) # Make jitter position for plotting
 eds <- eds %>% mutate(D = grepl("D", domsyms), A = grepl("A", domsyms))
-fig3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
+figs3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
   geom_line(data = pred_df, aes(y = fit_lm), color = "blue") +
   geom_line(data = pred_df, aes(y = fit_cens), linetype = "dashed") +
   geom_point(data = eds %>% filter(D), aes(shape = reach), 
@@ -799,9 +801,9 @@ fig3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
        y = "Intraspecific bleaching tolerance breadth\n(ED90–ED10; DHW)") +
   theme_classic() +
   theme(legend.position = "none")
-fig3
+figs3
 
-ggsave(filename = "figures/Fig3.png", plot = fig3, width = 100, height = 100, units = "mm")
+ggsave(filename = "figures/FigS3.png", plot = fig3, width = 100, height = 100, units = "mm")
 ```
 
 
@@ -1194,9 +1196,9 @@ spfig <- dhw.sp.bleach.plot.24 +
         axis.line  = element_line(linewidth = 0.3),
         axis.ticks = element_line(linewidth = 0.3))
 
-fig4alt <- cowplot::plot_grid(fig4, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
+fig3 <- cowplot::plot_grid(fig4, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
 fig4alt
-ggsave(filename = "figures/Fig4alt.png", width = 200, height = 110, units = "mm")
+ggsave(filename = "figures/Fig3.png", width = 200, height = 100, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1296,56 +1298,56 @@ net <- sp.degC %>%
 # net <- net %>%
 #   filter(!Species %in% c("PFUR", "PDIV", "AAGA"))
 
-# Model change in tolerance vs. change in density
-# Passing Bablok regression
-PBreg <- mcr::mcreg(net$estimate+3, net$degC+3,
-               method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
-summary(PBreg)
-
-PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
-                      alpha = 0.1) %>% as_tibble()
-PBfit <- PBfit %>%
-  mutate(estimate = X - 3, degC = Y - 3)
-
-# Plot
-myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
-myticks2 <- log(myticks + 1)
-set.seed(8)
-(dens_sym_viz <- net %>%
-  ggplot(aes(x = estimate, y = degC)) + 
-  geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
-  geom_errorbar(aes(ymin = degC - degC.se, 
-                    ymax = degC + degC.se), width = 0, alpha = 0.7, lwd = 0.3) +
-  geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
-  geom_point(aes(color = factor(ngen)), size = 4, alpha = 0.7, stroke = 0) + 
-  
-  #geom_smooth(method = "lm", se = FALSE) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, segment.size = 0.25, seed = 8) +
-  scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
-  scale_color_brewer(name = "Symbiont\nGenera",
-                     palette = "RdYlBu", direction = -1,
-                     na.translate = FALSE) +
-  labs(x = "Change in population size (2014-2023)", 
-       y = "Change in bleaching threshold (°C)") +
-  theme_classic() +
-  theme(legend.position = c(0.075,0.1),
-        legend.key.width = unit(-10, "mm"),
-        legend.key.spacing.y = unit(-3, "mm"), 
-        legend.spacing.y = unit(-5, "mm"),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 8, margin = margin(b = -2)),
-        legend.margin = margin(-10, 0, 0, 0),
-        legend.background = element_blank(),
-        legend.key = element_blank()) +
-   guides(
-    color = guide_legend(
-      reverse = TRUE,
-      title.hjust = 0.5,  # Further adjusts alignment
-      override.aes = list(size = 3)  # Adjusts point size in legend
-    ))) +
-  #coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC)))
-  coord_cartesian(ylim = c(0, 2))
+# # Model change in tolerance vs. change in density
+# # Passing Bablok regression
+# PBreg <- mcr::mcreg(net$estimate+3, net$degC+3,
+#                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
+# summary(PBreg)
+# 
+# PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
+#                       alpha = 0.1) %>% as_tibble()
+# PBfit <- PBfit %>%
+#   mutate(estimate = X - 3, degC = Y - 3)
+# 
+# # Plot
+# myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
+# myticks2 <- log(myticks + 1)
+# set.seed(8)
+# (dens_sym_viz <- net %>%
+#   ggplot(aes(x = estimate, y = degC)) + 
+#   geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
+#   geom_errorbar(aes(ymin = degC - degC.se, 
+#                     ymax = degC + degC.se), width = 0, alpha = 0.7, lwd = 0.3) +
+#   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
+#   geom_point(aes(color = factor(ngen)), size = 4, alpha = 0.7, stroke = 0) + 
+#   
+#   #geom_smooth(method = "lm", se = FALSE) +
+#   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+#                            fontface = "italic", size = 3, segment.size = 0.25, seed = 8) +
+#   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
+#   scale_color_brewer(name = "Symbiont\nGenera",
+#                      palette = "RdYlBu", direction = -1,
+#                      na.translate = FALSE) +
+#   labs(x = "Change in population size (2014-2023)", 
+#        y = "Change in bleaching threshold (°C)") +
+#   theme_classic() +
+#   theme(legend.position = c(0.075,0.1),
+#         legend.key.width = unit(-10, "mm"),
+#         legend.key.spacing.y = unit(-3, "mm"), 
+#         legend.spacing.y = unit(-5, "mm"),
+#         legend.text = element_text(size = 8),
+#         legend.title = element_text(size = 8, margin = margin(b = -2)),
+#         legend.margin = margin(-10, 0, 0, 0),
+#         legend.background = element_blank(),
+#         legend.key = element_blank()) +
+#    guides(
+#     color = guide_legend(
+#       reverse = TRUE,
+#       title.hjust = 0.5,  # Further adjusts alignment
+#       override.aes = list(size = 3)  # Adjusts point size in legend
+#     ))) +
+#   #coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC)))
+#   coord_cartesian(ylim = c(0, 2))
 
 
 
@@ -1543,18 +1545,18 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
   scale_size_continuous(range = c(2, 5)) +
   theme_classic()
 
-ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
-
-s5 <- cowplot::plot_grid(decomp, ps, nrow = 2, rel_heights = c(0.55, 0.45), labels = "A")
-s5
-ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
+# ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
+# 
+# s5 <- cowplot::plot_grid(decomp, ps, nrow = 2, rel_heights = c(0.55, 0.45), labels = "A")
+# s5
+# ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
 
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig5alt.png", width = 300, height = 95, units = "mm")
+ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
 
-cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
+# cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
+# ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
 
 
 ```
@@ -1643,7 +1645,7 @@ RR <- p90andsmall %>%
         strip.text = element_text(face = "italic", hjust = 0),
         strip.background = element_blank()))
 
-ggsave(filename = "figures/FigS6.png", plot = sizeplot,
+ggsave(filename = "figures/FigS7.png", plot = sizeplot,
        width = 120, height = 100, units = "mm")
 
 
@@ -1716,7 +1718,7 @@ sizefreq <- sizefreq +
             aes(x = Inf, y = Inf, label = label), 
             parse = TRUE, vjust = 4, hjust = 1, size = 3, color = "#00BA38") 
 
-ggsave("figures/FigS7.png", plot = sizefreq, width = 220, height = 220, units = "mm")
+ggsave("figures/FigS8.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
 
 # Symbiont genera as proxy for compositional change
@@ -1885,6 +1887,6 @@ p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 # FINAL FIGURE for proxy validation
 cowplot::plot_grid(p1, p2, p3, nrow = 1, align = "h")
 
-ggsave(filename = "figures/FigSX.png", width = 300, height = 105, units = "mm")
+ggsave(filename = "figures/FigS6.png", width = 300, height = 105, units = "mm")
 ```
 

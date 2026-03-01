@@ -254,7 +254,8 @@ keepers <- dat %>%
   pull(Species)
 
 dat_keep <- dat %>% filter(Species %in% keepers)
-
+dat_keep %>% count(era)
+dat_keep %>% count(Species, era)
 
 # ============================================================
 # 3) DISTANCE METRICS (computed from mean compositions)
@@ -372,7 +373,7 @@ depth_std_comps <- function(g) {
 #   - comp_std is used for plotting (tidy long format)
 #   - res_point distances are computed from the same compositions
 # ============================================================
-
+dat_keep
 species_comp <- dat_keep %>%
   group_by(Species) %>%
   group_nest() %>%
@@ -500,7 +501,7 @@ species_names_it <- setNames(
  names(species_names)
 )
 
-figsy <- comp_std %>% left_join(ress) %>%
+figs5 <- comp_std %>% left_join(ress) %>%
   mutate(genus = case_match(clade, "A" ~ "Symbiodinium", "B" ~ "Breviolum", 
                             "C" ~ "Cladocopium", "D" ~ "Durusdinium"),
          Species = fct_reorder(Species, med),
@@ -515,7 +516,7 @@ figsy <- comp_std %>% left_join(ress) %>%
   theme_bw() +
   theme(legend.text = element_text(face = "italic"))
 
-ggsave(filename = "figures/FigSY.png", width = 180, height = 150, units = "mm")
+ggsave(filename = "figures/FigS5.png", width = 180, height = 150, units = "mm")
 
 ```
 

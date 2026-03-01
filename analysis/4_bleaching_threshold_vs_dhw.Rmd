@@ -75,7 +75,7 @@ coefs <- tibble(
 
 # Plot fitted model over simulated data
 anno <- paste0("y = ", round(coefs[1], 2), " x")
-(figs3 <- diffs_vs_add + 
+(figs4 <- diffs_vs_add + 
     geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
                            alpha = 0.5, linewidth = 1.5) +
     scale_color_discrete(name = "Year") +
@@ -85,7 +85,7 @@ anno <- paste0("y = ", round(coefs[1], 2), " x")
    # guides(color = guide_legend(ncol = 2)) +
     coord_cartesian(xlim = c(0, 1.7), ylim = c(0, 13), expand = FALSE))
 
-ggsave(filename = "figures/FigS3.png", plot = figs3, width = 180, height = 120, units = "mm")
+ggsave(filename = "figures/FigS4.png", plot = figs4, width = 180, height = 120, units = "mm")
 coefs
 
 ## Save slope and standard error for analysis in analysis_main
