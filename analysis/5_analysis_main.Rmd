@@ -360,7 +360,7 @@ year_labs <- setNames(
         legend.text = element_text(size = 8),
         legend.key.size = unit(10, "pt"),
         legend.box.background = element_rect(color = "black")) +
-  labs(x = "Degree Heating Weeks", y = "Number of surveys"))
+  labs(x = "Degree Heating Weeks", y = "Number of sites surveyed"))
 
 all1 <- all0 %>%
   mutate(MonthDay = make_date(2000, month(Date), day(Date))) 
@@ -371,7 +371,7 @@ all1 <- all0 %>%
   facet_grid(year~., scales = "free", labeller = labeller(year = year_labs)) +
   theme_classic() +
   theme(legend.position = "none") +
-  labs(x = "Date", y = "Number of surveys"))
+  labs(x = "Date", y = "Number of sites surveyed"))
 
 surveys.by.date
 
