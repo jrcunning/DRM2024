@@ -12,6 +12,12 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ncdf4) # package for netcdf manipulation
 library(raster) # package for raster manipulation
 library(tidyverse)
+library(tidyterra)   # for geom_spatraster()
+
+# Reef outline
+my_hull <- readRDS("data/spatial/my_hull.rds")
+# Map layer
+world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
 ```
 
 DHW data downloaded 5/1/24 using:
@@ -100,6 +106,45 @@ ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
 write_csv(out2, file = "data/processed/2023_dhw_processed.csv")
 ```
 
+
+```{r}
+# Map DHW for all reef pixels not just surveyed sites
+# Read DHW from all files as a multi-layer SpatRaster
+# (each file contributes one layer; varname must match exactly)
+dhw_stack <- rast(nc.files, subds = "degree_heating_week")
+
+# Optional: keep only June 1–Dec 31 if your folder includes other dates
+# (assumes filename contains YYYYMMDD like ct5km_dhw_v3.1_20230901.nc)
+dates <- as.Date(str_extract(basename(nc.files), "2023\\d{4}"), format = "%Y%m%d")
+keep  <- dates >= as.Date("2023-06-01") & dates <= as.Date("2023-12-31")
+dhw_stack <- dhw_stack[[which(keep)]]
+
+# Crop to your Florida Reef Tract box (match your plotting extent-ish)
+dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+
+# Peak DHW (max over time) for each pixel
+peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
+names(peak_dhw) <- "peak_dhw"
+
+
+# Mask to reef pixels hull
+peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+
+# Plot as heatmap
+dhwmap_pixels23 <- basemap +
+  geom_spatraster(data = peak_dhw_reef) +   # or peak_dhw if you don't mask
+  geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_distiller(
+    palette = "Spectral",
+    limits = c(0, 23),
+    na.value = NA,
+    name = "Peak\nDHW      "
+  )
+
+dhwmap_pixels23
+```
+
 # 2015
 
 ```{r}
@@ -180,6 +225,43 @@ ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
 write_csv(out2, file = "data/processed/2015_dhw_processed.csv")
 ```
 
+```{r}
+# Map DHW for all reef pixels not just surveyed sites
+# Read DHW from all files as a multi-layer SpatRaster
+# (each file contributes one layer; varname must match exactly)
+dhw_stack <- rast(nc.files, subds = "degree_heating_week")
+
+# Optional: keep only June 1–Dec 31 if your folder includes other dates
+# (assumes filename contains YYYYMMDD like ct5km_dhw_v3.1_20230901.nc)
+dates <- as.Date(str_extract(basename(nc.files), "2015\\d{4}"), format = "%Y%m%d")
+keep  <- dates >= as.Date("2015-06-01") & dates <= as.Date("2015-12-31")
+dhw_stack <- dhw_stack[[which(keep)]]
+
+# Crop to your Florida Reef Tract box (match your plotting extent-ish)
+dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+
+# Peak DHW (max over time) for each pixel
+peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
+names(peak_dhw) <- "peak_dhw"
+
+
+# Mask to reef pixels hull
+peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+
+# Plot as heatmap
+dhwmap_pixels15 <- basemap +
+  geom_spatraster(data = peak_dhw_reef) +   # or peak_dhw if you don't mask
+  geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_distiller(
+    palette = "Spectral",
+    limits = c(0, 23),
+    na.value = NA,
+    name = "Peak\nDHW      "
+  )
+
+dhwmap_pixels15
+```
 
 # 2014
 ```{r}
@@ -261,6 +343,44 @@ ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
 write_csv(out2, file = "data/processed/2014_dhw_processed.csv")
 ```
 
+```{r}
+# Map DHW for all reef pixels not just surveyed sites
+# Read DHW from all files as a multi-layer SpatRaster
+# (each file contributes one layer; varname must match exactly)
+dhw_stack <- rast(nc.files, subds = "degree_heating_week")
+
+# Optional: keep only June 1–Dec 31 if your folder includes other dates
+# (assumes filename contains YYYYMMDD like ct5km_dhw_v3.1_20230901.nc)
+dates <- as.Date(str_extract(basename(nc.files), "2014\\d{4}"), format = "%Y%m%d")
+keep  <- dates >= as.Date("2014-06-01") & dates <= as.Date("2014-12-31")
+dhw_stack <- dhw_stack[[which(keep)]]
+
+# Crop to your Florida Reef Tract box (match your plotting extent-ish)
+dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+
+# Peak DHW (max over time) for each pixel
+peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
+names(peak_dhw) <- "peak_dhw"
+
+
+# Mask to reef pixels hull
+peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+
+# Plot as heatmap
+dhwmap_pixels14 <- basemap +
+  geom_spatraster(data = peak_dhw_reef) +   # or peak_dhw if you don't mask
+  geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_distiller(
+    palette = "Spectral",
+    limits = c(0, 23),
+    na.value = NA,
+    name = "Peak\nDHW      "
+  )
+
+dhwmap_pixels14
+```
+
 # 2024
 
 ```{r}
@@ -339,4 +459,51 @@ ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
 write_csv(out2, file = "data/processed/2024_dhw_processed.csv")
 ```
 
+```{r}
+# Map DHW for all reef pixels not just surveyed sites
+# Read DHW from all files as a multi-layer SpatRaster
+# (each file contributes one layer; varname must match exactly)
+dhw_stack <- rast(nc.files, subds = "degree_heating_week")
+
+# Optional: keep only June 1–Dec 31 if your folder includes other dates
+# (assumes filename contains YYYYMMDD like ct5km_dhw_v3.1_20230901.nc)
+dates <- as.Date(str_extract(basename(nc.files), "2024\\d{4}"), format = "%Y%m%d")
+keep  <- dates >= as.Date("2024-06-01") & dates <= as.Date("2024-12-31")
+dhw_stack <- dhw_stack[[which(keep)]]
+
+# Crop to your Florida Reef Tract box (match your plotting extent-ish)
+dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+
+# Peak DHW (max over time) for each pixel
+peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
+names(peak_dhw) <- "peak_dhw"
+
+
+# Mask to reef pixels hull
+peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+
+# Plot as heatmap
+dhwmap_pixels24 <- basemap +
+  geom_spatraster(data = peak_dhw_reef) +   # or peak_dhw if you don't mask
+  geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_distiller(
+    palette = "Spectral",
+    limits = c(0, 23),
+    na.value = NA,
+    name = "Peak\nDHW      "
+  )
+
+dhwmap_pixels24
+```
+
+
+```{r}
+cowplot::plot_grid(dhwmap_pixels14, dhwmap_pixels15,
+                   dhwmap_pixels23, dhwmap_pixels24,
+                   ncol = 2,
+                   labels = c("2014", "2015", "2023", "2024"),
+                   label_x = 0.1, label_y = 0.92)
+ggsave(filename = "figures/FigS2.png", width = 200, height = 185, units = "mm")
+```
 
