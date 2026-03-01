@@ -338,14 +338,25 @@ symsumm.ag <- sym0  %>%
 
 ## Survey timing
 ```{r surveys_by_dhw}
+# Count surveys per year
+year_counts <- all1 %>%
+  distinct(year, Site, MonthDay, Date, Subregion, dhw) %>%
+  count(year)
+
+# Create facet labels with totals
+year_labs <- setNames(
+  paste0(year_counts$year, "\n(n = ", year_counts$n, ")"),
+  year_counts$year
+)
+
 # Plot surveys vs. DHW
 (surveys.by.dhw <- all0 %>%
   distinct(year, Site, Date, Subregion, dhw) %>%
   ggplot(aes(x = dhw, fill = Subregion)) +
   geom_histogram(breaks = seq(0,22,1)) +
-  facet_grid(year ~ ., scales = "free") +
+  facet_grid(year ~ ., scales = "free", labeller = labeller(year = year_labs)) +
   theme_classic() +
-  theme(legend.position = c(0.8, 0.7),
+  theme(legend.position = c(0.8, 0.77),
         legend.text = element_text(size = 8),
         legend.key.size = unit(10, "pt"),
         legend.box.background = element_rect(color = "black")) +
@@ -356,8 +367,8 @@ all1 <- all0 %>%
 (surveys.by.date <- all1 %>%
   distinct(year, Site, MonthDay, Date, Subregion, dhw) %>%
   ggplot(aes(x = MonthDay, fill = Subregion)) +
-  geom_histogram() +
-  facet_grid(year~., scales = "free") +
+  geom_histogram(binwidth = 7) +
+  facet_grid(year~., scales = "free", labeller = labeller(year = year_labs)) +
   theme_classic() +
   theme(legend.position = "none") +
   labs(x = "Date", y = "Number of surveys"))
@@ -367,7 +378,7 @@ surveys.by.date
 (surveyplot <- cowplot::plot_grid(surveys.by.dhw, surveys.by.date, ncol = 1, labels = "auto"))
 
 ggsave(filename = "figures/FigS1.png", plot = surveyplot,
-       width = 180, height = 170, units = "mm")
+       width = 180, height = 250, units = "mm")
 ```
 
 # Bleaching severity 2023
