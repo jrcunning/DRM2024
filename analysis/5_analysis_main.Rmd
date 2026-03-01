@@ -469,6 +469,7 @@ my_hull <- st_concave_hull(st_union(pts1), ratio = 0.09)
 my_hull <- st_buffer(my_hull, dist = 0.015)
 my_hull <- my_hull %>% st_set_crs(4326)
 idw.spp.reef <- raster::mask(idw.spp, (as_Spatial(my_hull)))
+saveRDS(my_hull, "data/spatial/my_hull.rds")
 
 # Convert clipped interpolation to spatraster for plotting
 x <- rast(idw.spp.reef)
@@ -501,69 +502,6 @@ rasterplot <- basemap +
            label = "Miami", hjust = 1, vjust = 0, size = 2, fontface = "italic")
 rasterplot
 ggsave(filename = "figures/Fig1.png", plot = rasterplot, width = 90, height = 90, units = "mm")
-```
-
-## Map DHWs
-```{r map_dhw}
-# Import DHW data from all surveyed sites in 2023
-dhw <- read_csv("data/processed/2023_dhw_processed.csv") %>%
-  mutate(across(where(is.character), as_factor)) %>%
-  rename(Date = date) %>%
-  dplyr::select(Site, Date, dhw)
-
-# Get maximum DHW for each surveyed site
-sitemaxdhw <- pctbl23.adj %>%
-  distinct(Site, Longitude, Latitude, Subregion) %>%
-  right_join(dhw) %>%
-  group_by(Site, Subregion) %>%
-  summarize(sitemaxdhw = max(dhw))
-
-ggplot(sitemaxdhw, aes(x = Subregion, y = sitemaxdhw, color = Subregion)) + 
-  geom_jitter() +
-  theme(legend.position = "none")
-
-# Get the minimum and maximum site-specific peak DHW in each Subregion
-sitemaxdhw %>%
-  group_by(Subregion) %>%
-  summarize(minmaxdhw = min(sitemaxdhw),
-            maxmaxdhw = max(sitemaxdhw))
-
-# Create DHW map
-maxdhw <- dhw %>%
-  group_by(Site) %>%
-  summarize(maxdhw = max(dhw)) %>%
-  right_join(sites23, by = "Site")
-
-# Create SpatialPointsDataFrame of survey sites
-dhwdat <- sp::SpatialPointsDataFrame(
-    coords=maxdhw[,c('Longitude','Latitude')], 
-    data=maxdhw[,c('Site', 'maxdhw')], 
-    proj4string = CRS("+init=epsg:4326")
-)
-
-# Create empty raster to hold interpolated values
-dhwgrid <- raster::raster(dhwdat, res = c(0.005, 0.005))
-raster::crs(dhwgrid) <- raster::crs(dhwdat) <- sp::CRS("+init=epsg:4326")
-# Run interpolation
-dhw.idw.model <- gstat(formula=dhwdat$maxdhw~1, locations=dhwdat)
-dhw.idw.spp <- raster::interpolate(dhwgrid, dhw.idw.model)
-# Clip
-dhw.idw.spp.reef <- raster::mask(dhw.idw.spp, (as_Spatial(my_hull)))
-
-# Convert clipped interpolation to spatraster for plotting
-x2 <- rast(dhw.idw.spp.reef)
-
-dhwmap <- basemap +
-  geom_spatraster(data = x2) +
-  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
-  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
-  scale_fill_distiller(palette = "Spectral", 
-                       limits = c(0, 23), na.value = NA,
-                       name = "Max.\nDHW      ")
-
-# Save DHW map as supplementary figure
-ggsave(filename = "figures/FigS2.png", plot = dhwmap, width = 90, height = 90, units = "mm")
-
 ```
 
 ## Species variation in bleaching
@@ -823,23 +761,52 @@ all1 <- all0 %>%
   drop_na(Species)
 
 # Keep only those species observed at least 20 times in each year
-spp_to_include <- all1 %>%
+spp_counts <- all1 %>%
   count(Species, year) %>%
-  complete(Species, year, fill = list(n = 0)) %>%
+  complete(Species, year, fill = list(n = 0)) 
+
+# Which species are included and what are their counts
+spp_to_include <- spp_counts %>%
   group_by(Species) %>%
   dplyr::filter(min(n) >= 10)  # 20 is a good cutoff
-unique(spp_to_include$Species)
 
+spp_to_include %>%
+  ggplot(aes(x = year, y = n)) +
+  geom_col() +
+  facet_wrap(~Species, scales = "free")
+
+# Which species are not included?
+anti_join(spp_counts, spp_to_include) %>% distinct(Species)
+anti_join(spp_counts, spp_to_include) %>% arrange(-n)
+anti_join(spp_counts, spp_to_include) %>% summarize(total = sum(n))
+spp_counts %>% summarize(total = sum(n))
+
+# Filter dataset
 allf <- all1 %>%
   filter(Species %in% spp_to_include$Species)
 
 # How many observations including 2014/2015/2023/2024 filtered?
 nrow(allf)
 allf %>% count(year)
+# counts per species per year
+allf %>% count(Species, year) %>% arrange(n)
+allf %>% 
+  count(Species, year) %>% 
+  ungroup() %>%
+  summarize(median = median(n),
+            mean = mean(n))
+allf %>% 
+  count(Species, year) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(aes(fill = year)) +
+  scale_x_continuous(transform = "log10")
+
 
 ## Group data at species+site-level to fit group-level models instead of subject-level models -- fits faster
 allg <- allf %>%
-  group_by(year, Week2, Subregion, Site, dhw, cummaxdhw, Species) %>%
+  group_by(year, Site) %>%
+  mutate(siteDepth = mean(Depth)) %>%
+  group_by(year, Week2, Subregion, Site, siteDepth, dhw, cummaxdhw, Species) %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
@@ -852,12 +819,43 @@ ggplot(allg, aes(x = dhw, y = BL/(BL+NB))) +
   coord_cartesian(ylim = c(0, 1))
 ```
 
+## DRM dataset descriptive figures and stats
+```{r}
+# depth by year by species
+ggplot(allf, aes(Depth, color = year)) +
+  geom_density(bw = 7) +
+  facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 4) +
+  scale_color_manual(values = c("2014"="#F9C74F","2015"="#F6E84A","2023"="#F9844A","2024"="#90BE6D"), name = NULL) +
+  labs(y = "Density") +
+  theme_classic() +
+  theme(
+    legend.position = c(0.875, 0.06), legend.direction = "vertical", legend.key.height = grid::unit(0.35, "lines"),
+    legend.text = element_text(size = 7),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 6, face = "italic", margin = margin(0,0,0,0)),
+    axis.line = element_line(linewidth = 0.3), axis.ticks = element_line(linewidth = 0.3),
+    legend.margin = margin(0,0,0,0)
+  )
+
+figsx
+```
+
 ## All corals - ED50s (glmer)
 ```{r bleaching_by_dhw_across_years}
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod24 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                  family = "binomial", data = allg, 
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+
+dhw.mod24.depth <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + 
+                           (dhw + year | Species) + (year | Subregion),  
+                 family = "binomial", data = allg, 
+                 verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+
+anova(dhw.mod24, dhw.mod24.depth)
+summary(dhw.mod24.depth)
+emmeans(dhw.mod24, specs = c("year", "dhw"), type = "response")
+emmeans(dhw.mod24.depth, specs = c("year", "dhw"), type = "response")
 
 # Function to get ED50s and ∆ED50s
 ed50s.fun_fast <- function(mod, peak_dates = NULL) {
