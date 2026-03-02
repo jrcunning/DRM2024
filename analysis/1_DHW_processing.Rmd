@@ -130,6 +130,15 @@ names(peak_dhw) <- "peak_dhw"
 # Mask to reef pixels hull
 peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
 
+# Save reef pixel hull for later use
+# choose which one you want to treat as "the DHW grid"
+dhw_grid <- peak_dhw_reef  # or peak_dhw_reef
+writeRaster(
+  dhw_grid,
+  filename = "data/spatial/reef_pixel_grid.tif",
+  overwrite = TRUE
+)
+
 # Plot as heatmap
 dhwmap_pixels23 <- basemap +
   geom_spatraster(data = peak_dhw_reef) +   # or peak_dhw if you don't mask
