@@ -141,305 +141,10 @@ if (length(miss)) {
     \(u, f) download.file(u, f, mode = "wb", quiet = TRUE)
   )
 }
-
-
-
-# 
-# 
-# # ---- DERIVE CORRECT lon/lat INDICES FROM FILE COORDINATES (NO hard-coded indices) ----
-# nc <- nc_open(sst_files[1]); on.exit(nc_close(nc), add = TRUE)
-# lon <- ncvar_get(nc, "lon")
-# lat <- ncvar_get(nc, "lat")
-# 
-# # some CoralTemp grids may store lat with negative sign; index using absolute lat if so
-# lat_for_index <- if (median(lat, na.rm = TRUE) < 0) -lat else lat
-# 
-# lon_idx <- which(lon >= bbox$lon_min & lon <= bbox$lon_max)
-# lat_idx <- which(lat_for_index >= bbox$lat_min & lat_for_index <= bbox$lat_max)
-# 
-# stopifnot(length(lon_idx) > 0, length(lat_idx) > 0)
-# 
-# lon_start <- min(lon_idx); nlon <- length(lon_idx)
-# lat_start <- min(lat_idx); nlat <- length(lat_idx)
-# 
-# # ---- READ ONE DAY SST SUBSET AS SpatRaster (scale_factor applied once; units already °C) ----
-# read_sst_subset <- function(ncfile, var = "analysed_sst",
-#                             lon_start, nlon, lat_start, nlat,
-#                             lon, lat, lat_for_index) {
-# 
-#   nc <- nc_open(ncfile)
-#   on.exit(nc_close(nc), add = TRUE)
-# 
-#   v <- nc$var[[var]]
-#   dim_names <- vapply(v$dim, `[[`, character(1), "name")
-# 
-#   # start/count in the variable's dim order
-#   start <- rep(1L, length(dim_names))
-#   count <- vapply(v$dim, `[[`, integer(1), "len")
-# 
-#   i_lon  <- match("lon",  dim_names)
-#   i_lat  <- match("lat",  dim_names)
-#   i_time <- match("time", dim_names)
-# 
-#   start[i_lon] <- lon_start; count[i_lon] <- nlon
-#   start[i_lat] <- lat_start; count[i_lat] <- nlat
-#   if (!is.na(i_time)) { start[i_time] <- 1L; count[i_time] <- 1L }
-# 
-#   # raw values (integers), so we can NA-out fill values BEFORE scaling
-#   arr <- ncvar_get(nc, var, start = start, count = count, raw_datavals = TRUE) |> drop()
-# 
-#   fill <- ncatt_get(nc, var, "_FillValue")$value
-#   if (is.null(fill) || is.na(fill)) fill <- ncatt_get(nc, var, "missing_value")$value
-#   if (!is.null(fill) && !is.na(fill)) arr[arr == fill] <- NA
-# 
-#   sf <- ncatt_get(nc, var, "scale_factor")$value
-#   if (!is.null(sf) && !is.na(sf)) arr <- arr * sf
-# 
-#   # extent from lon + (possibly sign-corrected) lat
-#   lon_sub <- lon[lon_start:(lon_start + nlon - 1)]
-#   lat_sub <- lat_for_index[lat_start:(lat_start + nlat - 1)]
-# 
-#   # [lon,lat] -> [lat,lon]
-#   m <- t(arr)
-# 
-#   r <- rast(m)
-#   ext(r) <- ext(min(lon_sub), max(lon_sub), min(lat_sub), max(lat_sub))
-#   crs(r) <- "EPSG:4326"
-# 
-#   # keep north-up
-#   if (length(lat_sub) > 1 && lat_sub[2] < lat_sub[1]) r <- flip(r, "vertical")
-#   r
-# }
-# 
-# # ---- BUILD SST STACK FOR A GIVEN YEAR ----
-# sst_stack_by_year <- function(files, dates, yy, var = "analysed_sst",
-#                               lon_start, nlon, lat_start, nlat,
-#                               lon, lat, lat_for_index) {
-# 
-#   idx <- which(year(dates) == yy)
-#   files_y <- files[idx]; dates_y <- dates[idx]
-#   o <- order(dates_y)
-#   files_y <- files_y[o]; dates_y <- dates_y[o]
-# 
-#   rlist <- map(files_y, ~read_sst_subset(.x, var, lon_start, nlon, lat_start, nlat, lon, lat, lat_for_index))
-#   s <- rast(rlist)
-#   time(s) <- dates_y
-#   s
-# }
-# 
-# # ---- EXAMPLE: BUILD 2014 STACK + CHECK VALUES ----
-# sst2014 <- sst_stack_by_year(sst_files, dates, 2014,
-#                             var = "analysed_sst",
-#                             lon_start = lon_start, nlon = nlon,
-#                             lat_start = lat_start, nlat = nlat,
-#                             lon = lon, lat = lat, lat_for_index = lat_for_index)
-# sst2015 <- sst_stack_by_year(sst_files, dates, 2015,
-#                             var = "analysed_sst",
-#                             lon_start = lon_start, nlon = nlon,
-#                             lat_start = lat_start, nlat = nlat,
-#                             lon = lon, lat = lat, lat_for_index = lat_for_index)
-# sst2023 <- sst_stack_by_year(sst_files, dates, 2023,
-#                             var = "analysed_sst",
-#                             lon_start = lon_start, nlon = nlon,
-#                             lat_start = lat_start, nlat = nlat,
-#                             lon = lon, lat = lat, lat_for_index = lat_for_index)
-# 
-# 
-# 
-# # ---- 1) Load CRW 5-km climatology + compute MMM per pixel, subset to your Florida bbox ----
-# clim_url  <- "https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/v3.1_op/climatology/nc/ct5km_climatology_v3.1.nc"
-# clim_dir  <- "data/coraltemp/climatology"
-# dir.create(clim_dir, showWarnings = FALSE, recursive = TRUE)
-# clim_file <- file.path(clim_dir, "ct5km_climatology_v3.1.nc")
-# if (!file.exists(clim_file)) download.file(clim_url, clim_file, mode = "wb")
-# 
-# # We read monthly climatology SST (12 layers) and take pixelwise max = MMM
-# clim <- rast(clim_file)
-# 
-# # Pick 12 monthly mean SST layers (this selector is robust across common naming patterns)
-# sst_like <- grep("sst|temperature|temp", names(clim), ignore.case = TRUE, value = TRUE)
-# stopifnot(length(sst_like) >= 12)
-# clim12 <- clim[[sst_like[1:12]]]
-# 
-# mmm_all <- app(clim12, fun = max, na.rm = TRUE)
-# names(mmm_all) <- "MMM"
-# 
-# library(terra)
-# library(ncdf4)
-# 
-# # --- 1) MMM on the same grid as your SST stacks ---
-# tmpl <- sst2014[[1]]
-# clim <- rast(clim_file)
-# 
-# # Use MMM directly
-# mmm <- clim[["sst_clim_mmm"]]
-# 
-# # align CRS and grid
-# crs(mmm) <- crs(tmpl)
-# mmm <- resample(mmm, tmpl, method = "bilinear")
-# 
-# summary(values(mmm))
-# 
-# # sanity check
-# terra::global(mmm, fun = function(z) sum(!is.na(z)))
-# 
-# # --- 2) Functions: pixelwise maxDHW and slope(DHW decrease per °C threshold increase) ---
-# maxdhw_for_add <- function(sst_stack, mmm_r, add, win = 84L) {
-#   # keep only pixels where MMM exists (land pixels will be NA)
-#   sst_stack <- mask(sst_stack, mmm_r)
-# 
-#   thr <- mmm_r + 1 + add
-#   dhd <- ifel(sst_stack > thr, (sst_stack - mmm_r) / 7, 0)
-# 
-#   M <- as.matrix(dhd, wide = TRUE)  # pixels x days
-#   nd <- ncol(M)
-#   if (nd <= win) stop("Need >84 daily layers for DHW window; increase date range.")
-# 
-#   # pixels with at least one observed day
-#   valid <- rowSums(!is.na(M)) > 0
-# 
-#   # treat missing days as 0 contribution (prevents NA poisoning in cumsum)
-#   M[is.na(M)] <- 0
-# 
-#   cs <- t(apply(M, 1, cumsum))
-#   rs <- cs
-#   rs[, (win + 1):nd] <- cs[, (win + 1):nd] - cs[, 1:(nd - win)]
-#   rs[, 1:win] <- NA_real_
-# 
-#   out <- apply(rs, 1, max, na.rm = TRUE)
-#   out[!is.finite(out) | !valid] <- NA_real_
-#   out
-# }
-# 
-# pixel_slope_dhw_per_degC <- function(sst_stack, mmm_r, adds = seq(0, 2.0, 0.25), win = 84L) {
-#   base <- maxdhw_for_add(sst_stack, mmm_r, add = 0, win = win)
-# 
-#   x <- adds[-1]
-#   diffs <- vapply(
-#     x,
-#     \(a) base - maxdhw_for_add(sst_stack, mmm_r, add = a, win = win),
-#     numeric(length(base))
-#   )
-# 
-#   slope <- as.numeric(diffs %*% x) / sum(x^2)  # through-origin slope per pixel
-# 
-#   out <- mmm_r
-#   values(out) <- slope
-#   names(out) <- "DHW_per_degC"
-#   out
-# }
-# 
-# # --- 3) Run (2014 example) ---
-# slope2014 <- pixel_slope_dhw_per_degC(sst2014, mmm, adds = seq(0, 2.0, 0.25), win = 84L)
-# 
-# summary(values(slope2014))
-# 
-# # Optional inverse map (°C per DHW)
-# degC_per_DHW_2014 <- 1 / slope2014
-# degC_per_DHW_2014
-# 
-# slope2015 <- pixel_slope_dhw_per_degC(sst2015, mmm)
-# slope2023 <- pixel_slope_dhw_per_degC(sst2023, mmm)
-# 
-# summary(values(slope2015))
-# summary(values(slope2023))
-
-```
-
-
-```{r}
-# # Use regional MMM but run slope analysis across years within each pixel
-# 
-# mmm <- 29.6264
-# adds <- seq(0, 2.5, 0.1)
-# 
-# # optional: faster/cleaner rolling maxdhw function
-# max_dhw_from_temp <- function(temp, add, mmm, win = 84L) {
-#   # temp: numeric vector (daily SST), may contain NA
-#   if (all(is.na(temp))) return(NA_real_)
-# 
-#   # DHD rule (exactly your regional logic)
-#   dhd <- ifelse(temp > (mmm + 1 + add), (temp - mmm) / 7, 0)
-#   dhd[is.na(dhd)] <- NA_real_
-# 
-#   n <- length(dhd)
-#   if (n < win) return(NA_real_)
-# 
-#   # rolling sum of last 'win' days using cumulative sums
-#   cs <- c(0, cumsum(replace(dhd, is.na(dhd), 0)))
-#   roll <- cs[(win + 1):(n + 1)] - cs[1:(n - win + 1)]
-# 
-#   # if there were NAs in dhd, the replace() trick treats them as 0.
-#   # If you want to be strict (any NA contaminates a window), use the strict version below.
-#   max(roll, na.rm = TRUE)
-# }
-# 
-# # Values as matrices: ncell x nlyr
-# m2014 <- values(sst2014, mat = TRUE)
-# m2015 <- values(sst2015, mat = TRUE)
-# m2023 <- values(sst2023, mat = TRUE)
-# 
-# stopifnot(nrow(m2014) == nrow(m2015), nrow(m2014) == nrow(m2023))
-# n_cells <- nrow(m2014)
-# 
-# # per-pixel mixed model slope
-# pixel_slope_one <- function(i) {
-#   # collect diffs across years for this pixel
-#   diffs_list <- list()
-# 
-#   for (yr in c("2014","2015","2023")) {
-#     temp <- switch(
-#       yr,
-#       "2014" = m2014[i, ],
-#       "2015" = m2015[i, ],
-#       "2023" = m2023[i, ]
-#     )
-# 
-#     if (all(is.na(temp))) next
-# 
-#     maxdhw <- vapply(adds, \(a) max_dhw_from_temp(temp, a, mmm), numeric(1))
-# 
-#     # replicate your year filter:
-#     # keep only years where baseline maxdhw>0 and year reaches >2 somewhere
-#     base <- maxdhw[adds == 0]
-#     if (is.na(base) || base <= 0 || max(maxdhw, na.rm = TRUE) <= 2) next
-# 
-#     diffs_list[[yr]] <- tibble(
-#       year = yr,
-#       add  = adds,
-#       diff = base - maxdhw
-#     )
-#   }
-# 
-#   diffs <- bind_rows(diffs_list)
-# 
-#   # need enough data to fit random slope for year
-#   if (nrow(diffs) < 10 || dplyr::n_distinct(diffs$year) < 2) return(NA_real_)
-# 
-#   # your model: intercept forced to zero, random slopes for year
-#   mod <- try(lmer(diff ~ 0 + add + (0 + add | year), data = diffs), silent = TRUE)
-#   if (inherits(mod, "try-error")) return(NA_real_)
-# 
-#   unname(fixef(mod)[["add"]])
-# }
-# 
-# # Run across all pixels and write to a slope raster
-# # run (base R loop; you can swap in pbapply/parallel later if needed)
-# slopes <- vapply(seq_len(n_cells), pixel_slope_one, numeric(1))
-# 
-# slope_pix <- sst2014[[1]]         # template
-# values(slope_pix) <- slopes
-# names(slope_pix) <- "DHW_per_degC_mixed"
-# 
-# summary(values(slope_pix))
-# plot(slope_pix)
-# 
-# plot(sst2014)
-
 ```
 
 # unified workflow-- i think this works, just need to download more years of data
-```{r}
+```{r get_pixel_slopes}
 ############################################################
 ## PIXEL-SPECIFIC ΔDHW vs Δ°C SLOPES (MIXED MODEL, EXACTLY
 ## FOLLOWING YOUR REGIONAL PIPELINE) — REEF PIXELS ONLY
@@ -546,6 +251,7 @@ temp_long <- as_tibble(sst_df) %>%
   dplyr::select(pixel, year, date, yday, temp) %>%
   arrange(pixel, date)
 temp_long
+write_csv(temp_long, file = "data/processed/sst_reef_pixels.csv")
 
 # ----------------------------
 # 3) EXACT same DHW simulation workflow per pixel,
@@ -620,6 +326,17 @@ names(slope_r) <- "DHW_per_degC_mixed"
 # quick check
 summary(values(slope_r))
 plot(flip(slope_r))
+
+# Florida outline (sf)
+fl_sf <- rnaturalearth::ne_states(country = "United States of America", returnclass = "sf") |>
+  subset(name == "Florida")
+
+# Convert to terra vect + match CRS
+fl_v <- terra::vect(fl_sf)
+fl_v <- terra::project(fl_v, terra::crs(slope_r))
+
+# Add outline
+lines(fl_v, lwd = 2)
 
 
 ### great this worked. now need to confirm how to make sure pixel id in the slopes data matches pixel id in the drm data
