@@ -13,11 +13,45 @@ library(ncdf4) # package for netcdf manipulation
 library(raster) # package for raster manipulation
 library(tidyverse)
 library(tidyterra)   # for geom_spatraster()
+```
 
-# Reef outline
-my_hull <- readRDS("data/spatial/my_hull.rds")
-# Map layer
+```{r}
+# Download satellite map for Florida
 world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+# Create base map of Florida
+basemap <- ggplot() +
+  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
+                       midpoint = 0.5, limits = c(0, 1), na.value = NA,
+                       labels = scales::label_percent(), name = "Corals\nbleached") +
+  theme(text = element_text(size = 10),
+        axis.title = element_blank(),
+        panel.background = element_rect(fill = "lightsteelblue1"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.grid = element_blank(),
+        legend.position = c(0.2, 0.5),
+        legend.background = element_blank())
+
+
+# Create reef hull/polygon surrounding all surveyed sites
+all_survey_pts0 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+  distinct(Latitude, Longitude)
+
+all_survey_pts <- sf::st_as_sf(x = all_survey_pts0, coords = c('Longitude', 'Latitude'))
+reef_hull <- sf::st_concave_hull(sf::st_union(all_survey_pts), ratio = 0.09)
+reef_hull <- sf::st_buffer(reef_hull, dist = 0.015)
+reef_hull <- reef_hull %>% sf::st_set_crs(4326)
+saveRDS(reef_hull, "data/spatial/reef_hull.rds")
+all_survey_pts <- all_survey_pts %>% sf::st_set_crs(4326)
+
+
+
+basemap +
+  geom_sf(data = usa, fill = "grey90", color = "grey40", linewidth = 0.3) +
+  geom_sf(data = reef_hull, fill = NA, color = "black", linewidth = 0.7) +
+  geom_sf(data = all_survey_pts, size = 1, alpha = 0.05) +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
 ```
 
 DHW data downloaded 5/1/24 using:
@@ -128,7 +162,7 @@ names(peak_dhw) <- "peak_dhw"
 
 
 # Mask to reef pixels hull
-peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+peak_dhw_reef <- mask(peak_dhw, vect(reef_hull))
 
 # Save reef pixel hull for later use
 # choose which one you want to treat as "the DHW grid"
@@ -255,7 +289,7 @@ names(peak_dhw) <- "peak_dhw"
 
 
 # Mask to reef pixels hull
-peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+peak_dhw_reef <- mask(peak_dhw, vect(reef_hull))
 
 # Plot as heatmap
 dhwmap_pixels15 <- basemap +
@@ -373,7 +407,7 @@ names(peak_dhw) <- "peak_dhw"
 
 
 # Mask to reef pixels hull
-peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+peak_dhw_reef <- mask(peak_dhw, vect(reef_hull))
 
 # Plot as heatmap
 dhwmap_pixels14 <- basemap +
@@ -489,7 +523,7 @@ names(peak_dhw) <- "peak_dhw"
 
 
 # Mask to reef pixels hull
-peak_dhw_reef <- mask(peak_dhw, vect(my_hull))
+peak_dhw_reef <- mask(peak_dhw, vect(reef_hull))
 
 # Plot as heatmap
 dhwmap_pixels24 <- basemap +
