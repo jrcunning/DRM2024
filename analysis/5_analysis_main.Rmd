@@ -206,7 +206,7 @@ peak_dates <- dhw_daily %>%
   group_modify(~ peak_extrapolated(.x)) %>%
   ungroup()
 
-# --- verify the exact bins you asked for ---
+# --- verify the peak dates ---
 peak_dates <- peak_dates %>%
   select(year, peak_date_pred, Week2 = Week2_pred, dhw_max, peak_date_obs, n_rise)
 peak_dates
@@ -851,7 +851,7 @@ ggplot(allf, aes(Depth, color = year)) +
 figsx
 ```
 
-## All corals - ED50s (glmer)
+## All corals - ED50s by year
 ```{r bleaching_by_dhw_across_years}
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod24 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
@@ -1006,7 +1006,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
 dhw.bleach.plot
 ```
 
-## All corals - ∆ED50, ∆°C
+### ∆ED50 --> ∆°C
 ```{r change_degC_thresh}
 # Load dhw.per.degC
 dhw.per.degC <- read_csv("data/processed/dhw.per.degC.csv")
@@ -1045,104 +1045,8 @@ ggsave(filename = "figures/Fig4.png", width = 100, height = 90, units = "mm")
 
 ```
 
-## Species - ∆ED50 2014-15-23
 
-```{r species_bleaching_by_year_dhw, fig.width = 7, fig.height = 7}
-# # Exclude 2024 from species-level analysis
-# allgno24 <- filter(allg, year != "2024")
-# 
-# # Model differences in bleaching severity between years with DHW
-# dhw.sp.mod <- glmer(
-#   cbind(BL, NB) ~ Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
-#   family = "binomial", data = allgno24, verbose = FALSE,
-#   nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
-# #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
-# 
-# # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
-# # And select just the range of peak DHWs experienced across sites in each year
-# dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-#                       at = list(dhw = seq(0, 23, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
-#                       rg.limit = 200000, level = 0.84)
-# dhw.sp.res2 <- subset(dhw.sp.res,
-#   (year == "2014" & Week2 == "(35,37]" & dhw <= 8.11 & dhw > 0.48) |
-#   (year == "2015" & Week2 == "(37,39]" & dhw <= 8.90 & dhw > 0) |
-#   (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06)# |
-#   #(year == "2024" & Week2 == "(38,40]" & dhw <= 11.7 & dhw > 0.16) 
-# )
-# 
-# 
-# # Plot
-# (dhw.sp.bleach.plot <- ggplot(as.tibble(dhw.sp.res2), aes(x = dhw, y = prob, group = year)) +
-#   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
-#   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.2) +
-#   geom_line(aes(color = year), lwd = 0.5, alpha = 0.9) +
-#   geom_hline(aes(yintercept = 0.5), lty = 2, lwd = 0.25) +
-#   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
-#                      labels = scales::label_percent()) +
-#   # scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
-#   #                       limits = c(0, 1), midpoint = 0.5) +
-#   theme_classic() +
-#   theme(legend.position = c(0.8, 0.04),
-#         legend.direction = "horizontal",
-#         strip.background = element_blank(),
-#         strip.text = element_text(face = "italic")) +
-#   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "") +
-#   coord_cartesian(clip = "off"))
-# 
-# ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot, width = 140, height = 140, units = "mm")
-# 
-# 
-# # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
-# ## change in ED50s from 2014-2015, and 2014-2023
-# sp.ed50s.fun <- function(dhw.sp.mod) {
-#   dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-#                    at = list(dhw = seq(0, 23, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
-#                    rg.limit = 200000, level = 0.84)
-#   dhw.sp.res22 <- subset(dhw.sp.res,
-#     (year == "2014" & Week2 == "(35,37]") |
-#     (year == "2015" & Week2 == "(37,39]") |
-#     (year == "2023" & Week2 == "(33,35]")
-#   )
-#   bleach50 <- as.tibble(dhw.sp.res22) %>%
-#     group_by(Species, year) %>%
-#     slice(which.min(abs(prob - 0.5)))
-#   bleachdiffs <- bleach50 %>%
-#     group_by(Species) %>%
-#     summarize("2015-2014" = dhw[year=="2015"] - dhw[year=="2014"],
-#               "2023-2014" = dhw[year=="2023"] - dhw[year=="2014"]) %>%
-#     pivot_longer(2:3)
-#   names <- c(paste(bleach50$Species, bleach50$year), paste(bleachdiffs$Species, bleachdiffs$name))
-#   vals <- c(bleach50$dhw, bleachdiffs$value)
-#   vals <- setNames(vals, names)
-#   return(vals)
-# }
-# 
-# # Get point estimates for ED50s and ∆ED50s
-# sp.bleach50 <- sp.ed50s.fun(dhw.sp.mod)
-# 
-# # Bootstrap ED50s for SE/confidence intervals
-# ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
-# ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# # sp.boot.out <- bootMer(dhw.sp.mod, FUN = sp.ed50s.fun, nsim = 100, seed = 123, re.form = NULL,
-# #                        parallel = "multicore", ncpus = 20)
-# # saveRDS(sp.boot.out, file = "data/processed/sp.boot.out.rds")
-# sp.boot.out <- readRDS(file = "data/processed/sp.boot.out.rds")
-# ## Get confidence intervals from Bootstrap
-# sp.lower <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
-# sp.upper <- apply(sp.boot.out$t, 2, function(x) as.numeric(quantile(x, probs=.975, na.rm=TRUE)))
-# ## Get standard error from Bootstrap
-# sp.se <- apply(sp.boot.out$t, 2, sd)
-# 
-# sp.ed50conf <- tibble(
-#   year = names(sp.bleach50), 
-#   ed50 = sp.bleach50,
-#   se = sp.se,
-#   lower = sp.lower,
-#   upper = sp.upper) %>%
-#   separate(year, into = c("Species", "year"), sep = " ")
-```
-
-## Species - ∆ED50 2014-15-23-24
+## Species - ED50s by year
 ```{r species_bleaching_by_year_dhw_with_2024, fig.width = 7, fig.height = 7}
 # Model differences in bleaching severity between years with DHW
 dhw.sp.mod.24 <- glmer(
@@ -1294,7 +1198,7 @@ ggplot(sp.degC, aes(x = Species, y = degC)) +
 sp.degC %>% arrange(-degC) %>% print(n = nrow(.))
 ```
 
-### ∆°C vs. density + symbionts
+## Species - ∆°C vs. ∆pop + symbionts
 
 ```{r bleachthresh_vs_density, fig.width = 10}
 densdiffs <- readRDS("data/processed/dens20142023.rds")
@@ -1379,6 +1283,7 @@ net_clean$ngen_centered <- net_clean$ngen - 1
 # summary(ols_model_adjusted)
 ols_model_adjusted <- lm(degC ~ estimate + ngen_centered, data = net_clean, weights = 1/degC.se^2)
 summary(ols_model_adjusted)
+
 # Check intercept
 predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = 0))
 # Check residuals
@@ -1568,6 +1473,18 @@ ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
 
 
+
+
+# Test whether number of symbiont genera as a factor instead of continuous variable changes interpretation
+ols_model_adjusted_factor <- lm(degC ~ estimate + factor(ngen_centered), data = net_clean, weights = 1/degC.se^2)
+summary(ols_model_adjusted_factor)
+factorres <- emmeans(ols_model_adjusted_factor, specs = "ngen_centered", at = list(estimate = 0))
+as_tibble(factorres) %>% 
+  ggplot(aes(x=ngen_centered, y = emmean)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE))
+contrast(factorres, method = "consec")
+## Same results --> use continuous
 ```
 
 # Coral size analyses
