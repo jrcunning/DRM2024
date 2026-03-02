@@ -121,6 +121,30 @@ diffs <- rbind(pairs(emmeans(mod5, specs = c("Species", "year")), by = "Species"
 saveRDS(diffs, file = "data/processed/dens20142023.rds")
 ```
 
+
+```{r}
+dens2 <- df %>%
+  # Count number of colonies of each species per transect
+  count(year, Species, Site, Transect, Subregion) %>%
+  # Add zeros for all species not counted on a transect
+  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
+  # SUBSET FOR FASTER MODELING
+  group_by(Species, year) %>%
+  filter(sum(n) >= 40) %>%
+  ungroup()
+
+mod6 <- glmer(n ~ Species * year + (1|Species:Subregion), data = dens2, family = "poisson",
+              verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
+
+res<-emmeans(mod6, specs = c("Species", "year"), type = "response") %>%
+  as_tibble()
+ggplot(res, aes(x = year, y = rate)) +
+  geom_point(aes(color = year %in% c("2014", "2023"))) +
+  facet_wrap(~Species, scales = "free") +
+  scale_color_manual(values = c("black", "red"))
+```
+
+
 # Look at 2023 densities
 ```{r}
 mydf <- filter(dens, year == "2023", Species %in% c("PSTR", "SSID", "MCAV", "CNAT", "PAST", "SINT", "DLAB"),
