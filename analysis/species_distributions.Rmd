@@ -14,8 +14,8 @@ library(tidyverse)
 
 ## Where do species occur?
 ```{r}
-# load DHW raster (any DHW product used in analysis)
-pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
+# load pixel grid raster (any DHW product used in analysis)
+reef_pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
 
 # load DRM dataset (transects 1 and 2, all years) and aggregate taxa
 drm_data <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
@@ -31,14 +31,16 @@ drm_data <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
   drop_na(Species) %>%
   mutate(Date = mdy_hms(Date),
          year = year(Date))
-drm_data
 
 # must contain lat, lon, Species, and count
-pts <- vect(drm_data, geom = c("Longitude", "Latitude"), crs = crs(pixel_grid))
+pts <- vect(drm_data, geom = c("Longitude", "Latitude"), crs = crs(reef_pixel_grid))
 
 # extract pixel ID for each observed coral
-drm_data$pixel <- extract(pixel_grid, pts, cells = TRUE)$cell
+drm_data$pixel <- extract(reef_pixel_grid, pts, cells = TRUE)$cell
+```
 
+# Count corals in well-surveyed pixels
+```{r}
 # Define survey effort per 5km pixel
 eff <- drm_data %>%
   distinct(pixel, Site) %>%
@@ -164,4 +166,88 @@ ggplot(sp_pa_full, aes(x = pixel_rank, y = Species, fill = present)) +
   theme(panel.grid = element_blank())
 ```
 
+
+# Get 2023 species distributions across pixels
+```{r}
+# Load 2023 DRM dataset
+load("data/processed/2023.RData")
+
+# Aggregate taxa
+df23 <- df23 %>%
+  mutate(Species = case_when(Species %in% c("AFRA", "AGAR", "AGRA", "AHUM", "ALAM") ~ "AGAR",
+                             Species %in% c("MALI", "MLAM", "MYCE", "MFER") ~ "MYCE",
+                             Species %in% c("IRIG", "ISIN", "ISOP") ~ "ISOP",
+                             Species %in% c("OCUL", "ODIF") ~ "OCUL",
+                             Species %in% c("SHYA", "SBOU") ~ "SOLE",
+                             Species %in% c("SCOL", "SCUB", "SLAC", "SWEL") ~ "SCOL",
+                             Species %in% c("OFAV", "OFRA", "OANN") ~ "ORBI",
+                             TRUE ~ Species)) %>%
+  drop_na(Species)
+
+# define target species subset (those we analyze for ∆°C with dens. change)
+densdiffs <- readRDS("data/processed/dens20142023.rds")
+myspp <- as_tibble(densdiffs) %>% drop_na() %>% pull(Species)
+df23f <- df23 %>% filter(Species %in% myspp) %>% droplevels()
+
+# must contain lat, lon, Species, and count
+pts23 <- vect(df23f, geom = c("Longitude", "Latitude"), crs = crs(reef_pixel_grid))
+
+# extract pixel ID for each observed coral
+df23f$pixel <- extract(reef_pixel_grid, pts23, cells = TRUE)$cell
+
+# some species surveyed 40 m2 each site, rest surveyed 20 m2 at each site
+sp_40 <- c("CNAT", "DSTO", "DLAB", "MMEA", "MANG", "MYCE", "PCLI", "PSTR")
+all_species <- sort(unique(df23f$Species))
+
+# 1) count corals per site × species (observed only)
+site_sp <- df23f %>%
+  group_by(Site, pixel, Species) %>%
+  summarise(n = n(), .groups = "drop")
+
+# 2) expand to include zeros for species that were searched but absent
+site_sp_full <- site_sp %>%
+  group_by(Site, pixel) %>%
+  complete(Species = all_species, fill = list(n = 0)) %>%
+  ungroup()
+
+# 3) attach species-specific surveyed area (effort) and compute density
+site_sp_full <- site_sp_full %>%
+  mutate(area_m2 = if_else(Species %in% sp_40, 40, 20),
+         dens_m2 = n / area_m2)
+
+# 4) aggregate density to pixel × species
+pixel_sp <- site_sp_full %>%
+  group_by(pixel, Species) %>%
+  summarise(dens_m2 = mean(dens_m2), .groups = "drop")
+  # alt: sum(dens_m2) or weighted mean if sites differ in area beyond 20/40
+
+# 5) normalize within species to get pixel weights that sum to 1
+pixel_weights <- pixel_sp %>%
+  group_by(Species) %>%
+  mutate(w_pixel = dens_m2 / sum(dens_m2)) %>%
+  ungroup()
+
+pixel_weights
+
+# visualize pixel weights
+
+# table: pixel (cell id) + lon/lat
+pix_xy <- as.data.frame(reef_pixel_grid, xy = TRUE, cells = TRUE, na.rm = FALSE) %>%
+  transmute(pixel = cell, lon = x, lat = y)
+
+# join coords onto weights
+pixel_weights_xy <- pixel_weights %>%
+  left_join(pix_xy, by = "pixel")
+
+# visualize pixel weights
+pixel_weights_xy %>%
+  filter(w_pixel > 0) %>%
+  ggplot(aes(lon, lat, fill = w_pixel)) +
+  geom_raster() +
+  coord_equal() +
+  facet_wrap(~ Species) +
+  theme_minimal() +
+  scale_fill_viridis_c(trans = "log10")
+
+```
 
