@@ -249,5 +249,6 @@ pixel_weights_xy %>%
   theme_minimal() +
   scale_fill_viridis_c(trans = "log10")
 
+write_csv(pixel_weights_xy, file = "data/processed/sp_pixel_weights.csv")
 ```
 

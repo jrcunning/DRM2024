@@ -7,13 +7,17 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(terra)
+library(lubridate)
+library(slider)
 library(lme4)
 library(tidyverse)
 ```
 
 # Find the relationship between bleaching threshold (°C) and DHW accumulation
 
-```{r}
+# Regional analysis
+```{r regional_analysis}
 # Import Florida Keys daily temperature data for 1985-2025
 ## Downloaded on 2026-02-16 from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
 temp0 <- read_delim("data/temperature/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
@@ -93,7 +97,7 @@ write_csv(coefs, "data/processed/dhw.per.degC.csv")
 ```
 
 
-
+# Pixel scale analysis
 
 
 ```{r download_sst_data}
@@ -150,12 +154,6 @@ if (length(miss)) {
 ## FOLLOWING YOUR REGIONAL PIPELINE) — REEF PIXELS ONLY
 ############################################################
 
-library(terra)
-library(tidyverse)
-library(lubridate)
-library(slider)
-library(lme4)
-
 # ----------------------------
 # User inputs / assumptions
 # ----------------------------
@@ -185,30 +183,48 @@ sst_all <- if (is.null(sst_subds)) {
   rast(nc_files, subds = sst_subds)
 }
 
-# Ensure raster has a time vector; if not, you must supply dates from filenames.
-# Many CRW products carry time in the file; if yours doesn't, you can parse from filenames here.
-tt <- time(sst_all)
-if (is.null(tt) || all(is.na(tt))) {
-  # Fallback: try to parse YYYYMMDD from filenames (edit pattern to match your files)
-  dates <- as.Date(stringr::str_extract(basename(nc_files), "\\d{8}"), format = "%Y%m%d")
-  stopifnot(!all(is.na(dates)))
-  time(sst_all) <- dates
-  tt <- time(sst_all)
-}
+# # Ensure raster has a time vector; if not, you must supply dates from filenames.
+# # Many CRW products carry time in the file; if yours doesn't, you can parse from filenames here.
+# tt <- time(sst_all)
+# if (is.null(tt) || all(is.na(tt))) {
+#   # Fallback: try to parse YYYYMMDD from filenames (edit pattern to match your files)
+#   dates <- as.Date(stringr::str_extract(basename(nc_files), "\\d{8}"), format = "%Y%m%d")
+#   stopifnot(!all(is.na(dates)))
+#   time(sst_all) <- dates
+#   tt <- time(sst_all)
+# }
 
 # Keep only July–December across all years
-keep <- month(tt) %in% 7:12
-sst_all <- sst_all[[which(keep)]]
+# keep <- month(tt) %in% 6:12
+# sst_allk <- sst_all[[which(keep)]]
 
-# Crop & mask to reef hull (my_hull can be sf; terra can convert)
-sst_all <- crop(sst_all, vect(my_hull))
-sst_all <- mask(sst_all, vect(my_hull))
+# Crop & mask to reef hull 
+# Clip interpolated raster to just area of hull/polygon surrounding the reef tract
+reef_hull <- readRDS("data/spatial/reef_hull.rds")
+sst_all <- crop(sst_all, vect(reef_hull))
+sst_all <- mask(sst_all, vect(reef_hull))
 
 # Fix the vertical flip you discovered (do this BEFORE extracting values)
-sst_all <- flip(sst_all, direction = "vertical")
+#sst_all <- flip(sst_all, direction = "vertical")
 
 # Reef cells = non-NA after mask in any representative layer (use first layer)
 reef_cells <- which(!is.na(values(sst_all[[1]])))
+# --- map SST raster cells -> reef_pixel_grid cells (shared pixel id) ---
+# coords of the SST cells you are modeling
+xy_sst <- terra::xyFromCell(sst_all, reef_cells)
+# load pixel grid raster (any DHW product used in analysis)
+reef_pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
+# corresponding cell ids on reef_pixel_grid
+reefgrid_cell <- terra::cellFromXY(reef_pixel_grid, xy_sst)
+# mapping table (optional but helpful for debugging)
+cell_map <- tibble(
+  sst_cell  = reef_cells,
+  pixel     = reefgrid_cell,
+  lon       = xy_sst[,1],
+  lat       = xy_sst[,2]
+) %>%
+  filter(!is.na(pixel))  # drop SST cells that fall outside reef_pixel_grid
+
 stopifnot(length(reef_cells) > 0)
 
 # ----------------------------
@@ -224,8 +240,6 @@ stopifnot(length(reef_cells) > 0)
 sst_mat <- values(sst_all, mat = TRUE)[reef_cells, , drop = FALSE]
 sst_mat <- as.matrix(sst_mat)
 
-library(tidyverse)
-library(lubridate)
 
 # 1) Force unique, predictable column names for the matrix
 sst_df <- as.data.frame(sst_mat, check.names = FALSE)
@@ -236,7 +250,8 @@ dates <- as.Date(time(sst_all))
 stopifnot(length(dates) == ncol(sst_df))
 
 temp_long <- as_tibble(sst_df) %>%
-  mutate(pixel = reef_cells) %>%
+  mutate(sst_cell = reef_cells) %>%
+  left_join(cell_map %>% dplyr::select(sst_cell, pixel), by = "sst_cell") %>%
   pivot_longer(
     cols = starts_with("t"),
     names_to = "tname",
@@ -267,7 +282,7 @@ maxdhw_one <- function(df_year, add, mmm, win_days) {
   max(dhw, na.rm = TRUE)
 }
 
-#df_pix <- temp_long %>% filter(pixel == 7)
+#df_pix <- temp_long %>% filter(pixel == 3291)
 # Per-pixel pipeline: returns slope + SE from the mixed model
 fit_pixel <- function(df_pix) {
   # simulate maxdhw for each year × add
@@ -313,6 +328,7 @@ pixel_slopes2 <- temp_long %>%
   ungroup()
 
 pixel_slopes2
+write_csv(pixel_slopes2, file = "data/processed/pixel_slopes.csv")
 # -> tibble: pixel, slope (DHW per °C), se
 
 # ----------------------------
@@ -325,7 +341,7 @@ names(slope_r) <- "DHW_per_degC_mixed"
 
 # quick check
 summary(values(slope_r))
-plot(flip(slope_r))
+plot(slope_r)
 
 # Florida outline (sf)
 fl_sf <- rnaturalearth::ne_states(country = "United States of America", returnclass = "sf") |>

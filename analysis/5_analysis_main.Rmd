@@ -208,12 +208,12 @@ peak_dates <- dhw_daily %>%
 
 # --- verify the peak dates ---
 peak_dates <- peak_dates %>%
-  select(year, peak_date_pred, Week2 = Week2_pred, dhw_max, peak_date_obs, n_rise)
+  dplyr::select(year, peak_date_pred, Week2 = Week2_pred, dhw_max, peak_date_obs, n_rise)
 peak_dates
 
 # --- build fitted line on the rising-limb subset for plotting ---
 rise_fit_df <- dhw_daily %>%
-  inner_join(peak_dates %>% select(year, dhw_max, peak_date_obs, peak_date_pred), by = "year") %>%
+  inner_join(peak_dates %>% dplyr::select(year, dhw_max, peak_date_obs, peak_date_pred), by = "year") %>%
   group_by(year) %>%
   group_modify(~{
     d <- .x %>% arrange(date)
@@ -249,7 +249,7 @@ ggplot(dhw_all, aes(x = date, y = dhw)) +
 ```
 
 
-## DRM and DHW data (2014, 2015, 2023)
+## DRM and DHW data (2014, 2015, 2023, 2024)
 ```{r import_data}
 # Load all QC'd data from 2014, 2015, and 2023
 load("data/processed/2014.RData")
@@ -338,6 +338,9 @@ symsumm.ag <- sym0  %>%
 
 ## Survey timing
 ```{r surveys_by_dhw}
+all1 <- all0 %>%
+  mutate(MonthDay = make_date(2000, month(Date), day(Date))) 
+
 # Count surveys per year
 year_counts <- all1 %>%
   distinct(year, Site, MonthDay, Date, Subregion, dhw) %>%
@@ -362,8 +365,7 @@ year_labs <- setNames(
         legend.box.background = element_rect(color = "black")) +
   labs(x = "Degree Heating Weeks", y = "Number of sites surveyed"))
 
-all1 <- all0 %>%
-  mutate(MonthDay = make_date(2000, month(Date), day(Date))) 
+
 (surveys.by.date <- all1 %>%
   distinct(year, Site, MonthDay, Date, Subregion, dhw) %>%
   ggplot(aes(x = MonthDay, fill = Subregion)) +
@@ -1026,14 +1028,14 @@ degC <- ed50conf %>%
 # Get change in heat tolerance from 2014-2013 in degC with 95% C.I.
 finaldegC23 <- degC %>% 
   filter(year == 2023) %>%
-  select(degC, degC.lower, degC.upper)
+  dplyr::select(degC, degC.lower, degC.upper)
 # 0.96°C [95% C.I. = 0.79-1.13°C]
 finaldegC24 <- degC %>% 
   filter(year == 2024) %>%
-  select(degC, degC.lower, degC.upper)
+  dplyr::select(degC, degC.lower, degC.upper)
 
-# Annotate and save bleaching response curves plot // Fig4
-fig4 <- dhw.bleach.plot +
+# Annotate bleaching response curves plot // Fig3a
+fig3a <- dhw.bleach.plot +
   annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 2, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
@@ -1041,7 +1043,7 @@ fig4 <- dhw.bleach.plot +
            label = paste0("+", signif(ed50conf$ed50[[7]], 2), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
 
-ggsave(filename = "figures/Fig4.png", width = 100, height = 90, units = "mm")
+#ggsave(filename = "figures/Fig3.png", width = 100, height = 90, units = "mm")
 
 ```
 
@@ -1085,9 +1087,9 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence", color = "Year") +
   coord_cartesian(clip = "off"))
 
-ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot.24, width = 140, height = 140, units = "mm")
+#ggsave(filename = "figures/FigS4.png", plot = dhw.sp.bleach.plot.24, width = 140, height = 140, units = "mm")
 
-fig4
+fig3a
 spfig <- dhw.sp.bleach.plot.24 +
   scale_x_continuous(breaks = seq(0, 20, 4), labels = c(0, "", 8, "", 16, ""))+#, labels = rep("", 6)) +
   scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, "", 1))+#, labels = rep("", 3)) +
@@ -1109,9 +1111,8 @@ spfig <- dhw.sp.bleach.plot.24 +
         axis.line  = element_line(linewidth = 0.3),
         axis.ticks = element_line(linewidth = 0.3))
 
-fig3 <- cowplot::plot_grid(fig4, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
-fig4alt
-ggsave(filename = "figures/Fig3.png", width = 200, height = 100, units = "mm")
+fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
+ggsave(filename = "figures/Fig3n.png", width = 200, height = 100, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1198,14 +1199,61 @@ ggplot(sp.degC, aes(x = Species, y = degC)) +
 sp.degC %>% arrange(-degC) %>% print(n = nrow(.))
 ```
 
+### Spatial ∆ED50 --> ∆°C
+```{r}
+# Species ∆ED50s
+sp.ed50s <- sp.ed50conf.24 %>%
+  filter(year == "2023-2014")
+
+# Load dhw vs degC slopes for each pixel
+pixel_slopes <- read_csv("data/processed/pixel_slopes.csv")
+
+# Load pixel weights from each species' distribution in 2023
+sp_pixel_weights <- read_csv("data/processed/sp_pixel_weights.csv")
+
+# some species' distributions may have included pixel with unusable dhw/degc slope
+# filter out those pixels and renormalize pixel weights to sum to 1 within species
+sp_w_slope <- sp_pixel_weights %>%
+  left_join(pixel_slopes, by = "pixel") %>%      # keep all weight pixels
+  filter(!is.na(slope)) %>%                      # only pixels with slope usable
+  group_by(Species) %>%
+  mutate(w2 = w_pixel / sum(w_pixel)) %>%        # renormalize to sum to 1
+  ungroup()
+
+# check that renormalization worked
+sp_w_slope %>% group_by(Species) %>% summarise(sumw = sum(w2))
+
+# get weighted mean dhw vs degC slope for each species
+sp_mean_slope <- sp_w_slope %>%
+  group_by(Species) %>%
+  summarise(
+    mean_slope = sum(w2 * slope),
+    mean_slope_se = sqrt(sum((w2 * se)^2)),
+    kept_weight = sum(w_pixel),     # how much original weight had slope coverage
+    dropped_weight = 1 - kept_weight,
+    .groups = "drop"
+  )
+
+# convert ∆ED50s to ∆degC based on species-specific slopes
+sp.degC.w <- sp.ed50s %>%
+  left_join(sp_mean_slope, by = "Species") %>%
+  mutate(degC_u = ed50 / dhw.per.degC,
+         degC_w = ed50 / mean_slope,
+         degC_w.se = sqrt((se/pmax(ed50, 0.1))^2 + (mean_slope_se/mean_slope)^2) * pmax(degC_w, 0.1))
+
+ggplot(sp.degC.w, aes(x = Species, y = degC_w - degC_u)) +
+  geom_col()
+```
+
+
 ## Species - ∆°C vs. ∆pop + symbionts
 
 ```{r bleachthresh_vs_density, fig.width = 10}
 densdiffs <- readRDS("data/processed/dens20142023.rds")
 
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
-net <- sp.degC %>%
-  left_join(select(as.tibble(densdiffs), Species, estimate, SE)) %>%
+net <- sp.degC.w %>%
+  left_join(dplyr::select(as.tibble(densdiffs), Species, estimate, SE)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
 # net <- net %>%
@@ -1223,8 +1271,8 @@ net <- sp.degC %>%
 #   mutate(estimate = X - 3, degC = Y - 3)
 # 
 # # Plot
-# myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
-# myticks2 <- log(myticks + 1)
+myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
+myticks2 <- log(myticks + 1)
 # set.seed(8)
 # (dens_sym_viz <- net %>%
 #   ggplot(aes(x = estimate, y = degC)) + 
@@ -1272,7 +1320,7 @@ net <- sp.degC %>%
 # STATISTICALLY MODEL DENSITY AND SYMBIONT EFFECTS
 
 # Remove missing values
-net_clean <- na.omit(net[, c("Species", "degC", "estimate", "ngen", "degC.se", "SE", "D")])
+net_clean <- na.omit(net[, c("Species", "degC_w", "estimate", "ngen", "degC_w.se", "SE", "D")])
 
 # Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
 net_clean$ngen_centered <- net_clean$ngen - 1
@@ -1281,7 +1329,7 @@ net_clean$ngen_centered <- net_clean$ngen - 1
 #  Weight observations using the standard error of the degC response
 # ols_model_adjusted <- lm(degC ~ 0 + estimate + ngen_centered, data = net_clean, weights = 1/degC.se^2)
 # summary(ols_model_adjusted)
-ols_model_adjusted <- lm(degC ~ estimate + ngen_centered, data = net_clean, weights = 1/degC.se^2)
+ols_model_adjusted <- lm(degC_w ~ estimate + ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted)
 
 # Check intercept
@@ -1309,19 +1357,19 @@ net_clean$Estimate_Contribution <- ols_slope_estimate * net_clean$estimate
 net_clean$Ngen_Contribution <- ols_slope_ngen * (net_clean$ngen - 1)
 
 # Compute residual variation (unexplained variation)
-net_clean$Unexplained_Variation <- net_clean$degC - (net_clean$Estimate_Contribution + net_clean$Ngen_Contribution)
+net_clean$Unexplained_Variation <- net_clean$degC_w - (net_clean$Estimate_Contribution + net_clean$Ngen_Contribution)
 
 # Verify that the sum matches observed degC exactly
 net_clean$Check_Sum <- net_clean$Estimate_Contribution + net_clean$Ngen_Contribution + net_clean$Unexplained_Variation
-all.equal(net_clean$Check_Sum, net_clean$degC)  # Should return TRUE
+all.equal(net_clean$Check_Sum, net_clean$degC_w)  # Should return TRUE
 
 # Plot contributions of each predictor to observed degC values
 out <- net_clean %>%
-  select("Species", "degC", "degC.se", 
+  dplyr::select("Species", "degC_w", "degC_w.se", 
          "Estimate_Contribution", "Ngen_Contribution", "Unexplained_Variation") %>%
   pivot_longer(cols = 4:6) %>%
-  arrange(degC) %>%
-  mutate(Species = fct_reorder(Species, degC))
+  arrange(degC_w) %>%
+  mutate(Species = fct_reorder(Species, degC_w))
 
 out <- out %>%
   mutate(
@@ -1351,8 +1399,8 @@ label_decomp <- sprintf(
 
 (decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   geom_col(position = "stack", alpha = 1) +
-  geom_point(aes(y = degC, shape = "Observed change (±SE)"), size = 2) +
-  geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0) +
+  geom_point(aes(y = degC_w, shape = "Observed change (±SE)"), size = 2) +
+  geom_errorbar(aes(ymin = degC_w - degC_w.se, ymax = degC_w + degC_w.se), width = 0) +
   scale_x_discrete(labels = abbrev_names[as.character(out$Species)]) +
   scale_fill_manual(name = "Model-estimated drivers", 
                       labels = c("unexplained", "∆ pop. density", "# sym. genera"),
