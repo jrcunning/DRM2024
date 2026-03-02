@@ -1146,8 +1146,8 @@ sp.bleach50.24 <- sp.ed50s.fun.24(dhw.sp.mod.24)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# sp.boot.out.24 <- bootMer(dhw.sp.mod.24, FUN = sp.ed50s.fun.24, nsim = 50, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 10)
+# sp.boot.out.24 <- bootMer(dhw.sp.mod.24, FUN = sp.ed50s.fun.24, nsim = 500, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 12)
 # saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
 sp.boot.out.24 <- readRDS(file = "data/processed/sp.boot.out.24.rds")
 ## Get confidence intervals from Bootstrap
@@ -1240,9 +1240,8 @@ sp.degC.w <- sp.ed50s %>%
   mutate(degC_u = ed50 / dhw.per.degC,
          degC_w = ed50 / mean_slope,
          degC_w.se = sqrt((se/pmax(ed50, 0.1))^2 + (mean_slope_se/mean_slope)^2) * pmax(degC_w, 0.1))
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.07
 
-ggplot(sp.degC.w, aes(x = Species, y = degC_w - degC_u)) +
-  geom_col()
 ```
 
 
@@ -1331,6 +1330,10 @@ net_clean$ngen_centered <- net_clean$ngen - 1
 # summary(ols_model_adjusted)
 ols_model_adjusted <- lm(degC_w ~ estimate + ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted)
+
+summary(lm(degC_w ~ estimate + ngen_centered, data = net_clean))
+summary(lm(degC_w ~ estimate + ngen_centered, weights = 1/degC_w.se^2,
+           data = filter(net_clean, Species != "PDIV")))
 
 # Check intercept
 predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = 0))
@@ -1515,7 +1518,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
+ggsave(filename = "figures/Fig4r.png", width = 300, height = 95, units = "mm")
 
 # cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
