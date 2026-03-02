@@ -338,7 +338,7 @@ fl_v <- terra::project(fl_v, terra::crs(slope_r))
 # Add outline
 lines(fl_v, lwd = 2)
 
-
+hist(values(slope_r))
 ### great this worked. now need to confirm how to make sure pixel id in the slopes data matches pixel id in the drm data
 ```
 
@@ -367,6 +367,7 @@ pixel_slopes <- pixel_slopes %>%
 sp_pixel <- drm_data_f %>%
   group_by(pixel, Species) %>%
   summarise(n = dplyr::n(), .groups="drop")
+sp_pixel %>% distinct(pixel)
 
 # Compute species-weighted slopes of dDHW vs ddegC
 sp_slopes <- sp_pixel %>%
