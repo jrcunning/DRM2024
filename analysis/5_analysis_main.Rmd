@@ -1138,7 +1138,7 @@ spfig <- dhw.sp.bleach.plot.24 +
         axis.ticks = element_line(linewidth = 0.3))
 
 fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
-ggsave(filename = "figures/Fig3n.png", width = 200, height = 100, units = "mm")
+ggsave(filename = "figures/Fig3.png", width = 200, height = 100, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1274,7 +1274,7 @@ sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.068
 ## Species - ∆°C vs. ∆pop + symbionts
 
 ```{r bleachthresh_vs_density, fig.width = 10}
-densdiffs <- readRDS("data/processed/dens20142023.rds")
+#densdiffs <- readRDS("data/processed/dens20142023.rds")
 densdiffs <- read_csv("data/processed/densdiffs_smoth.csv")
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- sp.degC.w %>%
@@ -1541,7 +1541,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig4r.png", width = 300, height = 95, units = "mm")
+ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
 
 # cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
@@ -1557,142 +1557,10 @@ as_tibble(factorres) %>%
   ggplot(aes(x=ngen_centered, y = emmean)) + 
   geom_point() +
   geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE))
-contrast(factorres, method = "consec")
+contrast(factorres, method = "consec", adjust = "none")
 ## Same results --> use continuous
 ```
 
-# decomp with explicit baseline intercept + residual
-```{r}
-## ============================================================
-## Decomposition with explicit Baseline (intercept) + Residual
-## ============================================================
-
-# Fit (unchanged)
-ols_model_adjusted <- lm(
-  degC_w ~ estimate + ngen_centered,
-  data    = net_clean,
-  weights = 1 / degC_w.se^2
-)
-
-# Extract coefficients
-b <- coef(ols_model_adjusted)
-b0 <- unname(b["(Intercept)"])
-b1 <- unname(b["estimate"])
-b2 <- unname(b["ngen_centered"])
-
-# Build clean component table (no implicit intercept-in-residual mixing)
-net_decomp <- net_clean %>%
-  mutate(
-    Baseline_Contribution = b0,
-    Estimate_Contribution = b1 * estimate,
-    Ngen_Contribution     = b2 * ngen_centered,
-    Residual_Contribution = degC_w - (Baseline_Contribution +
-                                     Estimate_Contribution +
-                                     Ngen_Contribution)
-  ) %>%
-  mutate(
-    Check_Sum = Baseline_Contribution + Estimate_Contribution +
-                Ngen_Contribution + Residual_Contribution
-  )
-
-stopifnot(isTRUE(all.equal(net_decomp$Check_Sum, net_decomp$degC_w)))
-
-# Long format for stacked bars
-out_decomp <- net_decomp %>%
-  dplyr::select(
-    Species, degC_w, degC_w.se,
-    Baseline_Contribution, Estimate_Contribution,
-    Ngen_Contribution, Residual_Contribution
-  ) %>%
-  pivot_longer(
-    cols = c(Baseline_Contribution, Estimate_Contribution,
-             Ngen_Contribution, Residual_Contribution),
-    names_to = "name",
-    values_to = "value"
-  ) %>%
-  arrange(degC_w) %>%
-  mutate(Species = fct_reorder(Species, degC_w)) %>%
-  mutate(
-    name = factor(
-      name,
-      levels = c("Baseline_Contribution",
-                 "Residual_Contribution",
-                 "Estimate_Contribution",
-                 "Ngen_Contribution")
-    )
-  )
-
-## ============================================================
-## Optional: magnitude budget (% of total |Δ°C| across species)
-##   - This is NOT R², just an absolute-contribution summary
-## ============================================================
-
-pct_tab <- out_decomp %>%
-  group_by(name) %>%
-  summarize(tot_abs = sum(abs(value)), .groups = "drop") %>%
-  mutate(pct = 100 * tot_abs / sum(tot_abs))
-
-pct_symb    <- pct_tab$pct[pct_tab$name == "Ngen_Contribution"]
-pct_density <- pct_tab$pct[pct_tab$name == "Estimate_Contribution"]
-pct_base    <- pct_tab$pct[pct_tab$name == "Baseline_Contribution"]
-pct_resid   <- pct_tab$pct[pct_tab$name == "Residual_Contribution"]
-
-pct_modeled <- pct_symb + pct_density  # modeled drivers only (excluding baseline)
-
-label_decomp <- sprintf(
-  "Modeled drivers account for %.0f%% of total |Δ°C|\n(Symbionts %.0f%%, Density %.0f%%)\nBaseline %.0f%%, Residual %.0f%%",
-  pct_modeled, pct_symb, pct_density, pct_base, pct_resid
-)
-
-## ============================================================
-## Decomposition plot (stacked components + observed points/SE)
-## ============================================================
-
-decomp2 <- ggplot(out_decomp, aes(x = Species, y = value, fill = name)) +
-  geom_col(position = "stack", alpha = 1) +
-  geom_point(aes(y = degC_w, shape = "Observed change (±SE)"), size = 2) +
-  geom_errorbar(aes(ymin = degC_w - degC_w.se, ymax = degC_w + degC_w.se), width = 0) +
-  scale_x_discrete(labels = abbrev_names[as.character(out_decomp$Species)]) +
-  scale_fill_manual(
-    name   = "Decomposition",
-    breaks = c("Estimate_Contribution", "Ngen_Contribution",
-               "Baseline_Contribution", "Residual_Contribution"),
-    labels = c("∆ pop. density", "# sym. genera",
-               "baseline (intercept)", "residual (unexplained)"),
-    values = c(
-      Estimate_Contribution = "#67a9cf",
-      Ngen_Contribution     = "#ef8a62",
-      Baseline_Contribution = "#bdbdbd",
-      Residual_Contribution = "#7f7f7f"
-    )
-  ) +
-  scale_shape_manual(name = "", values = 16) +
-  annotate(
-    "text",
-    x = Inf, y = -Inf, hjust = 1, vjust = -0.4,
-    label = label_decomp, size = 2.47
-  ) +
-  theme_classic() +
-  theme(
-    plot.margin = margin(5.5, 5.5, -10, 5.5),
-    axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 10),
-    axis.title.y = element_text(size = 12),
-    legend.text  = element_text(size = 7),
-    legend.title = element_text(size = 8),
-    legend.key.size = unit(0.3, "cm"),
-    legend.spacing.y = unit(-0.2, "cm"),
-    legend.position = c(0.20, 0.90),
-    legend.background = element_blank(),
-    legend.key = element_blank()
-  ) +
-  labs(x = "", y = "Change in bleaching threshold\n2014–23 (°C)") +
-  guides(
-    fill  = guide_legend(ncol = 1, override.aes = list(shape = NA)),
-    shape = guide_legend(order = 1, label.theme = element_text(size = 8))
-  )
-
-decomp2
-```
 
 # Coral size analyses
 
