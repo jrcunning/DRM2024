@@ -1016,6 +1016,31 @@ dhw.per.degC <- read_csv("data/processed/dhw.per.degC.csv")
 dhw.per.degC.se <- dhw.per.degC$dhw.per.degC.se
 dhw.per.degC <- dhw.per.degC$dhw.per.degC
 
+# Pixel-scale dhw.per.degC
+
+# Load dhw vs degC slopes for each pixel
+pixel_slopes <- read_csv("data/processed/pixel_slopes.csv")
+
+# Pixel weights for all corals observed
+pixel_weights_all <- read_csv("data/processed/pixel_weights_all.csv")
+
+# Use pixel weighted average slope
+# Join slopes to weights
+pixel_dat <- pixel_weights_all %>%
+  left_join(pixel_slopes, by = "pixel") %>%
+  filter(!is.na(slope), !is.na(w_pixel_all))
+
+# Ensure weights sum to 1 (safety)
+pixel_dat <- pixel_dat %>%
+  mutate(w_pixel_all = w_pixel_all / sum(w_pixel_all))
+
+# Weighted mean slope
+dhw.per.degC <- sum(pixel_dat$w_pixel_all * pixel_dat$slope)
+
+# Propagated SE of weighted mean
+dhw.per.degC.se <- sqrt(sum((pixel_dat$w_pixel_all^2) * (pixel_dat$se^2)))
+
+
 # Convert change in ed50s (DHW) to change in tolerance (°C) 
 ## Propagate errors (quadrature methhod for relative error propagation)
 degC <- ed50conf %>%
@@ -1030,7 +1055,7 @@ degC <- ed50conf %>%
 finaldegC23 <- degC %>% 
   filter(year == 2023) %>%
   dplyr::select(degC, degC.lower, degC.upper)
-# 0.96°C [95% C.I. = 0.79-1.13°C]
+# 0.98°C [95% C.I. = 0.835-1.14°C]
 finaldegC24 <- degC %>% 
   filter(year == 2024) %>%
   dplyr::select(degC, degC.lower, degC.upper)

@@ -197,7 +197,7 @@ df23f <- df23 %>%
 pts23 <- vect(df23f, geom = c("Longitude", "Latitude"), crs = crs(reef_pixel_grid))
 
 # extract pixel ID for each observed coral
-df23f$pixel <- extract(reef_pixel_grid, pts23, cells = TRUE)$cell
+df23f$pixel <- raster::extract(reef_pixel_grid, pts23, cells = TRUE)$cell
 
 # some species surveyed 40 m2 each site, rest surveyed 20 m2 at each site
 sp_40 <- c("CNAT", "DSTO", "DLAB", "MMEA", "MANG", "MYCE", "PCLI", "PSTR")
@@ -254,5 +254,62 @@ pixel_weights_xy %>%
   scale_fill_viridis_c(trans = "log10")
 
 write_csv(pixel_weights_xy, file = "data/processed/sp_pixel_weights.csv")
+```
+
+
+
+# Pixel weights for all corals
+```{r}
+# ============================================================
+# OVERALL (ALL-CORALS) EFFORT-WEIGHTED PIXEL WEIGHTS
+# ============================================================
+
+# 1) count corals per site × species (observed only)
+site_sp <- df23f %>%
+  group_by(Site, pixel, Species) %>%
+  summarise(n = n(), .groups = "drop")
+
+# 2) expand to include zeros for species that were searched but absent
+site_sp_full <- site_sp %>%
+  group_by(Site, pixel) %>%
+  complete(Species = all_species, fill = list(n = 0)) %>%
+  ungroup()
+
+# 3) attach species-specific surveyed area (effort) and compute density
+site_sp_full <- site_sp_full %>%
+  mutate(area_m2 = if_else(Species %in% sp_40, 40, 20),
+         dens_m2 = n / area_m2)
+
+# 4) collapse within site × pixel to "all corals" density (sum over species)
+site_pix_all <- site_sp_full %>%
+  group_by(Site, pixel) %>%
+  summarise(dens_m2_all = sum(dens_m2), .groups = "drop")
+
+# 5) aggregate to pixel (same logic as your species weights: mean across sites)
+pixel_all <- site_pix_all %>%
+  group_by(pixel) %>%
+  summarise(dens_m2_all = mean(dens_m2_all), .groups = "drop")
+
+# 6) normalize across pixels to get weights summing to 1
+pixel_weights_all <- pixel_all %>%
+  mutate(w_pixel_all = dens_m2_all / sum(dens_m2_all))
+
+pixel_weights_all
+
+# visualize pixel weights
+# table: pixel (cell id) + lon/lat
+# join coords onto weights
+pixel_weights_all_xy <- pixel_weights_all %>%
+  left_join(pix_xy, by = "pixel")
+
+pixel_weights_all_xy %>%
+  filter(w_pixel_all > 0) %>%
+  ggplot(aes(lon, lat, fill = w_pixel_all)) +
+  geom_raster() +
+  coord_equal() +
+  theme_minimal() +
+  scale_fill_viridis_c(trans = "log10")
+
+write_csv(pixel_weights_all_xy, file = "data/processed/pixel_weights_all.csv")
 ```
 
