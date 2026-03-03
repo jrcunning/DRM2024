@@ -185,9 +185,13 @@ df23 <- df23 %>%
   drop_na(Species)
 
 # define target species subset (those we analyze for ∆°C with dens. change)
-densdiffs <- readRDS("data/processed/dens20142023.rds")
-myspp <- as_tibble(densdiffs) %>% drop_na() %>% pull(Species)
-df23f <- df23 %>% filter(Species %in% myspp) %>% droplevels()
+#densdiffs <- readRDS("data/processed/dens20142023.rds")
+#myspp <- as_tibble(densdiffs) %>% drop_na() %>% pull(Species)
+#df23f <- df23 %>% filter(Species %in% myspp) %>% droplevels()
+df23f <- df23 %>% 
+  group_by(Species) %>%
+  filter(sum(n()) > 20) %>%
+  ungroup()
 
 # must contain lat, lon, Species, and count
 pts23 <- vect(df23f, geom = c("Longitude", "Latitude"), crs = crs(reef_pixel_grid))
