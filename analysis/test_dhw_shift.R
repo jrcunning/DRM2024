@@ -262,9 +262,9 @@ bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
-boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
-                    seed = 123, parallel = "multicore", ncpus = 20)
-saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
+# boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+#                     seed = 123, parallel = "multicore", ncpus = 20)
+# saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
 boot.shift <- readRDS(file = "data/processed/boot.shift.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
