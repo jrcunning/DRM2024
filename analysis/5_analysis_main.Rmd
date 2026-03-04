@@ -861,15 +861,15 @@ dhw.mod24 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Speci
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 summary(dhw.mod24)
 
-dhw.mod24.depth <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + 
-                           (dhw + year | Species) + (year | Subregion),  
-                 family = "binomial", data = allg, 
-                 verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-
-anova(dhw.mod24, dhw.mod24.depth)
-summary(dhw.mod24.depth)
-emmeans(dhw.mod24, specs = c("year", "dhw"), type = "response")
-emmeans(dhw.mod24.depth, specs = c("year", "dhw"), type = "response")
+# dhw.mod24.depth <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + 
+#                            (dhw + year | Species) + (year | Subregion),  
+#                  family = "binomial", data = allg, 
+#                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+# 
+# anova(dhw.mod24, dhw.mod24.depth)
+# summary(dhw.mod24.depth)
+# emmeans(dhw.mod24, specs = c("year", "dhw"), type = "response")
+# emmeans(dhw.mod24.depth, specs = c("year", "dhw"), type = "response")
 
 # Function to get ED50s and ∆ED50s
 ed50s.fun_fast <- function(mod, peak_dates = NULL) {
@@ -1009,14 +1009,8 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
 dhw.bleach.plot
 ```
 
-### ∆ED50 --> ∆°C
+### ∆ED50 --> ∆°C (spatial)
 ```{r change_degC_thresh}
-# Load dhw.per.degC
-dhw.per.degC <- read_csv("data/processed/dhw.per.degC.csv")
-dhw.per.degC.se <- dhw.per.degC$dhw.per.degC.se
-dhw.per.degC <- dhw.per.degC$dhw.per.degC
-
-# Pixel-scale dhw.per.degC
 
 # Load dhw vs degC slopes for each pixel
 pixel_slopes <- read_csv("data/processed/pixel_slopes.csv")
@@ -1195,34 +1189,34 @@ sp.ed50conf.24 <- tibble(
 
 ### ∆ED50 --> ∆°C
 ```{r sp.changeED50, fig.width = 7, fig.height = 8}
-# Convert ∆ED50s to degC with error propagation
-sp.degC <- sp.ed50conf.24 %>%
-  filter(year == "2023-2014") %>%
-  mutate(degC = ed50 / dhw.per.degC,
-         # pmax(ed50, 0.1) uses 0.1 as a constant for cases (PFUR/PDIV) with ed50 = 0 (can't div. by 0), which serves to propagate the absolute error
-         degC.se = sqrt((se/pmax(ed50, 0.1))^2 + (dhw.per.degC.se/dhw.per.degC)^2) * pmax(degC, 0.1),
-         degC.lower = degC - (1.96 * degC.se),
-         degC.upper = degC + (1.96 * degC.se)) %>%
-  separate(year, into = c("year", "2014")) %>%
-  mutate(Species = fct_reorder(Species, degC))
-
-ggplot(sp.degC, aes(x = Species, y = degC)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se))
-
-
-# Plot change in heat tolerance in degC for all species
-## Need to decide whether to use SE or CI for error bars
-(finplot <- sp.degC %>%
-  ggplot(aes(x = Species, y = degC)) +
-  geom_point() +
-  #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
-  geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0.2) +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  labs(y = "Change in heat tolerance (°C)        "))
-
-sp.degC %>% arrange(-degC) %>% print(n = nrow(.))
+# # Convert ∆ED50s to degC with error propagation
+# sp.degC <- sp.ed50conf.24 %>%
+#   filter(year == "2023-2014") %>%
+#   mutate(degC = ed50 / dhw.per.degC,
+#          # pmax(ed50, 0.1) uses 0.1 as a constant for cases (PFUR/PDIV) with ed50 = 0 (can't div. by 0), which serves to propagate the absolute error
+#          degC.se = sqrt((se/pmax(ed50, 0.1))^2 + (dhw.per.degC.se/dhw.per.degC)^2) * pmax(degC, 0.1),
+#          degC.lower = degC - (1.96 * degC.se),
+#          degC.upper = degC + (1.96 * degC.se)) %>%
+#   separate(year, into = c("year", "2014")) %>%
+#   mutate(Species = fct_reorder(Species, degC))
+# 
+# ggplot(sp.degC, aes(x = Species, y = degC)) +
+#   geom_point() +
+#   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se))
+# 
+# 
+# # Plot change in heat tolerance in degC for all species
+# ## Need to decide whether to use SE or CI for error bars
+# (finplot <- sp.degC %>%
+#   ggplot(aes(x = Species, y = degC)) +
+#   geom_point() +
+#   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
+#   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0.2) +
+#   theme_classic() +
+#   theme(axis.text.x = element_text(angle = 90)) +
+#   labs(y = "Change in heat tolerance (°C)        "))
+# 
+# sp.degC %>% arrange(-degC) %>% print(n = nrow(.))
 ```
 
 ### Spatial ∆ED50 --> ∆°C
