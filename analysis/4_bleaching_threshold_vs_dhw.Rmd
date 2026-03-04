@@ -94,6 +94,57 @@ coefs
 
 ## Save slope and standard error for analysis in analysis_main
 write_csv(coefs, "data/processed/dhw.per.degC.csv")
+
+
+
+
+# new fig
+diffs$year_col <- ifelse(diffs$year %in% c(2014, 2015, 2023, 2024),
+                         as.character(diffs$year),
+                         "Other")
+
+ggplot(diffs, aes(x = add, y = diff, group = year, color = year_col)) +
+  geom_path() +
+  theme_classic() +
+  labs(x = "Simulated increase in bleaching threshold (°C)",
+       y = "Decrease in accumulated DHW",
+       color = "Year") +
+  geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
+              alpha = 0.5, linewidth = 1.5) +
+  geom_hline(aes(yintercept = 8.5)) +
+  scale_color_manual(values = c(
+    "2014" = "#1b9e77",
+    "2015" = "#d95f02",
+    "2023" = "#7570b3",
+    "2024" = "#e7298a",
+    "Other" = "gray80"
+  )) +
+  annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
+  theme(
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(5, "mm")
+  ) +
+  coord_cartesian(xlim = c(0, 1.7), ylim = c(0, 13), expand = FALSE)
+
+slopes_year <- coef(mod)$year %>%
+  tibble::rownames_to_column("year") %>%
+  rename(dhw_per_degC = add) %>%
+  mutate(year = as.numeric(year))
+
+slopes_year %>%
+  filter(year %in% c(2014, 2015, 2023, 2024))
+
+slopes_year2 <- diffs %>%
+  group_by(year) %>%
+  summarise(
+    slope = coef(lm(diff ~ 0 + add))[1]
+  )
+slopes_year2 %>%
+  filter(year %in% c(2014, 2015, 2023, 2024))
+
+
+
+diffs %>% dplyr::select(year, add, diff, maxdhw) %>% write_csv("diffs.csv")
 ```
 
 
@@ -282,7 +333,6 @@ maxdhw_one <- function(df_year, add, mmm, win_days) {
   max(dhw, na.rm = TRUE)
 }
 
-#df_pix <- temp_long %>% filter(pixel == 3291)
 # Per-pixel pipeline: returns slope + SE from the mixed model
 fit_pixel <- function(df_pix) {
   # simulate maxdhw for each year × add
@@ -360,5 +410,145 @@ hist(values(slope_r))
 
 
 
+```{r}
+
+df_pix <- temp_long %>% filter(pixel == "1614")
+
+fit_pixel_yearslopes <- function(df_pix, years_keep = c(2014, 2015, 2023, 2024)) {
+
+  # --- identical to your working code ---
+  dhwout <- df_pix %>%
+    group_by(year) %>%
+    nest() %>%
+    crossing(add = adds) %>%
+    mutate(maxdhw = map2_dbl(data, add, ~maxdhw_one(.x, .y, mmm = mmm, win_days = win_days)))
+
+  diffs <- dhwout %>%
+    group_by(year) %>%
+    mutate(diff = maxdhw[add == 0] - maxdhw) %>%
+    filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 2) %>%
+    ungroup()
+
+  if (n_distinct(diffs$year) < 2) {
+    return(tibble(slope = NA_real_, se = NA_real_))
+  }
+
+  mod <- lmer(diff ~ 0 + add + (0 + add | year), data = diffs)
+
+  # --- global slope + SE exactly as you do ---
+  s  <- summary(mod)$coefficients["add", "Estimate"]
+  se <- summary(mod)$coefficients["add", "Std. Error"]
+
+  # --- year-specific slopes (fixed + random) ---
+  fe <- as.numeric(lme4::fixef(mod)[["add"]])
+
+  re <- lme4::ranef(mod)$year %>%
+    tibble::rownames_to_column("year") %>%
+    mutate(year = as.integer(year),
+           re_add = .data$add,
+           slope_year = fe + re_add) %>%
+    filter(year %in% years_keep) %>%
+    dplyr::select(year, slope_year) %>%
+    tidyr::pivot_wider(
+      names_from  = year,
+      values_from = slope_year,
+      names_prefix = "slope_"
+    )
+
+  tibble(slope = as.numeric(s), se = as.numeric(se)) %>%
+    bind_cols(re)
+}
+
+pixel_slopes3 <- temp_long %>%
+  group_by(pixel) %>%
+  nest() %>%
+  mutate(
+    fit = map(data, ~tryCatch(
+      fit_pixel_yearslopes(.x),
+      error = function(e) tibble(slope = NA_real_, se = NA_real_)
+    ))
+  ) %>%
+  dplyr::select(pixel, fit) %>%
+  unnest(fit) %>%
+  ungroup()
+
+summary(pixel_slopes3)
+
+# test for year effect
+slopes_long <- pixel_slopes3 %>%
+  dplyr::select(pixel, slope_2014, slope_2015, slope_2023, slope_2024) %>%
+  pivot_longer(
+    cols = starts_with("slope_"),
+    names_to = "year",
+    values_to = "slope_year"
+  ) %>%
+  mutate(year = as.integer(sub("slope_", "", year))) %>%
+  filter(!is.na(slope_year))
+
+
+pixel_weights_all <- read_csv("data/processed/pixel_weights_all.csv")
+w_slope_year <- pixel_weights_all %>%
+  left_join(slopes_long, by = "pixel") %>%      # keep all weight pixels
+  filter(!is.na(slope_year)) %>%                    # only pixels with slope usable
+  group_by(year) %>%                           
+  mutate(w2 = w_pixel_all / sum(w_pixel_all)) %>%        # renormalize to sum to 1
+  ungroup()
+
+# check that renormalization worked
+w_slope_year %>% group_by(year) %>% summarise(sumw = sum(w2))
+
+# get weighted mean dhw vs degC slope for each species
+w_slope_year_res <- w_slope_year %>%
+  group_by(year) %>%
+  summarise(
+    mean_slope = sum(w2 * slope_year),
+    mean_slope_se = sqrt(sum((w2 * se)^2)),
+    kept_weight = sum(w_pixel_all),     # how much original weight had slope coverage
+    dropped_weight = 1 - kept_weight,
+    .groups = "drop"
+  )
+
+w_slope_year_res_diffs <- w_slope_year_res %>%
+  mutate(diff2014 = mean_slope - lag(mean_slope)) %>%
+  dplyr::select(year, diff2014) %>%
+  replace_na(list(diff2014 = 0))
+
+w_slope_year_res_diffs %>%
+  mutate(slopetouse = dhw.per.degC + diff2014)
+```
+
+
+```{r}
+# visualize average pixel - all years
+pixel_slopes4 <- temp_long %>%
+  group_by(pixel) %>%
+  nest() %>%
+  mutate(
+    fit = map(data, ~tryCatch(
+      fit_pixel_yearslopes(.x, years_keep = unique(temp_long$year)),
+      error = function(e) tibble(slope = NA_real_, se = NA_real_)
+    ))
+  ) %>%
+  dplyr::select(pixel, fit) %>%
+  unnest(fit) %>%
+  ungroup()
+
+tail(pixel_slopes4)
+
+# test for year effect
+slopes_long4 <- pixel_slopes4 %>%
+  dplyr::select(c(1, 4:27)) %>%
+  pivot_longer(
+    cols = starts_with("slope_"),
+    names_to = "year",
+    values_to = "slope_year"
+  ) %>%
+  mutate(year = as.integer(sub("slope_", "", year))) %>%
+  filter(!is.na(slope_year))
+
+lmer(slope_year ~ factor(year) + (1|pixel), data = slopes_long4)
+
+
+```
 
 
