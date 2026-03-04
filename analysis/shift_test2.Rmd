@@ -33,7 +33,9 @@ ed50s.fun_fast <- function(mod, peak_dates = NULL) {
     peak_dates <- get("peak_dates", envir = .GlobalEnv)
   }
   
-  combos <- peak_dates
+  combos <- peak_dates %>%
+    mutate(year = as.integer(as.character(year))) %>%
+    arrange(year)
   b <- fixef(mod)
 
   mf <- model.frame(mod)
@@ -297,7 +299,19 @@ allg_shift %>% filter(is.na(dhw))
 # Clean data
 allg_shift2 <- allg_shift %>%
   tidyr::drop_na() %>%
-  dplyr::select(BL, NB, dhw0, dhw, year, Week2, Species, Subregion, pixel, date)
+  dplyr::select(BL, NB, dhw0, dhw, year, Week2, Species, Subregion, pixel, date) 
+
+
+allg_shift2 %>%
+  ggplot(aes(x = dhw, y = BL / (BL + NB))) +
+  geom_point() +
+  facet_wrap(~year)
+
+
+allg_shift2 %>%
+  ggplot(aes(x = dhw0, y = dhw)) +
+  geom_point(aes(color = Subregion)) +
+  facet_wrap(~year)
 
 ```
 
@@ -315,8 +329,8 @@ summary(dhw.mod24.shift)
 
 
 # Get point estimates for ED50s and ∆ED50s
-bleach50 <- ed50s.fun_fast(dhw.mod24.shift)
-bleach50
+bleach50.shift <- ed50s.fun_fast(dhw.mod24.shift)
+bleach50.shift
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
@@ -330,8 +344,8 @@ upper <- apply(boot.shift$t, 2, function(x) as.numeric(quantile(x, probs=.975, n
 se <- apply(boot.shift$t, 2, sd)
 
 ed50conf_shift <- tibble(
-  year = names(bleach50), 
-  ed50 = bleach50,
+  year = names(bleach50.shift), 
+  ed50 = bleach50.shift,
   se = se,
   lower = lower,
   upper = upper)
@@ -372,15 +386,15 @@ dhw.shift.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, grou
             aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year),
             hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,-0.3), size = 3) +
   # Add line segments at ED50s
-  geom_segment(data = slice(ed50conf, 1:4),
+  geom_segment(data = slice(ed50conf_shift, 1:4),
                aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = c(1,1,1,2), lwd = 0.1) +
-  geom_point(data = slice(ed50conf, 1:4), aes(y = 0.5, x = ed50), pch = 1, stroke = 0.2) +
+  geom_point(data = slice(ed50conf_shift, 1:4), aes(y = 0.5, x = ed50), pch = 1, stroke = 0.2) +
   # Annotate increase in heat tolerance
-  annotate("segment", x = ed50conf[[1,2]], xend = ed50conf[[3,2]], y = 0, lwd = 0.2,
+  annotate("segment", x = ed50conf_shift[[1,2]], xend = ed50conf_shift[[3,2]], y = 0, lwd = 0.2,
            arrow = arrow(type = "closed", length = unit(2, "mm"))) +
-  annotate("segment", x = ed50conf[[3,2]], xend = ed50conf[[4,2]], y = 0, lwd = 0.2, lty = 2,
+  annotate("segment", x = ed50conf_shift[[3,2]], xend = ed50conf_shift[[4,2]], y = 0, lwd = 0.2, lty = 2,
            arrow = arrow(type = "open", length = unit(2, "mm"))) +
-  annotate("segment", x = ed50conf[[4,2]] - 1e-6, xend = ed50conf[[4,2]], y = 0, yend = 0, lwd = 0.2, lty = 1,
+  annotate("segment", x = ed50conf_shift[[4,2]] - 1e-6, xend = ed50conf_shift[[4,2]], y = 0, yend = 0, lwd = 0.2, lty = 1,
            arrow = arrow(type = "open", length = unit(2, "mm"))) +
   scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 

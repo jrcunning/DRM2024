@@ -188,6 +188,613 @@ dhwmap_pixels23 <- basemap +
 dhwmap_pixels23
 ```
 
+
+# RECALC CRW-MATCHED DHW VALUES FROM SST
+```{r}
+library(ncdf4)
+
+one_sst_file <- "data/coraltemp/coraltemp_v3.1_20240923.nc"
+clim_file    <- "data/coraltemp/ct5km_climatology_v3.1.nc"
+
+# SST subgrid indices (your established window)
+x_start_sst <- 1931
+y_start_sst <- 2280
+x_n_sst     <- 90
+y_n_sst     <- 82
+
+# ------------------------------------------------------------
+# 1) Read SST lon/lat + SST subgrid (RAW)
+# ------------------------------------------------------------
+nc_s <- nc_open(one_sst_file)
+
+lon_s_full <- ncvar_get(nc_s, "lon")
+lat_s_full <- ncvar_get(nc_s, "lat")
+
+lon_s <- lon_s_full[x_start_sst:(x_start_sst + x_n_sst - 1)]
+lat_s <- lat_s_full[y_start_sst:(y_start_sst + y_n_sst - 1)]
+
+sst <- ncvar_get(nc_s, "analysed_sst",
+                 start = c(x_start_sst, y_start_sst, 1),
+                 count = c(x_n_sst,     y_n_sst,     1))
+if (length(dim(sst)) == 3) sst <- sst[, , 1]
+fill_sst <- ncatt_get(nc_s, "analysed_sst", "_FillValue")$value
+nc_close(nc_s)
+
+sst[sst == fill_sst] <- NA_real_
+
+stopifnot(length(lon_s) == nrow(sst))
+stopifnot(length(lat_s) == ncol(sst))
+
+cat("SST dim:", paste(dim(sst), collapse=" x "), "\n")
+cat("SST lon range:", range(lon_s), "\n")
+cat("SST lat range:", range(lat_s), "\n")
+
+# ------------------------------------------------------------
+# 2) Read MMM lon/lat + map SST lon/lat to MMM indices
+#    Robust approach: read bounding rectangle, then subset to exact ix/iy
+# ------------------------------------------------------------
+nc_c <- nc_open(clim_file)
+lon_c <- ncvar_get(nc_c, "lon")
+lat_c <- ncvar_get(nc_c, "lat")
+
+dx <- median(diff(lon_c))
+dy <- median(diff(lat_c))
+cat("MMM grid dx:", dx, " dy:", dy, "\n")
+
+# Map lon/lat -> MMM indices using origin+step (works even if dy is negative)
+ix <- round((lon_s - lon_c[1]) / dx) + 1
+iy <- round((lat_s - lat_c[1]) / dy) + 1
+
+# bounds check
+stopifnot(all(ix >= 1 & ix <= length(lon_c)))
+stopifnot(all(iy >= 1 & iy <= length(lat_c)))
+
+# alignment check (tolerance)
+tol <- 1e-4
+cat("Max |lon diff|:", max(abs(lon_c[ix] - lon_s), na.rm=TRUE), "\n")
+cat("Max |lat diff|:", max(abs(lat_c[iy] - lat_s), na.rm=TRUE), "\n")
+stopifnot(max(abs(lon_c[ix] - lon_s), na.rm=TRUE) <= tol)
+stopifnot(max(abs(lat_c[iy] - lat_s), na.rm=TRUE) <= tol)
+
+# Order indices so extracted MMM ends up in increasing lon/lat order
+ix2 <- ix[order(lon_c[ix])]
+iy2 <- iy[order(lat_c[iy])]
+
+# IMPORTANT: do NOT require contiguity. Instead:
+# 1) read bounding rectangle that contains all needed indices
+x0 <- min(ix2); xN <- max(ix2) - x0 + 1
+y0 <- min(iy2); yN <- max(iy2) - y0 + 1
+
+mmm_block <- ncvar_get(nc_c, "sst_clim_mmm",
+                       start = c(x0, y0, 1),
+                       count = c(xN, yN, 1))
+if (length(dim(mmm_block)) == 3) mmm_block <- mmm_block[, , 1]
+
+fill_mmm <- ncatt_get(nc_c, "sst_clim_mmm", "_FillValue")$value
+nc_close(nc_c)
+mmm_block[mmm_block == fill_mmm] <- NA_real_
+
+# 2) subset bounding rectangle down to the exact target index vectors
+# convert global indices -> local indices within the block
+ix_local <- ix2 - x0 + 1
+iy_local <- iy2 - y0 + 1
+
+mmm <- mmm_block[ix_local, iy_local]
+
+cat("MMM dim:", paste(dim(mmm), collapse=" x "), "\n")
+stopifnot(all(dim(mmm) == dim(sst)))
+
+cat("✅ MMM and SST aligned (dims + lon/lat order).\n")
+
+
+
+# ------------------------------------------------------------
+# 3) HotSpot and daily DHW contribution (for this one SST day)
+#    (CRW-style rules)
+# ------------------------------------------------------------
+
+# Basic checks
+stopifnot(all(dim(sst) == dim(mmm)))
+stopifnot(identical(dim(sst), dim(mmm)))
+
+# HotSpot in degC (can be negative)
+hotspot_raw <- sst - mmm
+
+# CRW convention: HotSpot cannot be < 0
+hotspot <- pmax(hotspot_raw, 0)
+
+# DHW only accumulates when HotSpot >= 1°C
+# Convert daily HotSpot (°C) to "degree heating weeks per day" by / 7
+dhd <- ifelse(hotspot >= 1, hotspot / 7, 0)
+
+cat("HotSpot raw summary:\n")
+print(summary(as.vector(hotspot_raw)))
+
+cat("\nHotSpot (clipped at 0) summary:\n")
+print(summary(as.vector(hotspot)))
+
+cat("\nDaily DHW contribution (HotSpot>=1, divided by 7) summary:\n")
+print(summary(as.vector(dhd)))
+
+# A couple of useful diagnostics
+cat("\nProportion of valid cells with HotSpot>=1:\n")
+prop_ge1 <- mean(hotspot >= 1, na.rm = TRUE)
+print(prop_ge1)
+
+cat("\nRange checks (sanity):\n")
+cat("SST range:", range(sst, na.rm=TRUE), "\n")
+cat("MMM range:", range(mmm, na.rm=TRUE), "\n")
+cat("HotSpot range:", range(hotspot, na.rm=TRUE), "\n")
+```
+
+```{r}
+library(ncdf4)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(slider)
+
+# ------------------------------------------------------------
+# CONFIG: your aligned grid objects + your SST window indices
+# (assumes lon_s, lat_s, mmm already exist from prior steps)
+# ------------------------------------------------------------
+sst_dir <- "data/coraltemp"
+
+x_start_sst <- 1931
+y_start_sst <- 2280
+x_n_sst     <- 90
+y_n_sst     <- 82
+
+stopifnot(all(dim(mmm) == c(x_n_sst, y_n_sst)))
+
+# Helper: parse date from filename coraltemp_v3.1_YYYYMMDD.nc
+file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+
+# Helper: read SST subgrid (RAW) for one file
+read_sst_window <- function(f) {
+  nc <- nc_open(f)
+  on.exit(nc_close(nc), add = TRUE)
+
+  sst <- ncvar_get(nc, "analysed_sst",
+                   start = c(x_start_sst, y_start_sst, 1),
+                   count = c(x_n_sst,     y_n_sst,     1))
+  if (length(dim(sst)) == 3) sst <- sst[, , 1]
+
+  fill <- ncatt_get(nc, "analysed_sst", "_FillValue")$value
+  sst[sst == fill] <- NA_real_
+  sst
+}
+
+# ------------------------------------------------------------
+# 1) Choose date range (IMPORTANT: include >=84 days before
+#    the first day you care about, otherwise early DHW is wrong)
+# ------------------------------------------------------------
+date_min <- as.Date("2024-03-01")  # gives cushion before June
+date_max <- as.Date("2024-12-31")
+
+sst_files <- list.files(sst_dir, pattern = "^coraltemp_v3\\.1_\\d{8}\\.nc$", full.names = TRUE)
+sst_tbl <- tibble(file = sst_files, date = map(file, file_date) |> list_c()) %>%
+  filter(date >= date_min, date <= date_max) %>%
+  arrange(date)
+
+stopifnot(nrow(sst_tbl) > 0)
+
+# ------------------------------------------------------------
+# 2) Build per-day DHW contribution (dhd) for each pixel
+#    dhd = (HotSpot / 7) if HotSpot >= 1, else 0
+# ------------------------------------------------------------
+# We'll keep indices x=1..90, y=1..82 as pixel IDs (fast + stable).
+dhd_long <- sst_tbl %>%
+  mutate(
+    sst_mat = map(file, read_sst_window),
+    dhd_mat = map(sst_mat, ~{
+      stopifnot(all(dim(.x) == dim(mmm)))
+      hotspot <- pmax(.x - mmm, 0)
+      ifelse(hotspot >= 1, hotspot / 7, 0)
+    })
+  ) %>%
+  dplyr::select(date, dhd_mat) %>%
+  mutate(dhd_long = map(dhd_mat, ~{
+    as.data.frame(as.table(.x)) %>%
+      rename(x = Var1, y = Var2, dhd = Freq) %>%
+      mutate(
+        x = as.integer(x),
+        y = as.integer(y)
+      )
+  })) %>%
+  dplyr::select(date, dhd_long) %>%
+  unnest(dhd_long)
+
+# ------------------------------------------------------------
+# 3) Compute DHW per pixel as rolling 84-day sum of dhd
+#    (CRW: 12 weeks = 84 days; include current day)
+# ------------------------------------------------------------
+dhw_long <- dhd_long %>%
+  group_by(x, y) %>%
+  arrange(date, .by_group = TRUE) %>%
+  mutate(
+    dhw = slide_index_sum(dhd, date, before = 83L, complete = TRUE)
+  ) %>%
+  ungroup()
+
+# Quick sanity check for your example date
+dhw_long %>%
+  filter(date == as.Date("2024-09-23")) %>%
+  summarize(
+    dhw_min = min(dhw, na.rm=TRUE),
+    dhw_med = median(dhw, na.rm=TRUE),
+    dhw_max = max(dhw, na.rm=TRUE),
+    n_na    = sum(is.na(dhw))
+  ) %>%
+  print()
+```
+
+```{r}
+# Compare to CRW DHW netcdf product
+library(ncdf4)
+library(dplyr)
+library(stringr)
+
+# ------------------------------------------------------------
+# Inputs you already have:
+# - lon_s, lat_s : SST window lon/lat vectors (lengths = 90, 82)
+# - x_n_sst, y_n_sst : 90, 82
+# - dhw_long : your computed DHW long table
+# ------------------------------------------------------------
+
+target_date <- as.Date("2024-09-23")
+
+# ---- point this to the CRW DHW file for the SAME date ----
+# Example naming; adjust pattern/path to your real DHW directory + filenames
+dhw_dir  <- "data/dhw/2024"   # <--- change if needed
+dhw_file <- list.files(dhw_dir, pattern = "20240923.*\\.nc$", full.names = TRUE)[1]
+stopifnot(!is.na(dhw_file), file.exists(dhw_file))
+
+# Helper to parse date (optional, just for checks)
+file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+
+stopifnot(file_date(dhw_file) == target_date)
+
+# ------------------------------------------------------------
+# 1) Read DHW lon/lat vectors + map SST lon/lat to DHW indices
+#    Robust mapping: index = round((coord - origin)/step)+1
+# ------------------------------------------------------------
+nc_d <- nc_open(dhw_file)
+on.exit(nc_close(nc_d), add = TRUE)
+
+lon_d <- ncvar_get(nc_d, "lon")
+lat_d <- ncvar_get(nc_d, "lat")
+
+dx_d <- median(diff(lon_d))
+dy_d <- median(diff(lat_d))
+
+# map SST lon/lat vectors onto DHW indices
+ix <- round((lon_s - lon_d[1]) / dx_d) + 1
+iy <- round((lat_s - lat_d[1]) / dy_d) + 1
+
+# bounds + alignment tolerance checks
+stopifnot(all(ix >= 1 & ix <= length(lon_d)))
+stopifnot(all(iy >= 1 & iy <= length(lat_d)))
+
+tol <- 1e-4
+cat("Max |lon diff|:", max(abs(lon_d[ix] - lon_s), na.rm=TRUE), "\n")
+cat("Max |lat diff|:", max(abs(lat_d[iy] - lat_s), na.rm=TRUE), "\n")
+stopifnot(max(abs(lon_d[ix] - lon_s), na.rm=TRUE) <= tol)
+stopifnot(max(abs(lat_d[iy] - lat_s), na.rm=TRUE) <= tol)
+
+# order to increasing lon/lat (so x=1..90, y=1..82 consistent)
+ix2 <- ix[order(lon_d[ix])]
+iy2 <- iy[order(lat_d[iy])]
+
+# ------------------------------------------------------------
+# 2) Read bounding rectangle from CRW DHW, then subset to exact ix/iy
+# ------------------------------------------------------------
+x0 <- min(ix2); xN <- max(ix2) - x0 + 1
+y0 <- min(iy2); yN <- max(iy2) - y0 + 1
+
+dhw_block <- ncvar_get(nc_d, "degree_heating_week",
+                       start = c(x0, y0, 1),
+                       count = c(xN, yN, 1))
+if (length(dim(dhw_block)) == 3) dhw_block <- dhw_block[, , 1]
+
+fill_dhw <- ncatt_get(nc_d, "degree_heating_week", "_FillValue")$value
+dhw_block[dhw_block == fill_dhw] <- NA_real_
+
+ix_local <- ix2 - x0 + 1
+iy_local <- iy2 - y0 + 1
+
+dhw_crw_mat <- dhw_block[ix_local, iy_local]
+stopifnot(all(dim(dhw_crw_mat) == c(x_n_sst, y_n_sst)))
+
+# ------------------------------------------------------------
+# 3) Convert to long form and compare to your computed DHW
+# ------------------------------------------------------------
+crw_dhw_long <- as.data.frame(as.table(dhw_crw_mat)) %>%
+  rename(x = Var1, y = Var2, dhw_crw = Freq) %>%
+  mutate(
+    x = as.integer(x),
+    y = as.integer(y),
+    date = target_date
+  )
+
+cat("\nCRW DHW summary:\n")
+print(crw_dhw_long %>%
+  summarize(
+    dhw_min = min(dhw_crw, na.rm=TRUE),
+    dhw_med = median(dhw_crw, na.rm=TRUE),
+    dhw_max = max(dhw_crw, na.rm=TRUE),
+    n_na    = sum(is.na(dhw_crw))
+  ))
+
+comp <- dhw_long %>%
+  filter(date == target_date) %>%
+  dplyr::select(x, y, dhw) %>%
+  left_join(crw_dhw_long, by = c("x", "y")) %>%
+  mutate(diff = dhw - dhw_crw)
+
+cat("\nDiff (yours - CRW) summary:\n")
+print(comp %>%
+  summarize(
+    diff_min = min(diff, na.rm=TRUE),
+    diff_med = median(diff, na.rm=TRUE),
+    diff_max = max(diff, na.rm=TRUE),
+    mae      = mean(abs(diff), na.rm=TRUE),
+    rmse     = sqrt(mean(diff^2, na.rm=TRUE))
+  ))
+
+# optional: how many pixels differ by >0.1 DHW?
+cat("\nPixels with |diff| > 0.1 DHW:\n")
+print(mean(abs(comp$diff) > 0.1, na.rm=TRUE))
+```
+
+
+
+# do it for 2014/2015/2023/2024?
+```{r}
+library(ncdf4)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(slider)
+
+# ------------------------------------------------------------
+# Helper: parse date from filename coraltemp_v3.1_YYYYMMDD.nc
+# ------------------------------------------------------------
+file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+
+# ------------------------------------------------------------
+# Helper: read SST lon/lat window + SST matrix (RAW)
+# Returns list(sst, lon_s, lat_s, fill)
+# ------------------------------------------------------------
+read_sst_window <- function(sst_file, x_start_sst, y_start_sst, x_n_sst, y_n_sst) {
+  nc_s <- nc_open(sst_file)
+  on.exit(nc_close(nc_s), add = TRUE)
+
+  lon_s_full <- ncvar_get(nc_s, "lon")
+  lat_s_full <- ncvar_get(nc_s, "lat")
+
+  lon_s <- lon_s_full[x_start_sst:(x_start_sst + x_n_sst - 1)]
+  lat_s <- lat_s_full[y_start_sst:(y_start_sst + y_n_sst - 1)]
+
+  sst <- ncvar_get(nc_s, "analysed_sst",
+                   start = c(x_start_sst, y_start_sst, 1),
+                   count = c(x_n_sst,     y_n_sst,     1))
+  if (length(dim(sst)) == 3) sst <- sst[, , 1]
+
+  fill_sst <- ncatt_get(nc_s, "analysed_sst", "_FillValue")$value
+  sst[sst == fill_sst] <- NA_real_
+
+  # match your working assumptions: rows=lon, cols=lat
+  stopifnot(length(lon_s) == nrow(sst))
+  stopifnot(length(lat_s) == ncol(sst))
+
+  list(sst = sst, lon_s = lon_s, lat_s = lat_s, fill_sst = fill_sst)
+}
+
+# ------------------------------------------------------------
+# MMM aligned to SST using YOUR WORKING METHOD:
+#   ix = round((lon_s - lon_c[1]) / dx) + 1
+#   iy = round((lat_s - lat_c[1]) / dy) + 1
+# then bounding rectangle + local subsetting
+#
+# Returns list(mmm, lon_s, lat_s, sst_reordered, ord_x, ord_y)
+# ------------------------------------------------------------
+read_mmm_aligned_to_sst <- function(clim_file,
+                                   lon_s, lat_s,
+                                   sst_mat = NULL,
+                                   tol = 1e-4) {
+
+  nc_c <- nc_open(clim_file)
+  on.exit(nc_close(nc_c), add = TRUE)
+
+  lon_c <- ncvar_get(nc_c, "lon")
+  lat_c <- ncvar_get(nc_c, "lat")
+
+  dx <- median(diff(lon_c))
+  dy <- median(diff(lat_c))
+
+  # Map lon/lat -> MMM indices using origin+step (dy can be negative)
+  ix <- round((lon_s - lon_c[1]) / dx) + 1
+  iy <- round((lat_s - lat_c[1]) / dy) + 1
+
+  # bounds
+  stopifnot(all(ix >= 1 & ix <= length(lon_c)))
+  stopifnot(all(iy >= 1 & iy <= length(lat_c)))
+
+  # alignment check (same as your working code)
+  stopifnot(max(abs(lon_c[ix] - lon_s), na.rm = TRUE) <= tol)
+  stopifnot(max(abs(lat_c[iy] - lat_s), na.rm = TRUE) <= tol)
+
+  # Order indices so extracted MMM ends up in increasing lon/lat order
+  ord_x <- order(lon_c[ix])
+  ord_y <- order(lat_c[iy])
+
+  ix2 <- ix[ord_x]
+  iy2 <- iy[ord_y]
+
+  # Read bounding rectangle, then subset exact indices
+  x0 <- min(ix2); xN <- max(ix2) - x0 + 1
+  y0 <- min(iy2); yN <- max(iy2) - y0 + 1
+
+  mmm_block <- ncvar_get(nc_c, "sst_clim_mmm",
+                         start = c(x0, y0, 1),
+                         count = c(xN, yN, 1))
+  if (length(dim(mmm_block)) == 3) mmm_block <- mmm_block[, , 1]
+
+  fill_mmm <- ncatt_get(nc_c, "sst_clim_mmm", "_FillValue")$value
+  mmm_block[mmm_block == fill_mmm] <- NA_real_
+
+  ix_local <- ix2 - x0 + 1
+  iy_local <- iy2 - y0 + 1
+
+  mmm <- mmm_block[ix_local, iy_local]
+
+  # Reorder lon/lat (and SST if provided) to match the ix2/iy2 ordering.
+  # This is the simplest way to guarantee sst and mmm are on identical orientation.
+  lon_s2 <- lon_s[ord_x]
+  lat_s2 <- lat_s[ord_y]
+
+  sst2 <- sst_mat
+  if (!is.null(sst_mat)) {
+    stopifnot(nrow(sst_mat) == length(lon_s))
+    stopifnot(ncol(sst_mat) == length(lat_s))
+    sst2 <- sst_mat[ord_x, ord_y]
+  }
+
+  list(mmm = mmm, lon_s = lon_s2, lat_s = lat_s2, sst = sst2, ord_x = ord_x, ord_y = ord_y,
+       dx = dx, dy = dy)
+}
+
+# ------------------------------------------------------------
+# Compute DHW for multiple years, all dates in a seasonal window.
+# add_by_year: named numeric vector or list; MMM_shift = MMM + add_by_year[year]
+#
+# IMPORTANT: includes 83-day cushion before start_mmdd so DHW at start is correct.
+# ------------------------------------------------------------
+compute_dhw_years <- function(years,
+                              add_by_year = NULL,
+                              sst_dir,
+                              clim_file,
+                              x_start_sst, y_start_sst, x_n_sst, y_n_sst,
+                              start_mmdd = "06-01",
+                              end_mmdd   = "12-31") {
+
+  # normalize add_by_year
+  if (is.null(add_by_year)) add_by_year <- setNames(rep(0, length(years)), as.character(years))
+  if (is.list(add_by_year)) add_by_year <- unlist(add_by_year)
+  if (is.null(names(add_by_year))) stop("add_by_year must be named by year, e.g., c('2014'=0, '2015'=0.2, ...)")
+
+  # list all available SST files once
+  all_files <- list.files(sst_dir, pattern = "^coraltemp_v3\\.1_\\d{8}\\.nc$", full.names = TRUE)
+  all_tbl <- tibble(file = all_files, date = map(file, file_date) |> list_c()) %>%
+    arrange(date)
+
+  # compute per year
+  out <- map_dfr(years, function(yy) {
+
+    yy_chr <- as.character(yy)
+    add_val <- ifelse(yy_chr %in% names(add_by_year), add_by_year[[yy_chr]], 0)
+
+    start_date <- as.Date(sprintf("%d-%s", yy, start_mmdd))
+    end_date   <- as.Date(sprintf("%d-%s", yy, end_mmdd))
+
+    # cushion for 12-week rolling window (84 days incl current day => before = 83)
+    date_min <- start_date - 83L
+    date_max <- end_date
+
+    sst_tbl <- all_tbl %>%
+      filter(date >= date_min, date <= date_max)
+
+    if (nrow(sst_tbl) == 0) {
+      stop("No SST files found for year ", yy, " in requested date window.")
+    }
+
+    # Use the first SST file to define canonical lon/lat and build MMM once per year
+    first_file <- sst_tbl$file[1]
+    s0 <- read_sst_window(first_file, x_start_sst, y_start_sst, x_n_sst, y_n_sst)
+
+    # MMM aligned, and reorder SST orientation to match MMM ordering
+    a0 <- read_mmm_aligned_to_sst(
+      clim_file = clim_file,
+      lon_s = s0$lon_s,
+      lat_s = s0$lat_s,
+      sst_mat = s0$sst
+    )
+
+    mmm_base <- a0$mmm
+    mmm_shift <- mmm_base + add_val  # <-- year-specific MMM shift happens here
+
+    # sanity
+    stopifnot(identical(dim(mmm_shift), c(x_n_sst, y_n_sst)))
+
+    # Function to read + reorder SST for ANY file using the same ord_x/ord_y
+    read_sst_reordered <- function(f) {
+      s <- read_sst_window(f, x_start_sst, y_start_sst, x_n_sst, y_n_sst)$sst
+      s[a0$ord_x, a0$ord_y]
+    }
+
+    # Compute daily dhd (HotSpot>=1 => HotSpot/7 else 0), then 84-day rolling sum
+    dhd_long <- sst_tbl %>%
+      mutate(
+        sst_mat = map(file, read_sst_reordered),
+        dhd_mat = map(sst_mat, ~{
+          stopifnot(identical(dim(.x), dim(mmm_shift)))
+          hotspot <- pmax(.x - mmm_shift, 0)
+          ifelse(hotspot >= 1, hotspot / 7, 0)
+        }),
+        dhd_long = map2(dhd_mat, date, ~{
+          as.data.frame(as.table(.x)) %>%
+            rename(x = Var1, y = Var2, dhd = Freq) %>%
+            mutate(
+              x = as.integer(x),
+              y = as.integer(y),
+              date = .y
+            )
+        })
+      ) %>%
+      dplyr::select(date, dhd_long) %>%
+      unnest(dhd_long)
+
+    dhw_long <- dhd_long %>%
+      group_by(x, y) %>%
+      arrange(date, .by_group = TRUE) %>%
+      mutate(
+        dhw = slide_index_sum(dhd, date, before = 83L, complete = TRUE)
+      ) %>%
+      ungroup() %>%
+      mutate(year = yy, mmm_add = add_val)
+
+    # keep only the “analysis window” (drop cushion days)
+    dhw_long %>%
+      filter(date >= start_date, date <= end_date)
+  })
+
+  out
+}
+
+# ============================================================
+# EXAMPLE RUN (you already have these values):
+# years_keep <- c(2014, 2015, 2023, 2024)
+# add_by_year <- c("2014"=0, "2015"=0, "2023"=0, "2024"=0)  # or any shifts you want
+# ============================================================
+dhw_long_all <- compute_dhw_years(
+  years = years_keep,
+  add_by_year = add_by_year,
+  sst_dir = "data/coraltemp",
+  clim_file = "data/coraltemp/ct5km_climatology_v3.1.nc",
+  x_start_sst = x_start_sst, y_start_sst = y_start_sst,
+  x_n_sst = x_n_sst, y_n_sst = y_n_sst,
+  start_mmdd = start_mmdd,
+  end_mmdd = end_mmdd
+)
+```
+
+
+
+
+
 # 2015
 
 ```{r}
