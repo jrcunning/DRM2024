@@ -48,7 +48,6 @@ all_survey_pts <- all_survey_pts %>% sf::st_set_crs(4326)
 
 
 basemap +
-  geom_sf(data = usa, fill = "grey90", color = "grey40", linewidth = 0.3) +
   geom_sf(data = reef_hull, fill = NA, color = "black", linewidth = 0.7) +
   geom_sf(data = all_survey_pts, size = 1, alpha = 0.05) +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
@@ -808,13 +807,202 @@ dhw_long_all <- compute_dhw_years(
   end_mmdd = end_mmdd
 )
 
-tail(dhw_long_all)
-summary(dhw_long_all)
+# Build canonical lon/lat for your window ONCE
+one_sst_file <- "data/coraltemp/coraltemp_v3.1_20240923.nc"
+clim_file    <- "data/coraltemp/ct5km_climatology_v3.1.nc"
 
-dhw_long_all %>%
+s0 <- read_sst_window(one_sst_file, x_start_sst, y_start_sst, x_n_sst, y_n_sst)
+
+a0 <- read_mmm_aligned_to_sst(
+  clim_file = clim_file,
+  lon_s = s0$lon_s,
+  lat_s = s0$lat_s,
+  sst_mat = s0$sst
+)
+
+lon_grid <- a0$lon_s   # length 90, ordered to match x=1..90
+lat_grid <- a0$lat_s   # length 82, ordered to match y=1..82
+
+# Lookup table mapping your (x,y) indices to lon/lat
+pix_lut <- tidyr::crossing(
+  x = seq_along(lon_grid),
+  y = seq_along(lat_grid)
+) %>%
+  mutate(
+    lon = lon_grid[x],
+    lat = lat_grid[y]
+  )
+
+# Attach lon/lat to your dhw output
+dhw_ll <- dhw_long_all %>%
+  left_join(pix_lut, by = c("x","y"))
+
+stopifnot(!anyNA(dhw_ll$lon), !anyNA(dhw_ll$lat))
+
+tail(dhw_ll)
+
+dhw_ll %>%
   filter(date == "2023-09-15")
+
+
+peak_dhw23 <- dhw_ll %>%
+  filter(year == 2023) %>%
+  group_by(lon, lat) %>%
+  summarize(peak = max(dhw, na.rm = TRUE))
+ggplot(peak_dhw23, aes(x = lon, y = lat, fill = peak)) +
+  geom_tile()
+
+
+peak_dhw23_round <- peak_dhw23 %>%
+  mutate(
+    lon = round(lon, 2),
+    lat = round(lat, 2)
+  )
+
+
+# pick the same date you plotted from CRW, or compute peak date first
+
+# create a raster from points (lon/lat are pixel centers)
+dhw_rast <- terra::rast(peak_dhw23_round, type = "xyz", crs = "EPSG:4326")
+names(dhw_rast) <- "dhw"
+
+# optional: snap to CRW raster grid if you want exact alignment
+# (recommended if you will compare cell-by-cell)
+dhw_rast <- terra::resample(dhw_rast, peak_dhw_reef, method = "near")
+
+plot(dhw_rast)
+
 ```
 
+# now do it in raster land
+```{r}
+library(terra)
+library(stringr)
+# 
+# 0) One-time setup: make sure SST and MMM are on the same grid
+# This replaces all your index gymnastics. Terra will reproject/resample MMM to match SST if needed.
+
+# parse date from coraltemp_v3.1_YYYYMMDD.nc
+file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+
+# your extent (same box you used)
+fl_ext <- ext(-83.525, -78.975, 23.975, 28.025)
+
+# 1) Read daily SST as a SpatRaster stack (cropped)
+# You can still keep your folder-per-year organization, but you don’t have to.
+
+sst_dir <- "data/coraltemp"
+sst_files <- list.files(sst_dir, pattern="^coraltemp_v3\\.1_\\d{8}\\.nc$", full.names=TRUE)
+
+sst_dates <- file_date(sst_files)
+keep <- sst_dates >= as.Date("2023-06-01") - 83 & sst_dates <= as.Date("2023-12-31")
+
+sst_files <- sst_files[keep]
+sst_dates <- sst_dates[keep]
+
+# analysed_sst is the variable name in coraltemp files
+sst_stack <- rast(sst_files, subds="analysed_sst")
+time(sst_stack) <- sst_dates
+
+# crop once
+sst_stack <- crop(sst_stack, fl_ext)
+
+#2) Read MMM climatology as a SpatRaster, crop, align to SST grid
+clim_file <- "data/coraltemp/ct5km_climatology_v3.1.nc"
+
+mmm <- rast(clim_file, subds="sst_clim_mmm")
+mmm <- crop(mmm, fl_ext)
+
+# Force MMM onto the exact SST grid if needed:
+# (this handles any tiny grid/origin differences cleanly)
+mmm <- resample(mmm, sst_stack[[1]], method="bilinear")
+
+# 3) Compute DHW rasters (year-specific MMM shift supported)
+# Here’s a function that returns:
+# dhw_stack (daily DHW within the analysis window)
+# peak_dhw (max DHW)
+# …and it takes mmm_add so you can test shifts.
+
+compute_dhw_rasters <- function(sst_stack, mmm, 
+                                start_date, end_date,
+                                mmm_add = 0) {
+
+  # add year-specific offset to MMM (your “tolerance shift”)
+  mmm_shift <- mmm + mmm_add
+
+  # HotSpot
+  hotspot <- sst_stack - mmm_shift
+  hotspot <- clamp(hotspot, lower=0, values=TRUE)
+
+  # DHD contribution: if HotSpot >= 1 then HotSpot/7 else 0
+  dhd <- hotspot / 7
+  dhd <- ifel(hotspot >= 1, dhd, 0)
+
+  # 84-day rolling sum (current day + previous 83)
+  # terra::focal() works on one layer at a time; for time-rolling,
+  # do it by indexing layers.
+  n <- nlyr(dhd)
+  w <- 84L
+
+  # preallocate output stack (same geometry)
+  dhw <- dhd[[1:w]]  # placeholder with w layers; we'll replace
+  dhw <- dhw[[1]]; dhw <- dhw * NA  # single NA layer as template
+
+  dhw_list <- vector("list", n)
+  for (i in seq_len(n)) {
+    if (i < w) {
+      dhw_list[[i]] <- dhw  # NA until window complete
+    } else {
+      dhw_list[[i]] <- app(dhd[[(i-w+1):i]], sum, na.rm=TRUE)
+    }
+  }
+  dhw_stack <- rast(dhw_list)
+  time(dhw_stack) <- time(dhd)
+
+  # keep only analysis window (drop cushion)
+  keep2 <- time(dhw_stack) >= start_date & time(dhw_stack) <= end_date
+  dhw_stack <- dhw_stack[[which(keep2)]]
+
+  peak_dhw <- app(dhw_stack, max, na.rm=TRUE)
+  names(peak_dhw) <- "peak_dhw"
+
+  list(dhw_stack = dhw_stack, peak_dhw = peak_dhw)
+}
+
+res23 <- compute_dhw_rasters(
+  sst_stack  = sst_stack,
+  mmm        = mmm,
+  start_date = as.Date("2023-06-01"),
+  end_date   = as.Date("2023-12-31"),
+  mmm_add    = 0   # or try 0.2, 0.5, etc
+)
+
+peak_dhw_calc23 <- res23$peak_dhw
+
+# 4) Mask to reef hull and plot exactly like your CRW workflow
+# First fix your CRS mismatch warning (same as with CRW):
+# make reef hull a SpatVector in the raster CRS
+reef_v <- vect(reef_hull)
+reef_v <- project(reef_v, crs(peak_dhw_calc23))
+
+peak_dhw_calc23_reef <- mask(peak_dhw_calc23, reef_v)
+
+library(tidyterra)
+library(ggplot2)
+
+dhwmap_calc23 <- basemap +
+  geom_spatraster(data = peak_dhw_calc23_reef) +
+  geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_distiller(
+    palette = "Spectral",
+    limits = c(0, 23),
+    na.value = NA,
+    name = "Peak\nDHW "
+  )
+
+dhwmap_calc23
+```
 
 
 
