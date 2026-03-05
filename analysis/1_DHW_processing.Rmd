@@ -51,6 +51,19 @@ basemap +
   geom_sf(data = reef_hull, fill = NA, color = "black", linewidth = 0.7) +
   geom_sf(data = all_survey_pts, size = 1, alpha = 0.05) +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
+
+
+
+
+# Other helper functions
+# 0) One-time setup: make sure SST and MMM are on the same grid
+# This replaces all your index gymnastics. Terra will reproject/resample MMM to match SST if needed.
+
+# parse date from coraltemp_v3.1_YYYYMMDD.nc
+file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+
+# your extent (same box you used)
+fl_ext <- ext(-83.525, -78.975, 23.975, 28.025)
 ```
 
 DHW data downloaded 5/1/24 using:
@@ -76,10 +89,15 @@ nc.files <- list.files("data/dhw/2023", pattern = "*.nc$", full.names = TRUE)
 
 # Get DRM survey site coordinates
 # Import data
-drmsites <- read_csv("data/drm/export.csv") %>%
+drmsites1 <- read_csv("data/drm/export.csv") %>%
   mutate(across(where(is.character), as_factor),
          Date = as_date(as.character(Date), format = "%m/%d/%Y")) %>%
   filter(year(Date) == "2023") %>%
+  distinct(Site, Subregion, Longitude, Latitude)
+drmsites2 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
+  filter(year(Date) == "2024") %>%
   distinct(Site, Subregion, Longitude, Latitude)
 
 # Open all DHW NCDF4 files
@@ -94,7 +112,7 @@ nc.data <- tibble(file = nc.files) %>%
 
 
 ###### GET NEAREST PIXEL INSTEAD OF NEAREST SITE
-buf_m <- 6000  # 
+buf_m <- 6000  #
 
 extract_dhw <- function(r, df_xy, buf = buf_m) {
   sp <- SpatialPoints(df_xy[, c("Longitude","Latitude")], proj4string = crs(r))
@@ -874,20 +892,10 @@ plot(dhw_rast)
 
 ```
 
+
+
 # now do it in raster land
 ```{r}
-library(terra)
-library(stringr)
-# 
-# 0) One-time setup: make sure SST and MMM are on the same grid
-# This replaces all your index gymnastics. Terra will reproject/resample MMM to match SST if needed.
-
-# parse date from coraltemp_v3.1_YYYYMMDD.nc
-file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
-
-# your extent (same box you used)
-fl_ext <- ext(-83.525, -78.975, 23.975, 28.025)
-
 # 1) Read daily SST as a SpatRaster stack (cropped)
 # You can still keep your folder-per-year organization, but you don’t have to.
 
@@ -949,12 +957,18 @@ compute_dhw_rasters <- function(sst_stack, mmm,
   dhw <- dhw[[1]]; dhw <- dhw * NA  # single NA layer as template
 
   dhw_list <- vector("list", n)
+  # Version requiring complete 84day windows
+  # for (i in seq_len(n)) {
+  #   if (i < w) {
+  #     dhw_list[[i]] <- dhw  # NA until window complete
+  #   } else {
+  #     dhw_list[[i]] <- app(dhd[[(i-w+1):i]], sum, na.rm=TRUE)
+  #   }
+  # }
+  # Version allowing incomplete windows
   for (i in seq_len(n)) {
-    if (i < w) {
-      dhw_list[[i]] <- dhw  # NA until window complete
-    } else {
-      dhw_list[[i]] <- app(dhd[[(i-w+1):i]], sum, na.rm=TRUE)
-    }
+    j0 <- max(1L, i - w + 1L)                 # start of available window
+    dhw_list[[i]] <- app(dhd[[j0:i]], sum, na.rm = TRUE)
   }
   dhw_stack <- rast(dhw_list)
   time(dhw_stack) <- time(dhd)
@@ -1002,6 +1016,61 @@ dhwmap_calc23 <- basemap +
   )
 
 dhwmap_calc23
+```
+
+```{r}
+# Get DHW values for 2023 DRM surveys
+
+drmsites <- read_csv("data/drm/export.csv") %>%
+  mutate(across(where(is.character), as_factor),
+         Date = as_date(as.character(Date), format = "%m/%d/%Y")) %>%
+  filter(year(Date) == 2023) %>%
+  distinct(Site, Subregion, Longitude, Latitude)
+
+library(terra)
+
+buf_m <- 6000
+
+extract_dhw_terra <- function(r, df_xy, buf = buf_m) {
+  v <- terra::vect(df_xy, geom = c("Longitude", "Latitude"), crs = "EPSG:4326")
+  v <- terra::project(v, crs(r))  # make sure CRS matches raster
+
+  # nearest cell
+  v_simple <- terra::extract(r, v, method = "simple")[,2]
+
+  # buffered mean
+  v_buf <- terra::extract(r, v, buffer = buf, fun = mean, na.rm = TRUE)[,2]
+
+  ifelse(is.na(v_simple), v_buf, v_simple)
+}
+
+# your computed DHW daily stack for the analysis window
+dhw_stack_calc23 <- res23$dhw_stack
+
+dates <- time(dhw_stack_calc23)
+
+out2_calc <- tibble(
+  date = dates,
+  lyr  = seq_along(dates)
+) %>%
+  mutate(
+    dhw = purrr::map(lyr, ~extract_dhw_terra(dhw_stack_calc23[[.x]], drmsites, buf = buf_m)),
+    site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+    n_dhw = purrr::map_int(dhw, length),
+    n_site = purrr::map_int(site, nrow)
+  ) %>%
+  filter(n_dhw == n_site) %>%
+  dplyr::select(date, site, dhw) %>%
+  tidyr::unnest(cols = c(site, dhw))
+
+
+# Plot DHWs for all sites
+ggplot(out2_calc, aes(x = date, y = dhw, color = Subregion, group = Site)) +
+  geom_line() +
+  scale_x_date(date_breaks = "month", date_labels = "%b")
+
+
+write_csv(out2_calc, file = "data/processed/2023_dhw_calc_processed.csv")
 ```
 
 
@@ -1367,5 +1436,254 @@ cowplot::plot_grid(dhwmap_pixels14, dhwmap_pixels15,
                    labels = c("2014", "2015", "2023", "2024"),
                    label_x = 0.1, label_y = 0.92)
 ggsave(filename = "figures/FigS2.png", width = 200, height = 185, units = "mm")
+```
+
+# FULL NEW WORKFLOW
+```{r}
+# ============================================================
+# Compute DHW from CoralTemp SST + MMM for multiple years,
+# (2014, 2015, 2023, 2024), make peak-DHW maps, and export
+# site-extracted daily DHW ("out2-style") CSVs per year.
+# ============================================================
+
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(sf)
+library(terra)
+library(tidyterra)
+library(rnaturalearth)
+
+# ------------------------------------------------------------
+# 0) Base map + reef hull (as you already had)
+# ------------------------------------------------------------
+world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+
+basemap <- ggplot() +
+  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  theme(text = element_text(size = 10),
+        axis.title = element_blank(),
+        panel.background = element_rect(fill = "lightsteelblue1"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.grid = element_blank(),
+        legend.position = c(0.2, 0.5),
+        legend.background = element_blank())
+
+# Reef hull/polygon surrounding all surveyed sites (saved for reuse)
+all_survey_pts0 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+  distinct(Latitude, Longitude)
+
+all_survey_pts <- sf::st_as_sf(all_survey_pts0, coords = c("Longitude", "Latitude"), crs = 4326)
+reef_hull <- sf::st_concave_hull(sf::st_union(all_survey_pts), ratio = 0.09) |>
+  sf::st_buffer(dist = 0.015) |>
+  sf::st_set_crs(4326)
+
+saveRDS(reef_hull, "data/spatial/reef_hull.rds")
+
+# ------------------------------------------------------------
+# 1) Helpers + constants
+# ------------------------------------------------------------
+file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+
+years_keep <- c(2014, 2015, 2023, 2024)
+start_mmdd <- "06-01"
+end_mmdd   <- "12-31"
+cushion_days <- 83L          # needed for full 84d windows; we still load this for stability
+buf_m <- 6000                # used only if NA at nearest cell
+buf_deg <- 0.05
+fl_ext <- ext(-83.525, -78.975, 23.975, 28.025)
+
+sst_dir   <- "data/coraltemp"
+clim_file <- "data/coraltemp/ct5km_climatology_v3.1.nc"
+
+# year-specific MMM offsets (edit these as you test tolerance shifts)
+add_by_year <- c("2014"=0, "2015"=0, "2023"=0, "2024"=0)
+
+# ------------------------------------------------------------
+# 2) Load MMM first (as the "canonical" grid), crop once
+#    Then we will resample SST stacks onto MMM grid each year.
+# ------------------------------------------------------------
+mmm0 <- rast(clim_file, subds = "sst_clim_mmm") |>
+  crop(fl_ext)
+terra::crs(mmm0) <- "EPSG:4326"
+
+# ------------------------------------------------------------
+# 3) DHW computation (raster-native; partial windows allowed)
+# ------------------------------------------------------------
+compute_dhw_rasters <- function(sst_stack_on_mmm, mmm_on_grid,
+                                start_date, end_date,
+                                mmm_add = 0) {
+
+  mmm_shift <- mmm_on_grid + mmm_add
+
+  # HotSpot
+  hotspot <- sst_stack_on_mmm - mmm_shift
+  hotspot <- clamp(hotspot, lower = 0, values = TRUE)
+
+  # DHD contribution
+  dhd <- hotspot / 7
+  dhd <- ifel(hotspot >= 1, dhd, 0)
+
+  # 84-day rolling sum (partial windows allowed)
+  n <- nlyr(dhd)
+  w <- 84L
+  dhw_list <- vector("list", n)
+
+  for (i in seq_len(n)) {
+    j0 <- max(1L, i - w + 1L)
+    dhw_list[[i]] <- app(dhd[[j0:i]], sum, na.rm = TRUE)
+  }
+
+  dhw_stack <- rast(dhw_list)
+  time(dhw_stack) <- time(dhd)
+
+  keep <- time(dhw_stack) >= start_date & time(dhw_stack) <= end_date
+  dhw_stack <- dhw_stack[[which(keep)]]
+
+  peak_dhw <- app(dhw_stack, max, na.rm = TRUE)
+  names(peak_dhw) <- "peak_dhw"
+
+  list(dhw_stack = dhw_stack, peak_dhw = peak_dhw)
+}
+
+# ------------------------------------------------------------
+# 4) Site extraction helper (nearest cell, fallback to buffered mean)
+# NOTE: buffer units follow raster CRS. If rasters are EPSG:4326,
+#       buffer is in degrees. This keeps your prior behavior, but
+#       if you truly want meters, project both raster+points first.
+# ------------------------------------------------------------
+extract_dhw_terra <- function(r, df_xy, buf = buf_deg) {
+  v <- terra::vect(df_xy, geom = c("Longitude", "Latitude"), crs = "EPSG:4326")
+  r_crs <- terra::crs(r)
+
+  # If raster CRS is that GEOGCRS["unknown", ...] thing, treat it as EPSG:4326
+  if (is.na(r_crs) || r_crs == "" || grepl('GEOGCRS\\["unknown"', r_crs)) {
+    terra::crs(r) <- "EPSG:4326"
+  }
+
+  v <- terra::vect(df_xy, geom = c("Longitude","Latitude"), crs = "EPSG:4326")
+  # now CRS matches; no need to project v at all
+
+  v_simple <- terra::extract(r, v, method = "simple")[,2]
+  #v_buf    <- terra::extract(r, v, buffer = buf, fun = mean, na.rm = TRUE)[,2]
+  v_buf <- terra::extract(r, terra::buffer(v, width = buf), fun = base::mean, na.rm = TRUE)[,2]
+
+  ifelse(is.na(v_simple), v_buf, v_simple)
+}
+
+# ------------------------------------------------------------
+# 5) All available SST files once
+# ------------------------------------------------------------
+sst_files_all <- list.files(sst_dir, pattern="^coraltemp_v3\\.1_\\d{8}\\.nc$", full.names=TRUE)
+sst_dates_all <- file_date(sst_files_all)
+
+# ------------------------------------------------------------
+# 6) Loop years: build SST stack -> resample to MMM grid -> compute DHW
+#    -> peak map (reef-masked) -> extract to sites -> write CSV
+# ------------------------------------------------------------
+dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
+
+plots <- list()
+years_keep <- 2024
+for (yy in years_keep) {
+
+  message("Year: ", yy)
+
+  start_date <- as.Date(sprintf("%d-%s", yy, start_mmdd))
+  end_date   <- as.Date(sprintf("%d-%s", yy, end_mmdd))
+
+  # SST files for this year, including cushion days before start_date
+  keep <- sst_dates_all >= (start_date - cushion_days) & sst_dates_all <= end_date
+  sst_files <- sst_files_all[keep]
+  sst_dates <- sst_dates_all[keep]
+
+  if (length(sst_files) == 0) stop("No SST files found for year ", yy)
+
+  # Read SST stack, crop, then resample onto MMM grid (canonical)
+  sst_stack <- rast(sst_files, subds = "analysed_sst")
+  time(sst_stack) <- sst_dates
+  sst_stack <- crop(sst_stack, fl_ext)
+
+  # Put SST on MMM grid (so comparisons across years are identical geometry)
+  sst_on_mmm <- resample(sst_stack, mmm0, method = "bilinear")
+  terra::crs(sst_on_mmm) <- "EPSG:4326"
+
+  # DHW compute (year-specific MMM shift)
+  add_val <- add_by_year[[as.character(yy)]] %||% 0
+  res <- compute_dhw_rasters(
+    sst_stack_on_mmm = sst_on_mmm,
+    mmm_on_grid      = mmm0,
+    start_date       = start_date,
+    end_date         = end_date,
+    mmm_add          = add_val
+  )
+
+  # Reef-mask peak DHW and build map
+  reef_v <- vect(reef_hull) |> project(crs(res$peak_dhw))
+  peak_reef <- mask(res$peak_dhw, reef_v)
+
+  p <- basemap +
+    geom_spatraster(data = peak_reef) +
+    geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+    coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+    scale_fill_distiller(
+      palette = "Spectral",
+      limits = c(0, 23),
+      na.value = NA,
+      name = "Peak\nDHW "
+    ) +
+    ggtitle(paste0("Peak DHW (computed) ", yy))
+
+  plots[[as.character(yy)]] <- p
+
+  # DRM sites for that year (out2-style daily extraction)
+  drmsites <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+    mutate(across(where(is.character), as_factor),
+           Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
+    filter(year(Date) == yy) %>%
+    distinct(Site, Subregion, Longitude, Latitude)
+
+  dhw_stack <- res$dhw_stack
+  dates <- time(dhw_stack)
+
+  out2_calc <- tibble(date = dates, lyr = seq_along(dates)) %>%
+    mutate(
+      dhw  = map(lyr, ~extract_dhw_terra(dhw_stack[[.x]], drmsites, buf = buf_deg)),
+      site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+      n_dhw  = map_int(dhw, length),
+      n_site = map_int(site, nrow)
+    ) %>%
+    filter(n_dhw == n_site) %>%
+    dplyr::select(date, site, dhw) %>%
+    unnest(cols = c(site, dhw))
+
+  write_csv(out2_calc, file = sprintf("data/processed/%d_dhw_calc_processed.csv", yy))
+}
+
+# ------------------------------------------------------------
+# 7) Print maps (in your Rmd, these will display)
+# ------------------------------------------------------------
+plots[["2014"]]
+plots[["2015"]]
+plots[["2023"]]
+plots[["2024"]]
+```
+
+```{r}
+dhw14.1 <- read_csv("data/processed/2014_dhw_processed.csv")
+dhw14.2 <- read_csv("data/processed/2014_dhw_calc_processed.csv")
+
+dhw14 <- full_join(dhw14.1, dhw14.2, by = c("date", "Site", "Subregion", "Longitude", "Latitude"))
+
+mm <- dhw14 %>%
+  filter(dhw.x != dhw.y)
+
+mm %>%
+  ggplot(aes(x = dhw.x, y = dhw.y - dhw.x)) +
+  geom_point(aes(color = Site)) +
+  theme(legend.position = "none")
+
+
 ```
 
