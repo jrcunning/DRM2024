@@ -673,6 +673,16 @@ read_mmm_aligned_to_sst <- function(clim_file,
 #
 # IMPORTANT: includes 83-day cushion before start_mmdd so DHW at start is correct.
 # ------------------------------------------------------------
+add_by_year <- c(
+  "2014" = 0,
+  "2015" = 0,
+  "2023" = 0,
+  "2024" = 0
+)
+years_keep <- c(2014, 2015, 2023, 2024)
+start_mmdd = "06-01"
+end_mmdd   = "12-31"
+
 compute_dhw_years <- function(years,
                               add_by_year = NULL,
                               sst_dir,
@@ -680,6 +690,12 @@ compute_dhw_years <- function(years,
                               x_start_sst, y_start_sst, x_n_sst, y_n_sst,
                               start_mmdd = "06-01",
                               end_mmdd   = "12-31") {
+
+  # Coerce indexing/count args to integer (prevents identical()/type weirdness)
+  x_start_sst <- as.integer(x_start_sst)
+  y_start_sst <- as.integer(y_start_sst)
+  x_n_sst     <- as.integer(x_n_sst)
+  y_n_sst     <- as.integer(y_n_sst)
 
   # normalize add_by_year
   if (is.null(add_by_year)) add_by_year <- setNames(rep(0, length(years)), as.character(years))
@@ -694,11 +710,13 @@ compute_dhw_years <- function(years,
   # compute per year
   out <- map_dfr(years, function(yy) {
 
+    yy_int <- as.integer(yy)
     yy_chr <- as.character(yy)
-    add_val <- ifelse(yy_chr %in% names(add_by_year), add_by_year[[yy_chr]], 0)
 
-    start_date <- as.Date(sprintf("%d-%s", yy, start_mmdd))
-    end_date   <- as.Date(sprintf("%d-%s", yy, end_mmdd))
+    add_val <- if (yy_chr %in% names(add_by_year)) add_by_year[[yy_chr]] else 0
+
+    start_date <- as.Date(sprintf("%d-%s", yy_int, start_mmdd))
+    end_date   <- as.Date(sprintf("%d-%s", yy_int, end_mmdd))
 
     # cushion for 12-week rolling window (84 days incl current day => before = 83)
     date_min <- start_date - 83L
@@ -708,7 +726,7 @@ compute_dhw_years <- function(years,
       filter(date >= date_min, date <= date_max)
 
     if (nrow(sst_tbl) == 0) {
-      stop("No SST files found for year ", yy, " in requested date window.")
+      stop("No SST files found for year ", yy_chr, " in requested date window.")
     }
 
     # Use the first SST file to define canonical lon/lat and build MMM once per year
@@ -718,16 +736,16 @@ compute_dhw_years <- function(years,
     # MMM aligned, and reorder SST orientation to match MMM ordering
     a0 <- read_mmm_aligned_to_sst(
       clim_file = clim_file,
-      lon_s = s0$lon_s,
-      lat_s = s0$lat_s,
-      sst_mat = s0$sst
+      lon_s     = s0$lon_s,
+      lat_s     = s0$lat_s,
+      sst_mat   = s0$sst
     )
 
-    mmm_base <- a0$mmm
-    mmm_shift <- mmm_base + add_val  # <-- year-specific MMM shift happens here
+    mmm_base  <- a0$mmm
+    mmm_shift <- mmm_base + add_val  # year-specific MMM shift happens here
 
-    # sanity
-    stopifnot(identical(dim(mmm_shift), c(x_n_sst, y_n_sst)))
+    # sanity (non-type-strict)
+    stopifnot(all(dim(mmm_shift) == c(x_n_sst, y_n_sst)))
 
     # Function to read + reorder SST for ANY file using the same ord_x/ord_y
     read_sst_reordered <- function(f) {
@@ -740,17 +758,17 @@ compute_dhw_years <- function(years,
       mutate(
         sst_mat = map(file, read_sst_reordered),
         dhd_mat = map(sst_mat, ~{
-          stopifnot(identical(dim(.x), dim(mmm_shift)))
+          stopifnot(all(dim(.x) == dim(mmm_shift)))
           hotspot <- pmax(.x - mmm_shift, 0)
           ifelse(hotspot >= 1, hotspot / 7, 0)
         }),
-        dhd_long = map2(dhd_mat, date, ~{
+        # IMPORTANT: do NOT include `date` inside this nested tibble (prevents unnest name collisions)
+        dhd_long = map(dhd_mat, ~{
           as.data.frame(as.table(.x)) %>%
             rename(x = Var1, y = Var2, dhd = Freq) %>%
             mutate(
               x = as.integer(x),
-              y = as.integer(y),
-              date = .y
+              y = as.integer(y)
             )
         })
       ) %>%
@@ -764,7 +782,7 @@ compute_dhw_years <- function(years,
         dhw = slide_index_sum(dhd, date, before = 83L, complete = TRUE)
       ) %>%
       ungroup() %>%
-      mutate(year = yy, mmm_add = add_val)
+      mutate(year = yy_int, mmm_add = add_val)
 
     # keep only the “analysis window” (drop cushion days)
     dhw_long %>%
@@ -789,6 +807,12 @@ dhw_long_all <- compute_dhw_years(
   start_mmdd = start_mmdd,
   end_mmdd = end_mmdd
 )
+
+tail(dhw_long_all)
+summary(dhw_long_all)
+
+dhw_long_all %>%
+  filter(date == "2023-09-15")
 ```
 
 
