@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(ncdf4) # package for netcdf manipulation
 library(raster) # package for raster manipulation
+library(terra)
 library(tidyverse)
 library(tidyterra)   # for geom_spatraster()
 ```
@@ -63,7 +64,7 @@ basemap +
 file_date <- function(f) as.Date(str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
 
 # your extent (same box you used)
-fl_ext <- ext(-83.525, -78.975, 23.975, 28.025)
+fl_ext <- terra::ext(-83.525, -78.975, 23.975, 28.025)
 ```
 
 DHW data downloaded 5/1/24 using:
@@ -71,34 +72,25 @@ wget -r -l1 -A "ct*" https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/
 
 netcdf tutorial here: https://rpubs.com/boyerag/297592
 
-# 2023
+# 2023 CRW DHW data
 
 ```{r}
 # Import all NetCDF files for each date from June 1 through December 31, 2023
 nc.files <- list.files("data/dhw/2023", pattern = "*.nc$", full.names = TRUE)
 
-# Get coordinate box for Florida Reef Tract
-#nc <- nc_open("data/dhw/ct5km_dhw_v3.1_20230901.nc")
-#nct <- ncvar_get(nc, "degree_heating_week", start = c(2000, 1240,1), count = c(21, 81,1))
-# Longitude -83.525 --> index 1930
-#nc$dim$lon$vals[2021]
-# Longitude -78.975 --> index 2021
-# Latitude 24 --> index 1321
-#nc$dim$lat$vals[1240]
-# Latitude 28 --> index 1240
 
-# Get DRM survey site coordinates
+# Get 2023 DRM survey site coordinates
 # Import data
-drmsites1 <- read_csv("data/drm/export.csv") %>%
+drmsites <- read_csv("data/drm/export.csv") %>%
   mutate(across(where(is.character), as_factor),
          Date = as_date(as.character(Date), format = "%m/%d/%Y")) %>%
   filter(year(Date) == "2023") %>%
   distinct(Site, Subregion, Longitude, Latitude)
-drmsites2 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
-  mutate(across(where(is.character), as_factor),
-         Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
-  filter(year(Date) == "2024") %>%
-  distinct(Site, Subregion, Longitude, Latitude)
+# drmsites2 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+#   mutate(across(where(is.character), as_factor),
+#          Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")) %>%
+#   filter(year(Date) == "2024") %>%
+#   distinct(Site, Subregion, Longitude, Latitude)
 
 # Open all DHW NCDF4 files
 nc.data <- tibble(file = nc.files) %>%
@@ -155,6 +147,8 @@ ggplot(out2, aes(x = date, y = dhw, color = Subregion, group = Site)) +
 ```{r}
 # Write DHW data to file
 write_csv(out2, file = "data/processed/2023_dhw_processed.csv")
+
+nc.data
 ```
 
 
@@ -164,6 +158,7 @@ write_csv(out2, file = "data/processed/2023_dhw_processed.csv")
 # (each file contributes one layer; varname must match exactly)
 dhw_stack <- rast(nc.files, subds = "degree_heating_week")
 
+
 # Optional: keep only June 1–Dec 31 if your folder includes other dates
 # (assumes filename contains YYYYMMDD like ct5km_dhw_v3.1_20230901.nc)
 dates <- as.Date(str_extract(basename(nc.files), "2023\\d{4}"), format = "%Y%m%d")
@@ -172,6 +167,7 @@ dhw_stack <- dhw_stack[[which(keep)]]
 
 # Crop to your Florida Reef Tract box (match your plotting extent-ish)
 dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+dhw_stack_crw_2023 <- dhw_stack
 
 # Peak DHW (max over time) for each pixel
 peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
@@ -894,7 +890,7 @@ plot(dhw_rast)
 
 
 
-# now do it in raster land
+# calc 2023 dhw from sst -- raster approach
 ```{r}
 # 1) Read daily SST as a SpatRaster stack (cropped)
 # You can still keep your folder-per-year organization, but you don’t have to.
@@ -992,6 +988,7 @@ res23 <- compute_dhw_rasters(
 )
 
 peak_dhw_calc23 <- res23$peak_dhw
+dhw_stack_calc <- res23$dhw_stack
 
 # 4) Mask to reef hull and plot exactly like your CRW workflow
 # First fix your CRS mismatch warning (same as with CRW):
@@ -1170,6 +1167,7 @@ dhw_stack <- dhw_stack[[which(keep)]]
 
 # Crop to your Florida Reef Tract box (match your plotting extent-ish)
 dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+dhw_stack_crw_2015 <- dhw_stack
 
 # Peak DHW (max over time) for each pixel
 peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
@@ -1288,6 +1286,7 @@ dhw_stack <- dhw_stack[[which(keep)]]
 
 # Crop to your Florida Reef Tract box (match your plotting extent-ish)
 dhw_stack <- crop(dhw_stack, ext(-83.525, -78.975, 23.975, 28.025))
+dhw_stack_crw_2014 <- dhw_stack
 
 # Peak DHW (max over time) for each pixel
 peak_dhw <- app(dhw_stack, fun = max, na.rm = TRUE)
@@ -1553,23 +1552,55 @@ compute_dhw_rasters <- function(sst_stack_on_mmm, mmm_on_grid,
 #       buffer is in degrees. This keeps your prior behavior, but
 #       if you truly want meters, project both raster+points first.
 # ------------------------------------------------------------
-extract_dhw_terra <- function(r, df_xy, buf = buf_deg) {
+extract_dhw_terra <- function(r, df_xy, buf = buf_m) {
   v <- terra::vect(df_xy, geom = c("Longitude", "Latitude"), crs = "EPSG:4326")
   r_crs <- terra::crs(r)
 
   # If raster CRS is that GEOGCRS["unknown", ...] thing, treat it as EPSG:4326
   if (is.na(r_crs) || r_crs == "" || grepl('GEOGCRS\\["unknown"', r_crs)) {
-    terra::crs(r) <- "EPSG:4326"
+   terra::crs(r) <- "EPSG:4326"
   }
 
   v <- terra::vect(df_xy, geom = c("Longitude","Latitude"), crs = "EPSG:4326")
   # now CRS matches; no need to project v at all
 
   v_simple <- terra::extract(r, v, method = "simple")[,2]
-  #v_buf    <- terra::extract(r, v, buffer = buf, fun = mean, na.rm = TRUE)[,2]
-  v_buf <- terra::extract(r, terra::buffer(v, width = buf), fun = base::mean, na.rm = TRUE)[,2]
+  v_buf    <- terra::extract(r, v, buffer = buf, fun = mean, na.rm = TRUE)[,2]
+  v_buf <- terra::extract(r, terra::buffer(v, width = 6000), fun = base::mean, na.rm = TRUE)[,2]
+
+  #ifelse(is.na(v_simple), v_buf, v_simple)
+  v_simple
+}
+
+buf_m <- 6000
+
+extract_dhw_rastermatch <- function(r, df_xy, buf = buf_m) {
+  sp <- sp::SpatialPoints(df_xy[, c("Longitude", "Latitude")], proj4string = raster::crs(r))
+
+  v_simple <- raster::extract(r, sp, method = "simple")
+
+  # buffered mean ignoring NA; still NA if all nearby cells are NA
+  v_buf <- raster::extract(r, sp, buffer = buf, fun = mean, na.rm = TRUE)
 
   ifelse(is.na(v_simple), v_buf, v_simple)
+}
+
+buf_m <- 6000
+
+extract_dhw_rastermatch_stack <- function(rstk, df_xy, buf = buf_m) {
+  sp <- sp::SpatialPoints(df_xy[, c("Longitude", "Latitude")], proj4string = raster::crs(rstk))
+
+  # simple extraction for all layers at once
+  v_simple <- raster::extract(rstk, sp, method = "simple")
+
+  # buffered mean for all layers at once
+  v_buf <- raster::extract(rstk, sp, buffer = buf, fun = mean, na.rm = TRUE)
+
+  # use simple unless NA, then buffered
+  out <- v_simple
+  #out[is.na(out)] <- v_buf[is.na(out)]
+
+  out
 }
 
 # ------------------------------------------------------------
@@ -1584,8 +1615,9 @@ sst_dates_all <- file_date(sst_files_all)
 # ------------------------------------------------------------
 dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
 
+dhw_stacks_calc <- list()
 plots <- list()
-years_keep <- 2024
+
 for (yy in years_keep) {
 
   message("Year: ", yy)
@@ -1645,18 +1677,49 @@ for (yy in years_keep) {
     distinct(Site, Subregion, Longitude, Latitude)
 
   dhw_stack <- res$dhw_stack
+  
+  # Save stack for later comparison
+  dhw_stacks_calc[[as.character(yy)]] <- dhw_stack
+
+  # Also assign to global env for convenience
+  assign(paste0("dhw_stack_calc_", yy), dhw_stack, envir = .GlobalEnv)
+  
   dates <- time(dhw_stack)
 
-  out2_calc <- tibble(date = dates, lyr = seq_along(dates)) %>%
+  # out2_calc <- tibble(date = dates, lyr = seq_along(dates)) %>%
+  #   mutate(
+  #     #dhw  = map(lyr, ~extract_dhw_terra(dhw_stack[[.x]], drmsites, buf = buf_m)),
+  #     dhw = map(lyr, ~extract_dhw_rastermatch(raster::raster(dhw_stack[[.x]]), drmsites, buf = buf_m)),
+  #     site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
+  #     n_dhw  = map_int(dhw, length),
+  #     n_site = map_int(site, nrow)
+  #   ) %>%
+  #   filter(n_dhw == n_site) %>%
+  #   dplyr::select(date, site, dhw) %>%
+  #   unnest(cols = c(site, dhw))
+  
+  dhw_stack_raster <- raster::stack(dhw_stack)
+  mat_dhw <- extract_dhw_rastermatch_stack(dhw_stack_raster, drmsites, buf = buf_m)
+  colnames(mat_dhw) <- seq_len(ncol(mat_dhw))
+
+  out2_calc <- as_tibble(mat_dhw) %>%
     mutate(
-      dhw  = map(lyr, ~extract_dhw_terra(dhw_stack[[.x]], drmsites, buf = buf_deg)),
-      site = list(drmsites %>% dplyr::select(Site, Subregion, Longitude, Latitude)),
-      n_dhw  = map_int(dhw, length),
-      n_site = map_int(site, nrow)
+      Site = drmsites$Site,
+      Subregion = drmsites$Subregion,
+      Longitude = drmsites$Longitude,
+      Latitude = drmsites$Latitude
     ) %>%
-    filter(n_dhw == n_site) %>%
-    dplyr::select(date, site, dhw) %>%
-    unnest(cols = c(site, dhw))
+    pivot_longer(
+      cols = -c(Site, Subregion, Longitude, Latitude),
+      names_to = "lyr",
+      values_to = "dhw"
+    ) %>%
+    mutate(
+      lyr = as.integer(lyr),
+      date = dates[lyr]
+    ) %>%
+    dplyr::select(date, Site, Subregion, Longitude, Latitude, dhw) %>%
+    arrange(date, Site)
 
   write_csv(out2_calc, file = sprintf("data/processed/%d_dhw_calc_processed.csv", yy))
 }
@@ -1670,6 +1733,7 @@ plots[["2023"]]
 plots[["2024"]]
 ```
 
+# compare extracted values
 ```{r}
 dhw14.1 <- read_csv("data/processed/2014_dhw_processed.csv")
 dhw14.2 <- read_csv("data/processed/2014_dhw_calc_processed.csv")
@@ -1677,13 +1741,127 @@ dhw14.2 <- read_csv("data/processed/2014_dhw_calc_processed.csv")
 dhw14 <- full_join(dhw14.1, dhw14.2, by = c("date", "Site", "Subregion", "Longitude", "Latitude"))
 
 mm <- dhw14 %>%
-  filter(dhw.x != dhw.y)
+  filter(abs(dhw.x - dhw.y) > 0.5)
 
 mm %>%
   ggplot(aes(x = dhw.x, y = dhw.y - dhw.x)) +
   geom_point(aes(color = Site)) +
   theme(legend.position = "none")
 
+m2294 <- dhw14 %>% filter(Site == "M2294")
+#m2294, june 25, 2014. CRW = 0.15, calc DHW = 0....
+# what pixel is that in?
 
+
+
+
+ggplot() +
+  geom_line(data = filter(dhw14.1, Site == "M2294"), aes(x = date, y = dhw)) +
+  geom_line(data = filter(dhw14.2, Site == "M2294"), aes(x = date, y = dhw), color = "red")
+```
+
+# compare whole stack
+```{r}
+dhw_stack_crw_2023
+dhw_stack_calc_2023
+
+# ============================================================
+# 1. Ensure layers correspond to the same dates
+# ============================================================
+
+stopifnot(all(time(dhw_stack_crw_2023) == time(dhw_stack_calc_2023)))
+
+# ============================================================
+# 2. Pixel-wise difference stack
+# ============================================================
+
+dhw_diff_2023 <- dhw_stack_calc_2023 - dhw_stack_crw_2023
+dhw_diff_2014 <- dhw_stack_calc_2014 - dhw_stack_crw_2014
+dhw_diff_2015 <- dhw_stack_calc_2015 - dhw_stack_crw_2015
+
+# summary statistics across the whole cube
+global(dhw_diff_2023, c("min","mean","max"), na.rm = TRUE)
+global(dhw_diff_2014, c("min","mean","max"), na.rm = TRUE)
+global(dhw_diff_2015, c("min","mean","max"), na.rm = TRUE)
+
+
+n <- nlyr(dhw_stack_calc_2023)
+
+# no shift
+summary(global(dhw_stack_calc_2023 - dhw_stack_crw_2023, c("min","mean","max"), na.rm = TRUE))
+
+# calc vs CRW shifted forward 1 day
+summary(global(dhw_stack_calc_2023[[1:(n-1)]] - dhw_stack_crw_2023[[2:n]],
+       c("min","mean","max"), na.rm = TRUE))
+
+# calc vs CRW shifted backward 1 day
+summary(global(dhw_stack_calc_2023[[2:n]] - dhw_stack_crw_2023[[1:(n-1)]],
+       c("min","mean","max"), na.rm = TRUE))
+
+# ============================================================
+# 3. Time series of mean difference across region
+# ============================================================
+
+diff_ts <- tibble(
+  date = time(dhw_diff),
+  mean_diff = global(dhw_diff, "mean", na.rm = TRUE)[,1],
+  max_diff  = global(dhw_diff, "max", na.rm = TRUE)[,1],
+  min_diff  = global(dhw_diff, "min", na.rm = TRUE)[,1]
+)
+
+ggplot(diff_ts, aes(date, mean_diff)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_line() +
+  labs(y = "Mean DHW difference (calc − CRW)",
+       title = "Regional mean difference in DHW")
+
+# ============================================================
+# 4. Spatial map of peak difference
+# ============================================================
+
+peak_diff <- app(dhw_diff, max, na.rm = TRUE)
+
+plot(peak_diff,
+     main = "Maximum difference (calc − CRW)")
+
+# ggplot version if you prefer
+basemap +
+  geom_spatraster(data = peak_diff) +
+  scale_fill_distiller(
+    palette = "Spectral",
+    limits = c(-5,5),
+    name = "Peak ΔDHW"
+  )
+
+# ============================================================
+# 5. Scatter comparison across ALL pixels and days
+# ============================================================
+
+df_compare <- as.data.frame(
+  c(dhw_stack_crw, dhw_stack_calc),
+  na.rm = TRUE
+)
+
+names(df_compare) <- c("crw","calc")
+
+ggplot(df_compare, aes(crw, calc)) +
+  geom_point(alpha = 0.05) +
+  geom_abline(slope = 1, intercept = 0) +
+  coord_equal() +
+  labs(title = "Pixel-by-pixel comparison")
+
+# ============================================================
+# 6. Where differences occur (fraction of grid cells)
+# ============================================================
+
+frac_diff <- global(abs(dhw_diff) > 0.001, "mean", na.rm = TRUE)
+
+tibble(
+  date = time(dhw_diff),
+  frac_cells_different = frac_diff[,1]
+) |>
+  ggplot(aes(date, frac_cells_different)) +
+  geom_line() +
+  labs(y = "Fraction of pixels with difference")
 ```
 

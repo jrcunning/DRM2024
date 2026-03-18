@@ -91,9 +91,9 @@ dead <- df14 %>%
 ### 2014 DHW data
 ```{r 2014_dhw}
 # Import 2014 DHW data
-dhw <- read_csv("data/processed/2014_dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2014_dhw_processed_new.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
-  rename(Date = date) %>%
+  #rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
 # Get max. DHW value for on OR BEFORE date surveyed
@@ -185,9 +185,9 @@ df15 <- df15 %>%
 ### 2015 DHW data
 ```{r 2015_dhw}
 # Import 2015 DHW data
-dhw <- read_csv("data/processed/2015_dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2015_dhw_processed_new.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
-  rename(Date = date) %>%
+  #rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
 # Get max. DHW value for on OR BEFORE date surveyed
@@ -310,9 +310,9 @@ df23 <- df23 %>%
 ### 2023 DHW data
 ```{r 2023_dhw}
 # Import 2023 DHW data
-dhw <- read_csv("data/processed/2023_dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2023_dhw_processed_new.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
-  rename(Date = date) %>%
+  #rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
 # Get max DHW experienced in 2023 for each site as of the date surveyed?
@@ -466,9 +466,9 @@ df24 <- df24 %>%
 ### 2024 DHW data
 ```{r 2024_dhw}
 # Import 2024 DHW data
-dhw <- read_csv("data/processed/2024_dhw_processed.csv") %>%
+dhw <- read_csv("data/processed/2024_dhw_processed_new.csv") %>%
   mutate(across(where(is.character), as_factor)) %>%
-  rename(Date = date) %>%
+  #rename(Date = date) %>%
   dplyr::select(Site, Date, dhw)
 
 
