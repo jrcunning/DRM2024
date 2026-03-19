@@ -207,118 +207,141 @@ degC
 
 # Recompute 2015 and 2023 DHWs at calculated global shifted thresholds
 ```{r}
+# ============================================================
+# 1) Helpers + constants
+# ============================================================
+
+file_date <- function(f) {
+  as.Date(stringr::str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+}
+
+# Florida Reef Tract extent
+fl_ext <- terra::ext(-83.525, -78.975, 23.975, 28.025)
+
+years_keep   <- c(2014, 2015, 2023, 2024)
+start_mmdd   <- "06-01"
+end_mmdd     <- "12-31"
+cushion_days <- 83L   # to allow full 84-day windows at June 1
+
+sst_dir   <- "data/coraltemp"
+clim_file <- "data/coraltemp/ct5km_climatology_v3.1.nc"
+
 # Recompute 2015 and 2023 DHWs at calculated shifted thresholds
-temps <- read_csv("data/processed/sst_reef_pixels.csv") %>%
-  filter(year %in% c(2014, 2015, 2023, 2024))
-
-temps
-
 degC_year <- degC %>% 
   dplyr::select(year, degC) %>%
   tibble::add_row(year = "2014", degC = 0) %>%
   mutate(year = as.integer(year))
 
-mmm <- 29.6264 # Actual MMM for FL Keys
+add_by_year <- degC_year %>%
+  mutate(year = as.character(year)) %>%
+  tibble::deframe()
 
-dhw_pix_yearshift <- temps %>%
-  mutate(year = as.integer(year)) %>%
-  left_join(degC_year, by = "year") %>%
+add_by_year
+#   2014   2015   2023   2024
+#  0.000  0.513  0.980  1.600
+
+dhw_stacks_shifted <- list()
+peak_dhw_shifted <- list()
+
+for (yy in years_keep) {
+
+  message("Recomputing shifted DHW for year: ", yy)
+
+  start_date <- as.Date(sprintf("%d-%s", yy, start_mmdd))
+  end_date   <- as.Date(sprintf("%d-%s", yy, end_mmdd))
+
+  keep <- sst_dates_all >= (start_date - cushion_days) &
+          sst_dates_all <= end_date
+
+  sst_files <- sst_files_all[keep]
+  sst_dates <- sst_dates_all[keep]
+
+  if (length(sst_files) == 0) stop("No SST files found for year ", yy)
+
+  sst_stack <- rast(sst_files, subds = "analysed_sst")
+  sst_stack <- crop(sst_stack, fl_ext)
+  time(sst_stack) <- as.POSIXct(paste(sst_dates, "12:00:00"), tz = "UTC")
+
+  add_val <- add_by_year[[as.character(yy)]]
+  if (is.null(add_val)) add_val <- 0
+
+  res <- compute_dhw_rasters(
+    sst_stack  = sst_stack,
+    mmm_raster = mmm0,
+    start_date = start_date,
+    end_date   = end_date,
+    mmm_add    = add_val
+  )
+
+  dhw_stacks_shifted[[as.character(yy)]] <- res$dhw_stack
+  peak_dhw_shifted[[as.character(yy)]]   <- res$peak_dhw
+
+  assign(paste0("dhw_stack_shifted_", yy), res$dhw_stack, envir = .GlobalEnv)
+  assign(paste0("peak_dhw_shifted_", yy),  res$peak_dhw,  envir = .GlobalEnv)
+}
+
+# re-extract shifted dhw values for survey sites
+dhw_stacks_shifted_named <- list(
+  "2014" = dhw_stack_shifted_2014,
+  "2015" = dhw_stack_shifted_2015,
+  "2023" = dhw_stack_shifted_2023,
+  "2024" = dhw_stack_shifted_2024
+)
+
+survey_dhw_shifted_list <- vector("list", length(years_keep))
+names(survey_dhw_shifted_list) <- as.character(years_keep)
+
+
+# ------------------------------------------------------------
+# Read survey data once
+# ------------------------------------------------------------
+surveys_all <- read_csv("data/drm/FRRP_EXPORT.csv", show_col_types = FALSE) %>%
   mutate(
-    degC = coalesce(degC, 0),
-    mmm_adj = mmm + degC
+    Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")
   ) %>%
-  arrange(pixel, year, yday) %>%
-  group_by(pixel, year) %>%
-  nest() %>%
-  mutate(
-    dhd = map(data, ~ if_else(.x$temp > (.x$mmm_adj + 1),
-                              (.x$temp - .x$mmm_adj) / 7,
-                              0)),
-    dhw = map2(data, dhd, ~ slider::slide_index_sum(.y, .x$date, before = 84L)),
-    maxdhw = map_dbl(dhw, ~ max(.x, na.rm = TRUE))
+  filter(!is.na(Date),
+         !is.na(Longitude),
+         !is.na(Latitude)) %>%
+  distinct(Site, Date, Latitude, Longitude, Subregion)
+
+# Extract shifted DHWs for survey sites
+for (yy in years_keep) {
+
+  surveys_yy <- surveys_all %>%
+    filter(year(Date) == yy)
+
+  if (nrow(surveys_yy) == 0) next
+
+  r_shift <- dhw_stacks_shifted_named[[as.character(yy)]]
+
+  out_yy <- extract_stack_on_survey_dates(
+    rstk = r_shift,
+    surveys = surveys_yy,
+    prefix = "dhw_shifted",
+    max_dist_m = 6000
   ) %>%
-  ungroup()
+    mutate(year = yy)
 
-dhw_long_yearshift <- dhw_pix_yearshift %>%
-  transmute(
-    pixel, year,
-    date = map(data, ~ .x$date),
-    dhw  = dhw
-  ) %>%
-  unnest(c(date, dhw))
+  survey_dhw_shifted_list[[as.character(yy)]] <- out_yy
+}
 
-dhw_long_yearshift %>%
-  mutate(yday = yday(date)) %>%
-  ggplot(aes(x = yday, y = dhw)) +
-  facet_wrap(~year) +
-  geom_line(aes(group = pixel))
-
-
-
-# Now pull the shifted DHWs for all DRM sites on date they were surveyed
-
-# Get all drm sites lat/lon for 2014/2015/2023/2024
-drmsites <- allf %>%
-  distinct(Site, Date, Subregion, Longitude, Latitude) %>%
-  dplyr::select(Site, date = Date, Subregion, Longitude, Latitude)
-
-# Map lat/lon to pixel ID using reef_pixel_grid
-# grid defining pixels (geometry + CRS)
-reef_pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
-
-# make a SpatVector of points in WGS84
-pts <- vect(drmsites, geom = c("Longitude", "Latitude"), crs = "EPSG:4326")
-
-# project points to the raster CRS
-pts_r <- project(pts, crs(reef_pixel_grid))
-
-# get raster cell index for each point
-drmsites$pixel <- cellFromXY(reef_pixel_grid, geom(pts_r)[, c("x", "y")])
-
-# optional: flag points outside the grid
-drmsites <- drmsites %>% mutate(pixel_in_grid = !is.na(pixel))
-summary(drmsites$pixel_in_grid)
-
-
-
-# Pull shifted DHWs for each survey based on Pixel and Date
-drmsite_dhw_shift <- drmsites %>%
-  left_join(dhw_long_yearshift, by = c("pixel", "date")) %>%
+survey_dhw_shifted <- bind_rows(survey_dhw_shifted_list) %>%
   mutate(year = as.character(year))
-drmsite_dhw_shift %>% filter(is.na(dhw))
+
+# average dhw per site (some sites were surveyed across multiple dates, e.g. T1 and T2 on one date others another)
+survey_dhw_shifted <- survey_dhw_shifted %>%
+  group_by(Site) %>%
+  summarize(dhw_shifted = mean(dhw_shifted))
 
 
-# Join with actual DRM survey data!
-allg_shift <- allg %>% 
-  dplyr::select(year, Week2, Subregion, Site, dhw0 = dhw, Species, BL, NB) %>%
-  left_join(drmsite_dhw_shift %>% dplyr::select(year, Site, dhw, pixel, date), 
-            by = c("year", "Site"))
-
-allg_shift %>% filter(is.na(dhw))
-
-# Clean data
-allg_shift2 <- allg_shift %>%
-  tidyr::drop_na() %>%
-  dplyr::select(BL, NB, dhw0, dhw, year, Week2, Species, Subregion, pixel, date) 
-
-
-allg_shift2 %>%
-  ggplot(aes(x = dhw, y = BL / (BL + NB))) +
-  geom_point() +
-  facet_wrap(~year)
-
-
-allg_shift2 %>%
-  ggplot(aes(x = dhw0, y = dhw)) +
-  geom_point(aes(color = Subregion)) +
-  facet_wrap(~year)
-
+allg_shift2 <- allg %>% left_join(survey_dhw_shifted)
 ```
 
 
 # Validation model: rerun exact same model with shifted DHWs
 ```{r}
-
+# Set dhw to dhw_shifted
+allg_shift2 <- allg_shift2 %>% mutate(dhw = dhw_shifted)
 # Validation model
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod24.shift <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
@@ -334,7 +357,7 @@ bleach50.shift
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
-# boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+# boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 40, re.form = NULL,
 #                     seed = 123, parallel = "multicore", ncpus = 20)
 # saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
 boot.shift <- readRDS(file = "data/processed/boot.shift.rds")
@@ -359,14 +382,14 @@ dhw_ranges_shift <- allg_shift2 %>%
             mindhw = min(dhw))
 
 # Target combos + bounds
-targets <- peak_dates_shift %>%
+targets <- peak_dates %>%
   transmute(year = as.character(year), Week2) %>%   # match emmeans labels
   left_join(dhw_ranges_shift, by = "year")
 
 # Get emmeans grid # For plotting, Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching), And select just the range of peak DHWs experienced across sites in each year
 dhw.res <- emmeans(dhw.mod24.shift, specs = c("dhw", "year", "Week2"), type = "response",
                    re.form = NA,
-                   at = list(dhw = seq(0, 12, 0.1), Week2 = unique(peak_dates_shift$Week2)), 
+                   at = list(dhw = seq(0, 12, 0.1), Week2 = unique(peak_dates$Week2)), 
                    rg.limit = 20000, level = 0.84)
 
 # Filter for target year:Week2 and dhw ranges
@@ -433,104 +456,106 @@ degC_year_shift <- degC.year %>%
   dplyr::select(year, degC) %>%
   tibble::add_row(year = "2014", degC = 0) %>%
   mutate(year = as.integer(year))
+
+add_by_year2 <- degC_year_shift %>%
+  mutate(year = as.character(year)) %>%
+  tibble::deframe()
+
+
 ```
 
 
 ```{r}
-# Recompute 2015 and 2023 DHWs at calculated shifted thresholds
-temps <- read_csv("data/processed/sst_reef_pixels.csv") %>%
-  filter(year %in% c(2014, 2015, 2023, 2024))
+# Recompute 2015 and 2023 DHWs at year-specific calculated shifted thresholds
+dhw_stacks_shifted <- list()
+peak_dhw_shifted <- list()
+
+for (yy in years_keep) {
+
+  message("Recomputing shifted DHW for year: ", yy)
+
+  start_date <- as.Date(sprintf("%d-%s", yy, start_mmdd))
+  end_date   <- as.Date(sprintf("%d-%s", yy, end_mmdd))
+
+  keep <- sst_dates_all >= (start_date - cushion_days) &
+          sst_dates_all <= end_date
+
+  sst_files <- sst_files_all[keep]
+  sst_dates <- sst_dates_all[keep]
+
+  if (length(sst_files) == 0) stop("No SST files found for year ", yy)
+
+  sst_stack <- rast(sst_files, subds = "analysed_sst")
+  sst_stack <- crop(sst_stack, fl_ext)
+  time(sst_stack) <- as.POSIXct(paste(sst_dates, "12:00:00"), tz = "UTC")
+
+  add_val <- add_by_year2[[as.character(yy)]]
+  if (is.null(add_val)) add_val <- 0
+
+  res <- compute_dhw_rasters(
+    sst_stack  = sst_stack,
+    mmm_raster = mmm0,
+    start_date = start_date,
+    end_date   = end_date,
+    mmm_add    = add_val
+  )
+
+  dhw_stacks_shifted[[as.character(yy)]] <- res$dhw_stack
+  peak_dhw_shifted[[as.character(yy)]]   <- res$peak_dhw
+
+  assign(paste0("dhw_stack_shifted_", yy), res$dhw_stack, envir = .GlobalEnv)
+  assign(paste0("peak_dhw_shifted_", yy),  res$peak_dhw,  envir = .GlobalEnv)
+}
+
+# re-extract shifted dhw values for survey sites
+dhw_stacks_shifted_named <- list(
+  "2014" = dhw_stack_shifted_2014,
+  "2015" = dhw_stack_shifted_2015,
+  "2023" = dhw_stack_shifted_2023,
+  "2024" = dhw_stack_shifted_2024
+)
+
+survey_dhw_shifted_list <- vector("list", length(years_keep))
+names(survey_dhw_shifted_list) <- as.character(years_keep)
 
 
-mmm <- 29.6264 # Actual MMM for FL Keys
+# Extract shifted DHWs for survey sites
+for (yy in years_keep) {
 
-dhw_pix_yearshift <- temps %>%
-  mutate(year = as.integer(year)) %>%
-  left_join(degC_year_shift, by = "year") %>%
-  mutate(
-    degC = coalesce(degC, 0),
-    mmm_adj = mmm + degC
+  surveys_yy <- surveys_all %>%
+    filter(year(Date) == yy)
+
+  if (nrow(surveys_yy) == 0) next
+
+  r_shift <- dhw_stacks_shifted_named[[as.character(yy)]]
+
+  out_yy <- extract_stack_on_survey_dates(
+    rstk = r_shift,
+    surveys = surveys_yy,
+    prefix = "dhw_shifted",
+    max_dist_m = 6000
   ) %>%
-  arrange(pixel, year, yday) %>%
-  group_by(pixel, year) %>%
-  nest() %>%
-  mutate(
-    dhd = map(data, ~ if_else(.x$temp > (.x$mmm_adj + 1),
-                              (.x$temp - .x$mmm_adj) / 7,
-                              0)),
-    dhw = map2(data, dhd, ~ slider::slide_index_sum(.y, .x$date, before = 84L)),
-    maxdhw = map_dbl(dhw, ~ max(.x, na.rm = TRUE))
-  ) %>%
-  ungroup()
+    mutate(year = yy)
 
-dhw_long_yearshift <- dhw_pix_yearshift %>%
-  transmute(
-    pixel, year,
-    date = map(data, ~ .x$date),
-    dhw  = dhw
-  ) %>%
-  unnest(c(date, dhw))
+  survey_dhw_shifted_list[[as.character(yy)]] <- out_yy
+}
 
-dhw_long_yearshift %>%
-  mutate(yday = yday(date)) %>%
-  ggplot(aes(x = yday, y = dhw)) +
-  facet_wrap(~year) +
-  geom_line(aes(group = pixel))
-
-
-
-# Now pull the shifted DHWs for all DRM sites on date they were surveyed
-
-# Get all drm sites lat/lon for 2014/2015/2023/2024
-drmsites <- allf %>%
-  distinct(Site, Date, Subregion, Longitude, Latitude) %>%
-  dplyr::select(Site, date = Date, Subregion, Longitude, Latitude)
-
-# Map lat/lon to pixel ID using reef_pixel_grid
-# grid defining pixels (geometry + CRS)
-reef_pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
-
-# make a SpatVector of points in WGS84
-pts <- vect(drmsites, geom = c("Longitude", "Latitude"), crs = "EPSG:4326")
-
-# project points to the raster CRS
-pts_r <- project(pts, crs(reef_pixel_grid))
-
-# get raster cell index for each point
-drmsites$pixel <- cellFromXY(reef_pixel_grid, geom(pts_r)[, c("x", "y")])
-
-# optional: flag points outside the grid
-drmsites <- drmsites %>% mutate(pixel_in_grid = !is.na(pixel))
-summary(drmsites$pixel_in_grid)
-
-
-
-# Pull shifted DHWs for each survey based on Pixel and Date
-drmsite_dhw_shift <- drmsites %>%
-  left_join(dhw_long_yearshift, by = c("pixel", "date")) %>%
+survey_dhw_shifted <- bind_rows(survey_dhw_shifted_list) %>%
   mutate(year = as.character(year))
-drmsite_dhw_shift %>% filter(is.na(dhw))
+
+# average dhw per site (some sites were surveyed across multiple dates, e.g. T1 and T2 on one date others another)
+survey_dhw_shifted <- survey_dhw_shifted %>%
+  group_by(Site) %>%
+  summarize(dhw_shifted = mean(dhw_shifted))
 
 
-# Join with actual DRM survey data!
-allg_shift <- allg %>% 
-  dplyr::select(year, Week2, Subregion, Site, dhw0 = dhw, Species, BL, NB) %>%
-  left_join(drmsite_dhw_shift %>% dplyr::select(year, Site, dhw, pixel, date), 
-            by = c("year", "Site"))
-
-allg_shift %>% filter(is.na(dhw))
-
-# Clean data
-allg_shift2 <- allg_shift %>%
-  tidyr::drop_na() %>%
-  dplyr::select(BL, NB, dhw0, dhw, year, Week2, Species, Subregion, pixel, date)
-
+allg_shift2 <- allg %>% left_join(survey_dhw_shifted)
 ```
 
 
 # AND SECOND Validation model: rerun exact same model with shifted DHWs
 ```{r}
-
+allg_shift2 <- allg_shift2 %>% mutate(dhw = dhw_shifted)
 # Validation model
 # Model differences in bleaching severity between years with DHW as continuous predictor
 dhw.mod24.shift2 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
@@ -545,10 +570,10 @@ bleach50 <- ed50s.fun_fast(dhw.mod24.shift2)
 bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-# set.seed(1)
-# boot.shift2 <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 10, re.form = NULL,
-#                     seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
+set.seed(1)
+boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 60, re.form = NULL,
+                    seed = 123, parallel = "multicore", ncpus = 20)
+saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
 boot.shift2 <- readRDS(file = "data/processed/boot.shift2.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift2$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -571,14 +596,14 @@ dhw_ranges_shift <- allg_shift2 %>%
             mindhw = min(dhw))
 
 # Target combos + bounds
-targets <- peak_dates_shift %>%
+targets <- peak_dates %>%
   transmute(year = as.character(year), Week2) %>%   # match emmeans labels
   left_join(dhw_ranges_shift, by = "year")
 
 # Get emmeans grid # For plotting, Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching), And select just the range of peak DHWs experienced across sites in each year
 dhw.res <- emmeans(dhw.mod24.shift2, specs = c("dhw", "year", "Week2"), type = "response",
                    re.form = NA,
-                   at = list(dhw = seq(0, 12, 0.1), Week2 = unique(peak_dates_shift$Week2)), 
+                   at = list(dhw = seq(0, 12, 0.1), Week2 = unique(peak_dates$Week2)), 
                    rg.limit = 20000, level = 0.84)
 
 # Filter for target year:Week2 and dhw ranges

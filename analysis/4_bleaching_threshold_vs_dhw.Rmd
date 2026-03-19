@@ -164,7 +164,7 @@ library(stringr)
 # ---- CONFIG ----
 base_sst <- "https://www.star.nesdis.noaa.gov/pub/socd/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily/sst"
 years <- c(1997:2025)
-start_mmdd <- "06-01"
+start_mmdd <- "03-01"
 end_mmdd   <- "12-31"
 out_dir <- "data/coraltemp"
 
@@ -223,7 +223,7 @@ win_days <- 84L                    # DHW window (84 days)
 # ----------------------------
 # 1) Load ALL SST, keep Jul–Dec, crop/mask to reef hull, fix flip
 # ----------------------------
-nc_files <- list.files(sst_dir, pattern = "\\.nc$", full.names = TRUE)
+nc_files <- list.files(sst_dir, pattern = "coraltemp*", full.names = TRUE)
 
 stopifnot(length(nc_files) > 0)
 
