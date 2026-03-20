@@ -170,12 +170,12 @@ library(tidyverse)
 
 sst_dir   <- "data/coraltemp"            # <-- change if needed
 sst_subds <- "analysed_sst"              # <-- set to e.g. "sea_surface_temperature" if your NetCDF needs it
-mmm <- 29.6264                     # fixed regional MMM used for ALL pixels
 adds <- seq(0, 2.5, 0.1)           # simulated threshold increases (°C)
 win_days <- 84L                    # DHW window (84 days)
 
+
 # ----------------------------
-# 1) Load ALL SST, keep Jul–Dec, crop/mask to reef hull, fix flip
+# 1) Load ALL SST, keep Jun–Dec, crop/mask to reef hull, fix flip
 # ----------------------------
 nc_files <- list.files(sst_dir, pattern = "coraltemp*", full.names = TRUE)
 
@@ -199,8 +199,8 @@ if (is.null(tt) || all(is.na(tt))) {
   tt <- time(sst_all)
 }
 
-# Keep only July–December across all years
-keep <- month(tt) %in% 6:12
+# Keep only June–December across all years
+keep <- month(tt) %in% 3:12
 sst_all <- sst_all[[which(keep)]]
 
 # Crop & mask to reef hull 
@@ -208,9 +208,6 @@ sst_all <- sst_all[[which(keep)]]
 reef_hull <- readRDS("data/spatial/reef_hull.rds")
 sst_all <- crop(sst_all, vect(reef_hull))
 sst_all <- mask(sst_all, vect(reef_hull))
-
-# Fix the vertical flip you discovered (do this BEFORE extracting values)
-#sst_all <- flip(sst_all, direction = "vertical")
 
 # Reef cells = non-NA after mask in any representative layer (use first layer)
 reef_cells <- which(!is.na(values(sst_all[[1]])))
@@ -221,16 +218,32 @@ xy_sst <- terra::xyFromCell(sst_all, reef_cells)
 reef_pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
 # corresponding cell ids on reef_pixel_grid
 reefgrid_cell <- terra::cellFromXY(reef_pixel_grid, xy_sst)
-# mapping table (optional but helpful for debugging)
+
+stopifnot(length(reef_cells) > 0)
+
+# Load MMM climatology (for pixel-specific MMMs)
+clim_file <- "data/coraltemp/ct5km_climatology_v3.1.nc"
+mmm_full <- rast(clim_file, subds = "sst_clim_mmm")
+
+# crop/mask MMM to the same reef-hull region as SST
+reef_hull <- readRDS("data/spatial/reef_hull.rds")
+mmm_crop <- crop(mmm_full, vect(reef_hull))
+mmm_crop <- mask(mmm_crop, vect(reef_hull))
+
+# now compare cropped MMM to cropped SST
+compareGeom(sst_all[[1]], mmm_crop, stopOnError = FALSE)
+
+# extract MMM for reef SST cells
+mmm_vals <- terra::values(mmm_crop, mat = FALSE)[reef_cells]
+
 cell_map <- tibble(
   sst_cell  = reef_cells,
   pixel     = reefgrid_cell,
   lon       = xy_sst[,1],
-  lat       = xy_sst[,2]
+  lat       = xy_sst[,2],
+  mmm_pix   = mmm_vals
 ) %>%
-  filter(!is.na(pixel))  # drop SST cells that fall outside reef_pixel_grid
-
-stopifnot(length(reef_cells) > 0)
+  filter(!is.na(pixel), !is.na(mmm_pix))
 
 # ----------------------------
 # 2) Build long tibble: pixel, year, date, yday, temp
@@ -256,7 +269,7 @@ stopifnot(length(dates) == ncol(sst_df))
 
 temp_long <- as_tibble(sst_df) %>%
   mutate(sst_cell = reef_cells) %>%
-  left_join(cell_map %>% dplyr::select(sst_cell, pixel), by = "sst_cell") %>%
+  left_join(cell_map %>% dplyr::select(sst_cell, pixel, mmm_pix), by = "sst_cell") %>%
   pivot_longer(
     cols = starts_with("t"),
     names_to = "tname",
@@ -268,10 +281,11 @@ temp_long <- as_tibble(sst_df) %>%
     yday = yday(date),
     year = year(date)
   ) %>%
-  dplyr::select(pixel, year, date, yday, temp) %>%
+  dplyr::select(pixel, year, date, yday, temp, mmm_pix) %>%
   arrange(pixel, date)
-temp_long
-write_csv(temp_long, file = "data/processed/sst_reef_pixels.csv")
+
+#temp_long
+#write_csv(temp_long, file = "data/processed/sst_reef_pixels.csv")
 
 # ----------------------------
 # 3) EXACT same DHW simulation workflow per pixel,
@@ -281,9 +295,14 @@ write_csv(temp_long, file = "data/processed/sst_reef_pixels.csv")
 # Helper: compute max DHW for one year of daily temps at a given add
 # (this mirrors your logic: dhd = if temp > mmm+1+add then (temp-mmm)/7 else 0,
 #  dhw = 84-day rolling sum over yday/date, maxdhw = max(dhw))
-maxdhw_one <- function(df_year, add, mmm, win_days) {
-  dhd <- if_else(df_year$temp > (mmm + 1 + add), (df_year$temp - mmm) / 7, 0)
-  dhw <- slider::slide_index_sum(dhd, df_year$date, before = win_days)
+maxdhw_one <- function(df_year, add, win_days) {
+  dhd <- if_else(
+    df_year$temp >= (df_year$mmm_pix + 1 + add),
+    (df_year$temp - df_year$mmm_pix - add) / 7,
+    0
+  )
+
+  dhw <- slider::slide_index_sum(dhd, df_year$date, before = win_days - 1)
   max(dhw, na.rm = TRUE)
 }
 
@@ -295,7 +314,7 @@ fit_pixel <- function(df_pix) {
     nest() %>%
     crossing(add = adds) %>%
     mutate(
-      maxdhw = map2_dbl(data, add, ~maxdhw_one(.x, .y, mmm = mmm, win_days = win_days))
+      maxdhw = map2_dbl(data, add, ~maxdhw_one(.x, .y, win_days = win_days))
     )
 
   # compute reduction in DHW relative to add==0 baseline within each year
@@ -321,7 +340,7 @@ fit_pixel <- function(df_pix) {
 }
 
 # Run per pixel with nesting (tidyverse style)
-pixel_slopes2 <- temp_long %>%
+pixel_slopes <- temp_long %>%
   group_by(pixel) %>%
   nest() %>%
   mutate(
@@ -331,9 +350,9 @@ pixel_slopes2 <- temp_long %>%
   unnest(fit) %>%
   ungroup()
 
-pixel_slopes2
-hist(pixel_slopes2$slope)
-write_csv(pixel_slopes2, file = "data/processed/pixel_slopes.csv")
+pixel_slopes
+hist(pixel_slopes$slope)
+write_csv(pixel_slopes, file = "data/processed/pixel_slopes.csv")
 
 # -> tibble: pixel, slope (DHW per °C), se
 
@@ -365,7 +384,7 @@ names(slope_r) <- "DHW_per_degC_mixed"
 
 slope_map <- cell_map %>%
   select(sst_cell, pixel, lon, lat) %>%
-  inner_join(pixel_slopes2, by = "pixel")
+  inner_join(pixel_slopes, by = "pixel")
 
 vals <- rep(NA_real_, ncell(slope_r))
 vals[slope_map$sst_cell] <- slope_map$slope
@@ -382,6 +401,7 @@ values(se_r) <- vals
 # quick check
 summary(values(slope_r))
 plot(slope_r)
+points(pixel_weights_all$lon, pixel_weights_all$lat)
 
 # Florida outline (sf)
 fl_sf <- rnaturalearth::ne_states(country = "United States of America", returnclass = "sf") |>
@@ -409,7 +429,7 @@ fit_pixel_yearslopes <- function(df_pix, years_keep = c(2014, 2015, 2023, 2024))
     group_by(year) %>%
     nest() %>%
     crossing(add = adds) %>%
-    mutate(maxdhw = map2_dbl(data, add, ~maxdhw_one(.x, .y, mmm = mmm, win_days = win_days)))
+    mutate(maxdhw = map2_dbl(data, add, ~maxdhw_one(.x, .y, win_days = win_days)))
 
   diffs <- dhwout %>%
     group_by(year) %>%
@@ -528,7 +548,7 @@ pixel_diffs <- temp_long %>%
         nest() %>%
         crossing(add = adds) %>%
         mutate(
-          maxdhw = purrr::map2_dbl(data, add, ~maxdhw_one(.x, .y, mmm = mmm, win_days = win_days))
+          maxdhw = purrr::map2_dbl(data, add, ~maxdhw_one(.x, .y, win_days = win_days))
         ) %>%
         group_by(year) %>%
         mutate(
@@ -556,35 +576,35 @@ pixel_weights_all <- readr::read_csv("data/processed/pixel_weights_all.csv")
 pixel_diffs_w <- pixel_diffs %>%
   left_join(pixel_weights_all %>% select(pixel, w_pixel_all), by = "pixel")
 
-mean_curves <- pixel_diffs_w %>%
-  filter(!is.na(w_pixel_all)) %>%
-  group_by(year, add) %>%
-  summarise(
-    mean_diff = weighted.mean(diff, w = w_pixel_all, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-ggplot(mean_curves, aes(x = add, y = mean_diff, color = factor(year))) +
-  geom_line(linewidth = 0.5, alpha = 0.8) +
-  scale_x_continuous(
-    breaks = seq(0, max(adds), by = 0.5),
-    expand = c(0, 0)
-  ) +
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.05))
-  ) +
-  scale_color_viridis_d(option = "turbo") +
-  labs(
-    x = expression(Delta * degree * "C added to threshold"),
-    y = expression("Pixel-weighted reduction in peak DHW, " * Delta * "DHW (" * degree * "C-weeks)"),
-    color = "Year"
-  ) +
-  theme_classic()
-
-
-library(dplyr)
-library(tidyr)
-library(ggplot2)
+# mean_curves <- pixel_diffs_w %>%
+#   filter(!is.na(w_pixel_all)) %>%
+#   group_by(year, add) %>%
+#   summarise(
+#     mean_diff = weighted.mean(diff, w = w_pixel_all, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+# 
+# ggplot(mean_curves, aes(x = add, y = mean_diff, color = factor(year))) +
+#   geom_line(linewidth = 0.5, alpha = 0.8) +
+#   scale_x_continuous(
+#     breaks = seq(0, max(adds), by = 0.5),
+#     expand = c(0, 0)
+#   ) +
+#   scale_y_continuous(
+#     expand = expansion(mult = c(0, 0.05))
+#   ) +
+#   scale_color_viridis_d(option = "turbo") +
+#   labs(
+#     x = expression(Delta * degree * "C added to threshold"),
+#     y = expression("Pixel-weighted reduction in peak DHW, " * Delta * "DHW (" * degree * "C-weeks)"),
+#     color = "Year"
+#   ) +
+#   theme_classic()
+# 
+# 
+# library(dplyr)
+# library(tidyr)
+# library(ggplot2)
 
 # 1) Find the largest add value that still produces nonzero DHW effect for each year
 add_limits <- pixel_diffs_w %>%
@@ -618,6 +638,7 @@ ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = year)) +
     expand = c(0, 0)
   ) +
   scale_y_continuous(
+    limits = c(0, 21),
     expand = expansion(mult = c(0, 0.05))
   ) +
   scale_color_viridis_d(option = "turbo") +
@@ -644,6 +665,7 @@ ggplot(line_df, aes(x = add, y = diff, group = year)) +
     expand = c(0, 0)
   ) +
   scale_y_continuous(
+    limits = c(0, 21),
     expand = expansion(mult = c(0, 0.05))
   ) +
   #scale_color_manual(values = c("gray", "red")) +
@@ -662,6 +684,7 @@ ggplot(line_df, aes(x = add, y = diff, group = year)) +
   geom_line(linewidth = 0.5, alpha = 0.9, color = "gray") +
   geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
   scale_y_continuous(
+    limits = c(0, 21),
     expand = expansion(mult = c(0, 0.05))
   ) +
     scale_x_continuous(
