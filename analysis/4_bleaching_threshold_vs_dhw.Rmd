@@ -1,5 +1,5 @@
 ---
-title: "thresh_dhw"
+title: "Find the relationship between bleaching threshold (°C) and DHW accumulation"
 author: "R. Cunning"
 date: "2024-05-22"
 output: html_document
@@ -14,137 +14,136 @@ library(lme4)
 library(tidyverse)
 ```
 
-# Find the relationship between bleaching threshold (°C) and DHW accumulation
 
 # Regional analysis
 ```{r regional_analysis}
-# Import Florida Keys daily temperature data for 1985-2025
-## Downloaded on 2026-02-16 from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
-temp0 <- read_delim("data/temperature/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
-temp <- temp0 %>%
-  mutate(temp = `SST@90th_HS`) %>%
-  dplyr::select(YYYY, MM, DD, temp) %>%
-  unite(YYYY, MM, DD, col = "date", sep = "-") %>%
-  mutate(date = as_date(date),
-         yday = yday(date),
-         year = year(date))
-
-# Define Maximum Monthly Mean temperature for Florida Keys
-mmm <- 29.6264 # Actual MMM for FL Keys
-
-# Plot temperature for each year, and MMM
-mytemp <- temp %>% filter(year < 2025) %>%
-  ggplot(aes(x = yday, y = temp, color = factor(year), group = year, alpha = 0.5)) +
-  geom_line(alpha = 0.4) +
-  geom_hline(aes(yintercept = 29.624), lty = 2) +
-  #geom_hline(aes(yintercept = 30.624), lty = 2) +
-  theme_classic() +
-  labs(x = "Day of year", y = "Temperature (°C)") +
-  theme(legend.position = "none")
-
-# DHWs accumulate when temperatures exceed the bleaching threshold, defined as MMM temperature + 1°C
-# Simulate increased bleaching thresholds (i.e., MMM + 1°C + x), with x ranging from 0 to 1.5°C of additional increase
-# Calculate DHWs for all simulated increased thresholds for each year of real temperature data
-dhwout <- temp %>%
-  group_by(year) %>%
-  nest() %>%
-  crossing(add = seq(0, 2.5, 0.1)) %>%
-  mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
-         dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
-         maxdhw = map_dbl(dhw, max))
-
-# Compute reduction in DHW in each year based on each increase in threshold
-# Keep only years where at least 1 DHW was accumulated (based on actual MMM)
-diffs <- dhwout %>%
-  group_by(year) %>%
-  mutate(diff = maxdhw[add==0] - maxdhw) %>%
-  filter(maxdhw > 0, max(maxdhw) > 2)
-
-# Plot reduction in DHW for each year afforded by X°C increase in bleaching threshold
-diffs_vs_add <- ggplot(diffs, aes(x = add, y = diff, group = year, color = factor(year))) + 
-  #geom_point() +
-  geom_path() +
-  theme_classic() +
-  labs(x = "Simulated increase in bleaching threshold (°C)",
-       y = "Decrease in accumulated DHW")
-
-# Model reduction in DHW as a function of simulated increase
-## Constrain intercept to zero, and have random slopes for years
-mod <- lmer(diff ~ 0 + add + (0 + add|year), data = diffs)
-## Get slope and standard error
-coefs <- tibble(
-  dhw.per.degC = summary(mod)$coefficients[1],
-  dhw.per.degC.se = summary(mod)$coefficients[2]
-)
-
-# Plot fitted model over simulated data
-anno <- paste0("y = ", round(coefs[1], 2), " x")
-(figs4 <- diffs_vs_add + 
-    geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
-                           alpha = 0.5, linewidth = 1.5) +
-    scale_color_discrete(name = "Year") +
-    annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
-    theme(legend.text = element_text(size = 8),
-          legend.key.size = unit(5, "mm")) +
-   # guides(color = guide_legend(ncol = 2)) +
-    coord_cartesian(xlim = c(0, 1.7), ylim = c(0, 13), expand = FALSE))
-
-ggsave(filename = "figures/FigS4.png", plot = figs4, width = 180, height = 120, units = "mm")
-coefs
-
-## Save slope and standard error for analysis in analysis_main
-write_csv(coefs, "data/processed/dhw.per.degC.csv")
-
-
-
-
-# new fig
-diffs$year_col <- ifelse(diffs$year %in% c(2014, 2015, 2023, 2024),
-                         as.character(diffs$year),
-                         "Other")
-
-ggplot(diffs, aes(x = add, y = diff, group = year, color = year_col)) +
-  geom_path() +
-  theme_classic() +
-  labs(x = "Simulated increase in bleaching threshold (°C)",
-       y = "Decrease in accumulated DHW",
-       color = "Year") +
-  geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
-              alpha = 0.5, linewidth = 1.5) +
-  geom_hline(aes(yintercept = 8.5)) +
-  scale_color_manual(values = c(
-    "2014" = "#1b9e77",
-    "2015" = "#d95f02",
-    "2023" = "#7570b3",
-    "2024" = "#e7298a",
-    "Other" = "gray80"
-  )) +
-  annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
-  theme(
-    legend.text = element_text(size = 8),
-    legend.key.size = unit(5, "mm")
-  ) +
-  coord_cartesian(xlim = c(0, 1.7), ylim = c(0, 13), expand = FALSE)
-
-slopes_year <- coef(mod)$year %>%
-  tibble::rownames_to_column("year") %>%
-  rename(dhw_per_degC = add) %>%
-  mutate(year = as.numeric(year))
-
-slopes_year %>%
-  filter(year %in% c(2014, 2015, 2023, 2024))
-
-slopes_year2 <- diffs %>%
-  group_by(year) %>%
-  summarise(
-    slope = coef(lm(diff ~ 0 + add))[1]
-  )
-slopes_year2 %>%
-  filter(year %in% c(2014, 2015, 2023, 2024))
-
-
-
-diffs %>% dplyr::select(year, add, diff, maxdhw) %>% write_csv("diffs.csv")
+# # Import Florida Keys daily temperature data for 1985-2025
+# ## Downloaded on 2026-02-16 from: https://coralreefwatch.noaa.gov/product/vs/data/florida_keys.txt
+# temp0 <- read_delim("data/temperature/florida_keys_temperature.txt", skip = 20, trim_ws = TRUE)
+# temp <- temp0 %>%
+#   mutate(temp = `SST@90th_HS`) %>%
+#   dplyr::select(YYYY, MM, DD, temp) %>%
+#   unite(YYYY, MM, DD, col = "date", sep = "-") %>%
+#   mutate(date = as_date(date),
+#          yday = yday(date),
+#          year = year(date))
+# 
+# # Define Maximum Monthly Mean temperature for Florida Keys
+# mmm <- 29.6264 # Actual MMM for FL Keys
+# 
+# # Plot temperature for each year, and MMM
+# mytemp <- temp %>% filter(year < 2025) %>%
+#   ggplot(aes(x = yday, y = temp, color = factor(year), group = year, alpha = 0.5)) +
+#   geom_line(alpha = 0.4) +
+#   geom_hline(aes(yintercept = 29.624), lty = 2) +
+#   #geom_hline(aes(yintercept = 30.624), lty = 2) +
+#   theme_classic() +
+#   labs(x = "Day of year", y = "Temperature (°C)") +
+#   theme(legend.position = "none")
+# 
+# # DHWs accumulate when temperatures exceed the bleaching threshold, defined as MMM temperature + 1°C
+# # Simulate increased bleaching thresholds (i.e., MMM + 1°C + x), with x ranging from 0 to 1.5°C of additional increase
+# # Calculate DHWs for all simulated increased thresholds for each year of real temperature data
+# dhwout <- temp %>%
+#   group_by(year) %>%
+#   nest() %>%
+#   crossing(add = seq(0, 2.5, 0.1)) %>%
+#   mutate(dhd = map2(data, add, ~if_else(.x$temp > mmm + 1 + .y, (.x$temp - mmm) / 7, 0)),
+#          dhw = map2(data, dhd, ~slider::slide_index_sum(.y, .x$yday, before = 84L)),
+#          maxdhw = map_dbl(dhw, max))
+# 
+# # Compute reduction in DHW in each year based on each increase in threshold
+# # Keep only years where at least 1 DHW was accumulated (based on actual MMM)
+# diffs <- dhwout %>%
+#   group_by(year) %>%
+#   mutate(diff = maxdhw[add==0] - maxdhw) %>%
+#   filter(maxdhw > 0, max(maxdhw) > 2)
+# 
+# # Plot reduction in DHW for each year afforded by X°C increase in bleaching threshold
+# diffs_vs_add <- ggplot(diffs, aes(x = add, y = diff, group = year, color = factor(year))) + 
+#   #geom_point() +
+#   geom_path() +
+#   theme_classic() +
+#   labs(x = "Simulated increase in bleaching threshold (°C)",
+#        y = "Decrease in accumulated DHW")
+# 
+# # Model reduction in DHW as a function of simulated increase
+# ## Constrain intercept to zero, and have random slopes for years
+# mod <- lmer(diff ~ 0 + add + (0 + add|year), data = diffs)
+# ## Get slope and standard error
+# coefs <- tibble(
+#   dhw.per.degC = summary(mod)$coefficients[1],
+#   dhw.per.degC.se = summary(mod)$coefficients[2]
+# )
+# 
+# # Plot fitted model over simulated data
+# anno <- paste0("y = ", round(coefs[1], 2), " x")
+# (figs4 <- diffs_vs_add + 
+#     geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
+#                            alpha = 0.5, linewidth = 1.5) +
+#     scale_color_discrete(name = "Year") +
+#     annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
+#     theme(legend.text = element_text(size = 8),
+#           legend.key.size = unit(5, "mm")) +
+#    # guides(color = guide_legend(ncol = 2)) +
+#     coord_cartesian(xlim = c(0, 1.7), ylim = c(0, 13), expand = FALSE))
+# 
+# ggsave(filename = "figures/FigS4.png", plot = figs4, width = 180, height = 120, units = "mm")
+# coefs
+# 
+# ## Save slope and standard error for analysis in analysis_main
+# #write_csv(coefs, "data/processed/dhw.per.degC.csv")
+# 
+# 
+# 
+# 
+# # new fig
+# diffs$year_col <- ifelse(diffs$year %in% c(2014, 2015, 2023, 2024),
+#                          as.character(diffs$year),
+#                          "Other")
+# 
+# ggplot(diffs, aes(x = add, y = diff, group = year, color = year_col)) +
+#   geom_path() +
+#   theme_classic() +
+#   labs(x = "Simulated increase in bleaching threshold (°C)",
+#        y = "Decrease in accumulated DHW",
+#        color = "Year") +
+#   geom_abline(aes(slope = coefs$dhw.per.degC, intercept = 0),
+#               alpha = 0.5, linewidth = 1.5) +
+#   geom_hline(aes(yintercept = 8.5)) +
+#   scale_color_manual(values = c(
+#     "2014" = "#1b9e77",
+#     "2015" = "#d95f02",
+#     "2023" = "#7570b3",
+#     "2024" = "#e7298a",
+#     "Other" = "gray80"
+#   )) +
+#   annotate("text", label = anno, x = 1.5, y = 1, hjust = 1) +
+#   theme(
+#     legend.text = element_text(size = 8),
+#     legend.key.size = unit(5, "mm")
+#   ) +
+#   coord_cartesian(xlim = c(0, 1.7), ylim = c(0, 13), expand = FALSE)
+# 
+# slopes_year <- coef(mod)$year %>%
+#   tibble::rownames_to_column("year") %>%
+#   rename(dhw_per_degC = add) %>%
+#   mutate(year = as.numeric(year))
+# 
+# slopes_year %>%
+#   filter(year %in% c(2014, 2015, 2023, 2024))
+# 
+# slopes_year2 <- diffs %>%
+#   group_by(year) %>%
+#   summarise(
+#     slope = coef(lm(diff ~ 0 + add))[1]
+#   )
+# slopes_year2 %>%
+#   filter(year %in% c(2014, 2015, 2023, 2024))
+# 
+# 
+# 
+# diffs %>% dplyr::select(year, add, diff, maxdhw) %>% write_csv("diffs.csv")
 ```
 
 
@@ -198,11 +197,11 @@ if (length(miss)) {
 }
 ```
 
-# unified workflow-- i think this works, just need to download more years of data
+
+
 ```{r get_pixel_slopes}
 ############################################################
-## PIXEL-SPECIFIC ΔDHW vs Δ°C SLOPES (MIXED MODEL, EXACTLY
-## FOLLOWING YOUR REGIONAL PIPELINE) — REEF PIXELS ONLY
+## PIXEL-SPECIFIC ΔDHW vs Δ°C SLOPES (MIXED MODEL) — REEF PIXELS ONLY
 ############################################################
 
 # ----------------------------
@@ -236,18 +235,18 @@ sst_all <- if (is.null(sst_subds)) {
 
 # # Ensure raster has a time vector; if not, you must supply dates from filenames.
 # # Many CRW products carry time in the file; if yours doesn't, you can parse from filenames here.
-# tt <- time(sst_all)
-# if (is.null(tt) || all(is.na(tt))) {
-#   # Fallback: try to parse YYYYMMDD from filenames (edit pattern to match your files)
-#   dates <- as.Date(stringr::str_extract(basename(nc_files), "\\d{8}"), format = "%Y%m%d")
-#   stopifnot(!all(is.na(dates)))
-#   time(sst_all) <- dates
-#   tt <- time(sst_all)
-# }
+tt <- time(sst_all)
+if (is.null(tt) || all(is.na(tt))) {
+  # Fallback: try to parse YYYYMMDD from filenames (edit pattern to match your files)
+  dates <- as.Date(stringr::str_extract(basename(nc_files), "\\d{8}"), format = "%Y%m%d")
+  stopifnot(!all(is.na(dates)))
+  time(sst_all) <- dates
+  tt <- time(sst_all)
+}
 
 # Keep only July–December across all years
-# keep <- month(tt) %in% 6:12
-# sst_allk <- sst_all[[which(keep)]]
+keep <- month(tt) %in% 6:12
+sst_all <- sst_all[[which(keep)]]
 
 # Crop & mask to reef hull 
 # Clip interpolated raster to just area of hull/polygon surrounding the reef tract
@@ -378,16 +377,36 @@ pixel_slopes2 <- temp_long %>%
   ungroup()
 
 pixel_slopes2
+hist(pixel_slopes2$slope)
 write_csv(pixel_slopes2, file = "data/processed/pixel_slopes.csv")
+#pixel_slopes2_old <- read_csv("data/processed/pixel_slopes_old.csv")
+#pixel_slopes <- full_join(pixel_slopes2, pixel_slopes2_old, by = "pixel")
+
 # -> tibble: pixel, slope (DHW per °C), se
 
 # ----------------------------
 # 4) (Optional) Write slopes back to a raster for mapping / extraction later
 # ----------------------------
+# slope estimates on SST grid via the pixel->sst crosswalk
 slope_r <- sst_all[[1]]
 values(slope_r) <- NA_real_
-values(slope_r)[pixel_slopes2$pixel] <- pixel_slopes2$slope
 names(slope_r) <- "DHW_per_degC_mixed"
+
+slope_map <- cell_map %>%
+  select(sst_cell, pixel, lon, lat) %>%
+  inner_join(pixel_slopes2, by = "pixel")
+
+vals <- rep(NA_real_, ncell(slope_r))
+vals[slope_map$sst_cell] <- slope_map$slope
+values(slope_r) <- vals
+
+se_r <- sst_all[[1]]
+values(se_r) <- NA_real_
+names(se_r) <- "SE_DHW_per_degC_mixed"
+
+vals <- rep(NA_real_, ncell(se_r))
+vals[slope_map$sst_cell] <- slope_map$se
+values(se_r) <- vals
 
 # quick check
 summary(values(slope_r))
@@ -497,24 +516,28 @@ w_slope_year <- pixel_weights_all %>%
 # check that renormalization worked
 w_slope_year %>% group_by(year) %>% summarise(sumw = sum(w2))
 
-# get weighted mean dhw vs degC slope for each species
+# get weighted mean dhw vs degC slope
 w_slope_year_res <- w_slope_year %>%
   group_by(year) %>%
   summarise(
     mean_slope = sum(w2 * slope_year),
-    mean_slope_se = sqrt(sum((w2 * se)^2)),
+    #mean_slope_se = sqrt(sum((w2 * se)^2)),
     kept_weight = sum(w_pixel_all),     # how much original weight had slope coverage
     dropped_weight = 1 - kept_weight,
     .groups = "drop"
   )
 
 w_slope_year_res_diffs <- w_slope_year_res %>%
-  mutate(diff2014 = mean_slope - lag(mean_slope)) %>%
+  mutate(diff2014 = mean_slope - mean_slope[year == "2014"]) %>%
   dplyr::select(year, diff2014) %>%
   replace_na(list(diff2014 = 0))
 
+# write year-specific slope offsets to file
 w_slope_year_res_diffs %>%
-  mutate(slopetouse = dhw.per.degC + diff2014)
+  #mutate(slopetouse = dhw.per.degC + diff2014) %>%
+  write_csv(., file = "data/processed/w_year_slope_offsets.csv")
+
+
 ```
 
 
