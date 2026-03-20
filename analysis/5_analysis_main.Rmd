@@ -383,7 +383,7 @@ surveys.by.date
 
 (surveyplot <- cowplot::plot_grid(surveys.by.dhw, surveys.by.date, ncol = 1, labels = "auto"))
 
-ggsave(filename = "figures/FigS1new.png", plot = surveyplot,
+ggsave(filename = "figures/FigS1.png", plot = surveyplot,
        width = 180, height = 250, units = "mm")
 ```
 
@@ -451,12 +451,11 @@ shapiro.test(south) # not normal
 
 median(north)
 quantile(north, c(0.25, 0.75))
-IQR(north)
-mad(north)
+
 
 median(south)
 quantile(south, c(0.25, 0.75))
-mad(south)
+
 ```
 
 ```{r bleaching_heatmap}
@@ -519,7 +518,7 @@ rasterplot <- basemap +
   annotate("text", x = -80.25, y = 25.7617, 
            label = "Miami", hjust = 1, vjust = 0, size = 2, fontface = "italic")
 rasterplot
-ggsave(filename = "figures/Fig1new.png", plot = rasterplot, width = 90, height = 90, units = "mm")
+ggsave(filename = "figures/Fig1.png", plot = rasterplot, width = 90, height = 90, units = "mm")
 ```
 
 ## Species variation in bleaching
@@ -619,10 +618,13 @@ drc.res.ridges <- drc.res %>%
 drc.res.ridges
 
 # Save as Figure2
-ggsave(filename = "figures/Fig2new.png", plot = drc.res.ridges,
+ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
        width = 90, height = 120, units = "mm")
 
 # Ancillary results reported in text
+## ED50 range
+range(ed50s$Estimate)
+ed50s %>% arrange(Estimate)
 ## DHW at which 99% of ACER were bleached
 drc.res %>%
   filter(Species == "ACER", signif(prob, 1) <= 0.01) %>%
@@ -640,11 +642,18 @@ ed50s %>%
 
 ed50s %>%
   filter(Estimate <= 8)
+
+# OFAV ED50
+ed50s %>%
+  filter(Species == "OFAV")
 ```
 
 
 ### Within-species variation (ED90-ED10)
 ```{r within_spp_bleaching_variability}
+# what was max DHW obs during 2023 surveys?
+maxdhw <- max(df23$dhw)
+
 # Get ED50s, ED90s, ED10s
 eds <- imap_dfr(
   fits,
@@ -666,10 +675,10 @@ eds <- imap_dfr(
     ED10_raw = Estimate_ED10,
 
     # censoring indicator: did we reach 90% bleaching (ED10_NB) by 21 DHW?
-    reach = ED10_raw <= 21,
+    reach = ED10_raw <= maxdhw,
 
     # keep your truncated ED10 for plotting if you want
-    Estimate_ED10_trunc = pmin(ED10_raw, 21),
+    Estimate_ED10_trunc = pmin(ED10_raw, maxdhw),
     
     # Raw uncensored range
     Range_raw = Estimate_ED10 - Estimate_ED90,
@@ -679,7 +688,7 @@ eds <- imap_dfr(
 
     # censored response for proper model:
     # if not reached, Range is right-censored at (21 - ED90)
-    Range_cens = if_else(reach, ED10_raw - Estimate_ED90, 21 - Estimate_ED90),
+    Range_cens = if_else(reach, ED10_raw - Estimate_ED90, maxdhw - Estimate_ED90),
 
     cens_type = if_else(reach, "none", "right")
   )
@@ -759,7 +768,7 @@ figs3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
   theme(legend.position = "none")
 figs3
 
-ggsave(filename = "figures/FigS3new.png", plot = figs3, width = 100, height = 100, units = "mm")
+ggsave(filename = "figures/FigS3.png", plot = figs3, width = 100, height = 100, units = "mm")
 ```
 
 
@@ -942,7 +951,7 @@ bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
-# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 60, re.form = NULL,
+# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
 #                     seed = 123, parallel = "multicore", ncpus = 20)
 # saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
 boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
@@ -973,13 +982,13 @@ targets <- peak_dates %>%
 # Get emmeans grid # For plotting, Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching), And select just the range of peak DHWs experienced across sites in each year
 dhw.res <- emmeans(dhw.mod24, specs = c("dhw", "year", "Week2"), type = "response",
                    re.form = NA,
-                   at = list(dhw = seq(0, 23, 0.1), Week2 = unique(peak_dates$Week2)), 
+                   at = list(dhw = seq(0, maxdhw, 0.1), Week2 = unique(peak_dates$Week2)), 
                    rg.limit = 20000, level = 0.84)
 
 # Filter for target year:Week2 and dhw ranges
 dhw.res2 <- as_tibble(dhw.res) %>%
   inner_join(targets, by = c("year", "Week2")) %>%
-  filter(dhw > mindhw, dhw <= maxdhw)
+  filter(dhw >= mindhw, dhw <= maxdhw)
 
 dhw.res3 <- as_tibble(dhw.res) %>%
   inner_join(targets, by = c("year", "Week2")) %>%
@@ -1007,7 +1016,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
           arrow = arrow(type = "open", length = unit(2, "mm"))) +
   annotate("segment", x = ed50conf[[4,2]] - 1e-6, xend = ed50conf[[4,2]], y = 0, yend = 0, lwd = 0.2, lty = 1,
            arrow = arrow(type = "open", length = unit(2, "mm"))) +
-  scale_x_continuous(limits = c(-1, 22), breaks = seq(0, 24, 4), expand = c(0, 0)) +
+  scale_x_continuous(limits = c(-0.5, maxdhw+0.5), breaks = seq(0, 24, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 
                      labels = scales::label_percent()) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
@@ -1066,21 +1075,21 @@ degC <- ed50conf %>%
 finaldegC23 <- degC %>% 
   filter(year == 2023) %>%
   dplyr::select(degC, degC.lower, degC.upper)
-# 0.98°C [95% C.I. = 0.830-1.13°C]
+# 0.90°C [95% C.I. = 0.77-1.03°C]
 finaldegC24 <- degC %>% 
   filter(year == 2024) %>%
   dplyr::select(degC, degC.lower, degC.upper)
-# 1.60°C [95% C.I. = 1.35-1.85°C]
+# 1.47°C [95% C.I. = 1.32-1.63°C]
 
 # Annotate bleaching response curves plot // Fig3a
 fig3a <- dhw.bleach.plot +
   annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 2, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
-  annotate("text", x = 18.4, y = 0.04, hjust = 0, size = 2, fontface = "italic",
-           label = paste0("+", signif(ed50conf$ed50[[7]], 2), " DHW\n", 
+  annotate("text", x = 16.5, y = 0.04, hjust = 0, size = 2, fontface = "italic",
+           label = paste0("+", signif(ed50conf$ed50[[7]], 3), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
-
+fig3a
 #ggsave(filename = "figures/Fig3.png", width = 100, height = 90, units = "mm")
 
 ```
@@ -1098,13 +1107,13 @@ dhw.sp.mod.24 <- glmer(
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
 dhw.sp.res.24 <- emmeans(dhw.sp.mod.24, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                      at = list(dhw = seq(0, 23, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+                      at = list(dhw = seq(0, maxdhw, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
                       rg.limit = 200000, level = 0.84)
 dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
-  (year == "2014" & Week2 == "(35,37]" & dhw <= 8.11 & dhw > 0.48) |
-  (year == "2015" & Week2 == "(37,39]" & dhw <= 8.90 & dhw > 0) |
-  (year == "2023" & Week2 == "(33,35]" & dhw <= 21.5 & dhw > 1.06) |
-  (year == "2024" & Week2 == "(37,39]" & dhw <= 11.7 & dhw > 0.16) 
+  (year == "2014" & Week2 == "(35,37]" & dhw <= 7.12 & dhw > 0.48) |
+  (year == "2015" & Week2 == "(37,39]" & dhw <= 8.00 & dhw > 0) |
+  (year == "2023" & Week2 == "(33,35]" & dhw <= 20.4 & dhw > 1.46) |
+  (year == "2024" & Week2 == "(37,39]" & dhw <= 11.5 & dhw > 0.30) 
 )
 
 
@@ -1157,7 +1166,7 @@ ggsave(filename = "figures/Fig3new.png", width = 200, height = 100, units = "mm"
 ## change in ED50s from 2014-2015, and 2014-2023
 sp.ed50s.fun.24 <- function(dhw.sp.mod) {
   dhw.sp.res <- emmeans(dhw.sp.mod, specs = c("Species", "dhw", "year", "Week2"), type = "response",
-                   at = list(dhw = seq(0, 23, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+                   at = list(dhw = seq(0, 21, 0.05), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
                    rg.limit = 200000, level = 0.84)
   dhw.sp.res22 <- subset(dhw.sp.res,
     (year == "2014" & Week2 == "(35,37]") |
@@ -1184,8 +1193,8 @@ sp.bleach50.24 <- sp.ed50s.fun.24(dhw.sp.mod.24)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 ## https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# sp.boot.out.24 <- bootMer(dhw.sp.mod.24, FUN = sp.ed50s.fun.24, nsim = 500, seed = 123, re.form = NULL,
-#                        parallel = "multicore", ncpus = 12)
+# sp.boot.out.24 <- bootMer(dhw.sp.mod.24, FUN = sp.ed50s.fun.24, nsim = 100, seed = 123, re.form = NULL,
+#                        parallel = "multicore", ncpus = 20)
 # saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
 sp.boot.out.24 <- readRDS(file = "data/processed/sp.boot.out.24.rds")
 ## Get confidence intervals from Bootstrap
@@ -1278,7 +1287,8 @@ sp.degC.w <- sp.ed50s %>%
   mutate(degC_u = ed50 / dhw.per.degC,
          degC_w = ed50 / mean_slope,
          degC_w.se = sqrt((se/pmax(ed50, 0.1))^2 + (mean_slope_se/mean_slope)^2) * pmax(degC_w, 0.1))
-sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.068
+sp.degC.w %>% arrange(degC_w.se)
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0495
 
 ```
 
@@ -1286,13 +1296,13 @@ sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.068
 ## Species - ∆°C vs. ∆pop + symbionts
 
 ```{r bleachthresh_vs_density, fig.width = 10}
-densdiffs <- readRDS("data/processed/dens20142023.rds")
-#densdiffs <- read_csv("data/processed/densdiffs_smoth.csv")
+#densdiffs <- readRDS("data/processed/dens20142023.rds")
+densdiffs <- read_csv("data/processed/densdiffs_smoth.csv")
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- sp.degC.w %>%
   left_join(dplyr::select(as.tibble(densdiffs), Species, 
-                          #estimate = estimate_smooth)) %>%
-                          estimate)) %>%
+                          estimate = estimate_smooth)) %>%
+                          #estimate)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
 # net <- net %>%
