@@ -209,7 +209,11 @@ peak_dates <- dhw_daily %>%
 # --- verify the peak dates ---
 peak_dates <- peak_dates %>%
   dplyr::select(year, peak_date_pred, Week2 = Week2_pred, dhw_max, peak_date_obs, n_rise)
-peak_dates
+
+# write peak dates to file
+peak_dates %>%
+  dplyr::select(year, peak_date_pred, Week2) %>%
+  write_csv(., file = "data/processed/peak_dates.csv")
 
 # --- build fitted line on the rising-limb subset for plotting ---
 rise_fit_df <- dhw_daily %>%
@@ -241,11 +245,11 @@ ggplot(dhw_daily, aes(date, dhw_used)) +
   ) +
   theme_bw()
 
-ggplot(dhw_all, aes(x = date, y = dhw)) +
-  geom_line(aes(group = Site, color = Subregion), alpha = 0.2) +
-  facet_wrap(~year, scales = "free") +
-  geom_vline(data = peak_dates, aes(xintercept = as.numeric(peak_date_pred)),
-             linetype = "dotted")
+# ggplot(dhw_all, aes(x = date, y = dhw)) +
+#   geom_line(aes(group = Site, color = Subregion), alpha = 0.2) +
+#   facet_wrap(~year, scales = "free") +
+#   geom_vline(data = peak_dates, aes(xintercept = as.numeric(peak_date_pred)),
+#              linetype = "dotted")
 ```
 
 
@@ -379,7 +383,7 @@ surveys.by.date
 
 (surveyplot <- cowplot::plot_grid(surveys.by.dhw, surveys.by.date, ncol = 1, labels = "auto"))
 
-ggsave(filename = "figures/FigS1.png", plot = surveyplot,
+ggsave(filename = "figures/FigS1new.png", plot = surveyplot,
        width = 180, height = 250, units = "mm")
 ```
 
@@ -434,7 +438,7 @@ pctbl23.adj %>%
 pctbl23.adj <- pctbl23.adj %>%
   mutate(region = case_when(Subregion %in% c("Martin", "Palm Beach", "Broward-Miami") ~ "north",
                               TRUE ~ "south"))
-write_csv(pctbl23.adj, "dataset.csv")
+#write_csv(pctbl23.adj, "dataset.csv")
 north <- filter(pctbl23.adj, region == "north") %>% pull(adjprob)
 south <- filter(pctbl23.adj, region == "south") %>% pull(adjprob)
 
@@ -477,12 +481,13 @@ idw.spp <- raster::interpolate(samplegrid, idw.model)
 
 # Clip interpolated raster to just area of hull/polygon surrounding the reef tract
 # Create hull/polygon surrounding surveyed sites
-pts1 <- st_as_sf(x = sites23, coords = c('Longitude', 'Latitude'))
-my_hull <- st_concave_hull(st_union(pts1), ratio = 0.09)
-my_hull <- st_buffer(my_hull, dist = 0.015)
-my_hull <- my_hull %>% st_set_crs(4326)
-idw.spp.reef <- raster::mask(idw.spp, (as_Spatial(my_hull)))
-saveRDS(my_hull, "data/spatial/my_hull.rds")
+# pts1 <- st_as_sf(x = sites23, coords = c('Longitude', 'Latitude'))
+# my_hull <- st_concave_hull(st_union(pts1), ratio = 0.09)
+# my_hull <- st_buffer(my_hull, dist = 0.015)
+# my_hull <- my_hull %>% st_set_crs(4326)
+reef_hull <- readRDS("data/spatial/reef_hull.rds")
+idw.spp.reef <- raster::mask(idw.spp, (as_Spatial(reef_hull)))
+#saveRDS(my_hull, "data/spatial/my_hull.rds")
 
 # Convert clipped interpolation to spatraster for plotting
 x <- rast(idw.spp.reef)
@@ -514,7 +519,7 @@ rasterplot <- basemap +
   annotate("text", x = -80.25, y = 25.7617, 
            label = "Miami", hjust = 1, vjust = 0, size = 2, fontface = "italic")
 rasterplot
-ggsave(filename = "figures/Fig1.png", plot = rasterplot, width = 90, height = 90, units = "mm")
+ggsave(filename = "figures/Fig1new.png", plot = rasterplot, width = 90, height = 90, units = "mm")
 ```
 
 ## Species variation in bleaching
@@ -604,7 +609,7 @@ drc.res.ridges <- drc.res %>%
   geom_segment(data = ed50s, aes(y = Species, yend = Species, x = Lower, xend = Upper),
                linewidth = 0.2) +
   scale_x_continuous(expand = c(0, 0)) +
-  coord_cartesian(xlim = c(0, 23)) +
+  coord_cartesian(xlim = c(0, 21)) +
   theme_classic() +
   theme(legend.position = "none",
         axis.text.y = element_text(face = "italic", vjust = 0),
@@ -614,7 +619,7 @@ drc.res.ridges <- drc.res %>%
 drc.res.ridges
 
 # Save as Figure2
-ggsave(filename = "figures/Fig2.png", plot = drc.res.ridges,
+ggsave(filename = "figures/Fig2new.png", plot = drc.res.ridges,
        width = 90, height = 120, units = "mm")
 
 # Ancillary results reported in text
@@ -660,11 +665,11 @@ eds <- imap_dfr(
     # keep raw (uncensored) ED10
     ED10_raw = Estimate_ED10,
 
-    # censoring indicator: did we reach 90% bleaching (ED10_NB) by 23 DHW?
-    reach = ED10_raw <= 23,
+    # censoring indicator: did we reach 90% bleaching (ED10_NB) by 21 DHW?
+    reach = ED10_raw <= 21,
 
     # keep your truncated ED10 for plotting if you want
-    Estimate_ED10_trunc = pmin(ED10_raw, 23),
+    Estimate_ED10_trunc = pmin(ED10_raw, 21),
     
     # Raw uncensored range
     Range_raw = Estimate_ED10 - Estimate_ED90,
@@ -673,13 +678,13 @@ eds <- imap_dfr(
     Diff_trunc = Estimate_ED10_trunc - Estimate_ED90,
 
     # censored response for proper model:
-    # if not reached, Range is right-censored at (23 - ED90)
-    Range_cens = if_else(reach, ED10_raw - Estimate_ED90, 23 - Estimate_ED90),
+    # if not reached, Range is right-censored at (21 - ED90)
+    Range_cens = if_else(reach, ED10_raw - Estimate_ED90, 21 - Estimate_ED90),
 
     cens_type = if_else(reach, "none", "right")
   )
 
-# Uncertainty on the ED90-ED10 difference is unreliable and incomparable across species since many did not actually reach 90% bleaching within the observed DHW range and therefore this end of the DRC is unconstrained. So we will compute a bounded estimate within the observed DHW range (truncate at 23).
+# Uncertainty on the ED90-ED10 difference is unreliable and incomparable across species since many did not actually reach 90% bleaching within the observed DHW range and therefore this end of the DRC is unconstrained. So we will compute a bounded estimate within the observed DHW range (truncate at 21).
 
 # Ancillary results 
 range(eds$Diff_trunc)
@@ -746,7 +751,7 @@ figs3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]), position = pos,
                            fontface = "italic", size = 2.5, segment.size = 0.25, seed = 8,
                            min.segment.length = 0.3) +
-  geom_text(data = anno, x = 0.9, y = 23:24, aes(label = label), color = c("blue", "black"),
+  geom_text(data = anno, x = 0.9, y = 21:22, aes(label = label), color = c("blue", "black"),
             hjust = 0, size = 2.5) +
   labs(x = "Number of Symbiodiniaceae genera", 
        y = "Intraspecific bleaching tolerance breadth\n(ED90–ED10; DHW)") +
@@ -754,7 +759,7 @@ figs3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
   theme(legend.position = "none")
 figs3
 
-ggsave(filename = "figures/FigS3.png", plot = fig3, width = 100, height = 100, units = "mm")
+ggsave(filename = "figures/FigS3new.png", plot = figs3, width = 100, height = 100, units = "mm")
 ```
 
 
@@ -823,6 +828,12 @@ allg <- allf %>%
   summarize(BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1)) %>%
   ungroup()
+
+## Drop two NAs
+allg <- allg %>% drop_na()
+
+## Save processed data to file
+readr::write_rds(allg, "data/processed/all_grp_bl.rds")
 
 # Plot raw bleaching prevalence data
 ggplot(allg, aes(x = dhw, y = BL/(BL+NB))) +
@@ -931,8 +942,8 @@ bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
-# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
-#                     seed = 123, parallel = "multicore", ncpus = 10) 
+# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 60, re.form = NULL,
+#                     seed = 123, parallel = "multicore", ncpus = 20)
 # saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
 boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
 ## Get confidence intervals from Bootstrap
@@ -951,8 +962,8 @@ ed50conf <- tibble(
 # Get max and min DHW for conducted surveys as bounds
 dhw_ranges <- all0 %>% 
   group_by(year) %>%
-  summarize(maxdhw = max(dhw),
-            mindhw = min(dhw))
+  summarize(maxdhw = max(dhw, na.rm = TRUE),
+            mindhw = min(dhw, na.rm = TRUE))
 
 # Target combos + bounds
 targets <- peak_dates %>%
@@ -1034,6 +1045,10 @@ dhw.per.degC <- sum(pixel_dat$w_pixel_all * pixel_dat$slope)
 # Propagated SE of weighted mean
 dhw.per.degC.se <- sqrt(sum((pixel_dat$w_pixel_all^2) * (pixel_dat$se^2)))
 
+# Write to file
+tibble(dhw.per.degC = dhw.per.degC, dhw.per.degC.se = dhw.per.degC.se) %>%
+  write_csv(., file = "data/processed/dhw.per.degC.csv")
+
 
 # Convert change in ed50s (DHW) to change in tolerance (°C) 
 ## Propagate errors (quadrature methhod for relative error propagation)
@@ -1045,14 +1060,17 @@ degC <- ed50conf %>%
          degC.upper = degC + (1.96 * degC.se)) %>%
   separate(year, into = c("year", "2014"))
 
+
+
 # Get change in heat tolerance from 2014-2013 in degC with 95% C.I.
 finaldegC23 <- degC %>% 
   filter(year == 2023) %>%
   dplyr::select(degC, degC.lower, degC.upper)
-# 0.98°C [95% C.I. = 0.835-1.14°C]
+# 0.98°C [95% C.I. = 0.830-1.13°C]
 finaldegC24 <- degC %>% 
   filter(year == 2024) %>%
   dplyr::select(degC, degC.lower, degC.upper)
+# 1.60°C [95% C.I. = 1.35-1.85°C]
 
 # Annotate bleaching response curves plot // Fig3a
 fig3a <- dhw.bleach.plot +
@@ -1132,7 +1150,7 @@ spfig <- dhw.sp.bleach.plot.24 +
         axis.ticks = element_line(linewidth = 0.3))
 
 fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.6, 0.4), align = "hv", labels = "AUTO")
-ggsave(filename = "figures/Fig3.png", width = 200, height = 100, units = "mm")
+ggsave(filename = "figures/Fig3new.png", width = 200, height = 100, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1268,12 +1286,13 @@ sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.068
 ## Species - ∆°C vs. ∆pop + symbionts
 
 ```{r bleachthresh_vs_density, fig.width = 10}
-#densdiffs <- readRDS("data/processed/dens20142023.rds")
-densdiffs <- read_csv("data/processed/densdiffs_smoth.csv")
+densdiffs <- readRDS("data/processed/dens20142023.rds")
+#densdiffs <- read_csv("data/processed/densdiffs_smoth.csv")
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- sp.degC.w %>%
   left_join(dplyr::select(as.tibble(densdiffs), Species, 
-                          estimate = estimate_smooth)) %>%
+                          #estimate = estimate_smooth)) %>%
+                          estimate)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
 # net <- net %>%
@@ -1535,7 +1554,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
+ggsave(filename = "figures/Fig4new_notsmooth.png", width = 300, height = 95, units = "mm")
 
 # cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")

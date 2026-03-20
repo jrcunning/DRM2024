@@ -15,7 +15,7 @@ library(tidyverse)
 ## 1. Initial model: Bleaching ~ DHW across years
 ```{r bleaching_by_dhw_across_years}
 # Import data to fit bleaching model
-allg <- readr::read_rds("all_grp_bl.rds")
+allg <- readr::read_rds("data/processed/all_grp_bl.rds")
 peak_dates <- read_csv("data/processed/peak_dates.csv")
 
 # Model differences in bleaching severity between years with DHW as continuous predictor
@@ -86,10 +86,10 @@ bleach50 <- ed50s.fun_fast(dhw.mod24)
 bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-# set.seed(1)
-# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 60, re.form = NULL,
-#                         seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
+set.seed(1)
+boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
+                        seed = 123, parallel = "multicore", ncpus = 6)
+saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
 boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -583,10 +583,10 @@ bleach50.shift <- ed50s.fun_fast(dhw.mod24.shift)
 bleach50.shift
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-# set.seed(1)
-# boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 40, re.form = NULL,
-#                       seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
+set.seed(1)
+boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
+                      seed = 123, parallel = "multicore", ncpus = 6)
+saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
 boot.shift <- readRDS(file = "data/processed/boot.shift.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -633,7 +633,7 @@ dhw.shift.bleach.plot <- ggplot(as.tibble(dhw.shift.res2), aes(x = dhw, y = prob
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1),
                      labels = scales::label_percent()) +
   theme_classic() +
-  labs(x = "Tolerance-shifted DHW\n(across-years scaling)", y = "Bleaching prevalence") +
+  labs(x = "Recomputed DHW with shifted thresholds\n(°C-weeks; across-year ∆°C per ∆DHW)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
   geom_errorbar(
     data = ed50conf_shift %>% dplyr::filter(year %in% c("2014","2015","2023")),
@@ -790,9 +790,9 @@ bleach50.shift2
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 set.seed(1)
-# boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 60, re.form = NULL,
-#                     seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
+boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
+                    seed = 123, parallel = "multicore", ncpus = 6)
+saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
 boot.shift2 <- readRDS(file = "data/processed/boot.shift2.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift2$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -840,7 +840,8 @@ dhw.shift2.bleach.plot <- ggplot(as.tibble(dhw.shift2.res2), aes(x = dhw, y = pr
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1),
                      labels = scales::label_percent()) +
   theme_classic() +
-  labs(x = "Tolerance-shifted DHW\n(year-specific scaling)", y = "Bleaching prevalence") +
+  labs(x = "Recomputed DHW with shifted thresholds\n(°C-weeks; year-specific ∆°C per ∆DHW)", 
+       y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
   geom_errorbar(
     data = ed50conf_shift2 %>% dplyr::filter(year %in% c("2014","2015","2023")),
