@@ -870,7 +870,7 @@ ggplot(allf, aes(Depth, color = year)) +
     legend.margin = margin(0,0,0,0)
   )
 
-figsx
+#figsx
 ```
 
 ## All corals - ED50s by year
@@ -1297,7 +1297,7 @@ sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0495
 
 ```{r bleachthresh_vs_density, fig.width = 10}
 #densdiffs <- readRDS("data/processed/dens20142023.rds")
-densdiffs <- read_csv("data/processed/densdiffs_smoth.csv")
+densdiffs <- read_csv("data/processed/densdiffs_smoth3.csv")
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- sp.degC.w %>%
   left_join(dplyr::select(as.tibble(densdiffs), Species, 
@@ -1451,6 +1451,7 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   geom_point(aes(y = degC_w, shape = "Observed change (±SE)"), size = 2) +
   geom_errorbar(aes(ymin = degC_w - degC_w.se, ymax = degC_w + degC_w.se), width = 0) +
   scale_x_discrete(labels = abbrev_names[as.character(out$Species)]) +
+  scale_y_continuous(limits = c(-0.73, 1.7), breaks = seq(-0.5, 1.5, 0.5), labels = c("", 0, "", 1, "")) +
   scale_fill_manual(name = "Model-estimated drivers", 
                       labels = c("unexplained", "∆ pop. density", "# sym. genera"),
                       values = c( "#C0C0C0","#67a9cf", "#ef8a62")) +
@@ -1471,8 +1472,6 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
          shape = guide_legend(order = 1, label.theme = element_text(size = 8)))
 
-
-
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 # Compute adjusted degC while preserving species-level variation
 # net_clean$Adj_degC_Estimate1 <- (ols_slope_estimate * net_clean$estimate) + residuals(ols_model_adjusted)
@@ -1486,7 +1485,7 @@ net_clean$Residual_Variation <- residuals(ols_model_adjusted)
 ### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
 
 # Add jitter to ngen to prevent overlap
-set.seed(42)
+set.seed(46)
 net_clean$Jittered_Ngen <- jitter(net_clean$ngen, amount = 0.1)
 
 # Generate regression lines data using correct centering
@@ -1564,7 +1563,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig4new_notsmooth.png", width = 300, height = 95, units = "mm")
+ggsave(filename = "figures/Fig4_smoth3.png", width = 300, height = 95, units = "mm")
 
 # cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
@@ -1669,7 +1668,7 @@ RR <- p90andsmall %>%
         strip.text = element_text(face = "italic", hjust = 0),
         strip.background = element_blank()))
 
-ggsave(filename = "figures/FigS7.png", plot = sizeplot,
+ggsave(filename = "figures/FigS7new.png", plot = sizeplot,
        width = 120, height = 100, units = "mm")
 
 
@@ -1754,7 +1753,7 @@ ggsave("figures/FigS8.png", plot = sizefreq, width = 220, height = 220, units = 
 # ============================================================
 
 sym_shifts <- read_csv("data/processed/symbiont_shifts.csv") %>%
-  left_join(net %>% select(Species, degC, degC.se, ngen, estimate))
+  left_join(net_clean %>% dplyr::select(Species, degC_w, degC_w.se, ngen, estimate))
 
 # We constrain the model so that expected shift equals zero when only one symbiont genus is present, reflecting the mathematical property of compositional distance metrics.
 # An unweighted model is preferable here, because the weights (~error bars on Hellinger dist) may be correlated with ngen. Because species with higher symbiont diversity tended to have larger uncertainty in Hellinger distance estimates, inverse-variance weighting would systematically down-weight high-diversity species and potentially attenuate the relationship of interest, so we present unweighted regressions as the primary analysis. We performed weighted regression as a sensitivity check and the relationship is still positive and significant.
@@ -1797,7 +1796,7 @@ p1 <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
 # mod1 <- lm(degC ~ 0 + estimate + med, data = sym_shifts, weights = 1/degC.se^2)
 # summary(mod1)
 # mod1_pval <- broom::tidy(mod1)[2,5]
-mod1 <- lm(degC ~ estimate + med, data = sym_shifts, weights = 1/degC.se^2)
+mod1 <- lm(degC_w ~ estimate + med, data = sym_shifts, weights = 1/degC_w.se^2)
 summary(mod1)
 mod1_pval <- broom::tidy(mod1)[3,5]
 
@@ -1857,10 +1856,10 @@ sym_shifts$ngen_centered <- sym_shifts$ngen - 1
 
 # Fit the model, with intercept zero at estimate = 0 and ngen = 1
 #  Weight observations using the standard error of the degC response
-mod2 <- lm(degC ~ 0 + estimate + ngen_centered, data = sym_shifts, weights = 1/degC.se^2)
+mod2 <- lm(degC_w ~ 0 + estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
 summary(mod2)
 mod2_pval <- broom::tidy(mod2)[2,5]
-mod2 <- lm(degC ~ estimate + ngen_centered, data = sym_shifts, weights = 1/degC.se^2)
+mod2 <- lm(degC_w ~ estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
 summary(mod2)
 mod2_pval <- broom::tidy(mod2)[3,5]
 

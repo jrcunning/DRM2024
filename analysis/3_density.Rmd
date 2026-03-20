@@ -241,10 +241,12 @@ res_year2 <- res_year2 %>%
 # - family = gaussian() because we're smoothing estimated means, not raw counts
 # - species-specific smooths: s(year_num, Species, bs="fs")
 # - weights: inverse-variance weighting from emmeans SEs
-k_blue <- 10  # tweak if you want more/less wiggle; this is usually plenty for annual series
+k_blue <- 6  # tweak if you want more/less wiggle; this is usually plenty for annual series
 
 mod_blue <- mgcv::bam(
-  rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2),
+  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2), #original
+  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2)    #smoth2
+  rate ~ s(year_num, Species, bs = "fs", k = 10, m = 1),   #smoth3
   data    = res_year2,
   family  = "gaussian",
   #weights = w,
@@ -396,7 +398,7 @@ densdiffs_smoth <- dplyr::full_join(disc_14_23, smooth_14_23, by = "Species") %>
                 estimate_smooth,   pct_smooth) %>%
   dplyr::arrange(Species)
 
-write.csv(densdiffs_smoth, "data/processed/densdiffs_smoth.csv", row.names = FALSE)
+write.csv(densdiffs_smoth, "data/processed/densdiffs_smoth3.csv", row.names = FALSE)
 ```
 
 
