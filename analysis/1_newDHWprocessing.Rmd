@@ -1,0 +1,695 @@
+---
+title: "Untitled"
+author: "R. Cunning"
+date: "2026-03-18"
+output: html_document
+---
+
+```{r}
+library(ncdf4)
+library(raster)
+library(terra)
+library(tidyverse)
+library(tidyterra)
+library(sf)
+library(rnaturalearth)
+```
+
+```{r}
+# ============================================================
+# 1) Helpers + constants
+# ============================================================
+
+file_date <- function(f) {
+  as.Date(stringr::str_match(basename(f), "(\\d{8})")[,2], "%Y%m%d")
+}
+
+# Florida Reef Tract extent
+fl_ext <- terra::ext(-83.525, -78.975, 23.975, 28.025)
+
+years_keep   <- c(2014, 2015, 2023, 2024)
+start_mmdd   <- "06-01"
+end_mmdd     <- "12-31"
+cushion_days <- 83L   # to allow full 84-day windows at June 1
+
+sst_dir   <- "data/coraltemp"
+clim_file <- "data/coraltemp/ct5km_climatology_v3.1.nc"
+
+# optional year-specific MMM offsets
+add_by_year <- c("2014" = 0, "2015" = 0, "2023" = 0, "2024" = 0)
+```
+
+```{r}
+# ============================================================
+# 2) Read native MMM once and confirm native grid matches SST
+# ============================================================
+
+mmm_full <- rast(clim_file, subds = "sst_clim_mmm")
+
+sst_files_all <- list.files(
+  sst_dir,
+  pattern = "^coraltemp_v3\\.1_\\d{8}\\.nc$",
+  full.names = TRUE
+)
+sst_dates_all <- file_date(sst_files_all)
+
+sst1 <- rast(sst_files_all[1], subds = "analysed_sst")
+
+# confirm native geometry matches
+stopifnot(compareGeom(sst1, mmm_full, stopOnError = FALSE))
+
+# crop both to the same extent, preserving native grid
+mmm0 <- crop(mmm_full, fl_ext)
+sst1_crop <- crop(sst1, fl_ext)
+
+# confirm cropped geometry still matches
+stopifnot(compareGeom(sst1_crop, mmm0, stopOnError = FALSE))
+```
+
+```{r}
+# ============================================================
+# 3) Read CRW DHW for a year
+# ============================================================
+
+read_crw_dhw_year <- function(year, dhw_dir = "data/dhw", ext_use = fl_ext) {
+
+  year_dir <- file.path(dhw_dir, as.character(year))
+  files <- list.files(year_dir, pattern = "\\.nc$", full.names = TRUE)
+
+  dates <- file_date(files)
+
+  keep <- dates >= as.Date(sprintf("%d-%s", year, start_mmdd)) &
+          dates <= as.Date(sprintf("%d-%s", year, end_mmdd))
+
+  files <- files[keep]
+  dates <- dates[keep]
+
+  r <- rast(files, subds = "degree_heating_week")
+  r <- crop(r, ext_use)
+
+  # Match CRW style: noon UTC timestamps
+  time(r) <- as.POSIXct(paste(dates, "12:00:00"), tz = "UTC")
+
+  r
+}
+```
+
+```{r}
+# ============================================================
+# 4) Compute DHW directly on native SST grid
+# ============================================================
+
+compute_dhw_rasters <- function(sst_stack, mmm_raster,
+                                start_date, end_date,
+                                mmm_add = 0,
+                                set_time_noon_utc = TRUE) {
+
+  # sanity
+  stopifnot(compareGeom(sst_stack[[1]], mmm_raster, stopOnError = FALSE))
+
+  # MMM adjustment if desired
+  mmm_shift <- mmm_raster + mmm_add
+
+  # HotSpot = SST - MMM
+  hotspot <- sst_stack - mmm_shift
+
+  # retain only HotSpot >= 1; otherwise 0
+  hotspot_ge1 <- ifel(hotspot >= 1, hotspot, 0)
+
+  # convert to daily DHW contribution in degree-C-weeks
+  dhd <- hotspot_ge1 / 7
+
+  # rolling 84-day sum, including current day
+  n <- nlyr(dhd)
+  w <- 84L
+  out <- vector("list", n)
+
+  for (i in seq_len(n)) {
+    j0 <- max(1L, i - w + 1L)
+    out[[i]] <- app(dhd[[j0:i]], sum, na.rm = TRUE)
+  }
+
+  dhw_stack <- rast(out)
+
+  # preserve source dates from SST stack
+  sst_dates <- as.Date(time(sst_stack))
+
+  keep <- sst_dates >= start_date & sst_dates <= end_date
+  dhw_stack <- dhw_stack[[which(keep)]]
+  keep_dates <- sst_dates[keep]
+
+  if (set_time_noon_utc) {
+    time(dhw_stack) <- as.POSIXct(paste(keep_dates, "12:00:00"), tz = "UTC")
+  } else {
+    time(dhw_stack) <- keep_dates
+  }
+
+  names(dhw_stack) <- paste0("dhw_", keep_dates)
+
+  peak_dhw <- app(dhw_stack, max, na.rm = TRUE)
+  names(peak_dhw) <- "peak_dhw"
+
+  list(
+    dhw_stack = dhw_stack,
+    peak_dhw  = peak_dhw
+  )
+}
+```
+
+```{r}
+# ============================================================
+# 5) Build calculated DHW stacks for all years
+# ============================================================
+
+dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
+
+dhw_stacks_calc <- list()
+dhw_stacks_crw  <- list()
+peak_calc       <- list()
+peak_crw        <- list()
+
+for (yy in years_keep) {
+
+  message("Processing year: ", yy)
+
+  start_date <- as.Date(sprintf("%d-%s", yy, start_mmdd))
+  end_date   <- as.Date(sprintf("%d-%s", yy, end_mmdd))
+
+  # include prior 83 days so June 1 has full 84-day accumulation window
+  keep <- sst_dates_all >= (start_date - cushion_days) &
+          sst_dates_all <= end_date
+
+  sst_files <- sst_files_all[keep]
+  sst_dates <- sst_dates_all[keep]
+
+  if (length(sst_files) == 0) {
+    stop("No SST files found for year ", yy)
+  }
+
+  # read SST directly on native CRW grid
+  sst_stack <- rast(sst_files, subds = "analysed_sst")
+  sst_stack <- crop(sst_stack, fl_ext)
+
+  # preserve exact calendar date then write times like CRW
+  time(sst_stack) <- as.POSIXct(paste(sst_dates, "12:00:00"), tz = "UTC")
+
+  # confirm still aligned with MMM
+  stopifnot(compareGeom(sst_stack[[1]], mmm0, stopOnError = FALSE))
+
+  add_val <- add_by_year[[as.character(yy)]] %||% 0
+
+  res <- compute_dhw_rasters(
+    sst_stack   = sst_stack,
+    mmm_raster  = mmm0,
+    start_date  = start_date,
+    end_date    = end_date,
+    mmm_add     = add_val,
+    set_time_noon_utc = TRUE
+  )
+
+  dhw_stacks_calc[[as.character(yy)]] <- res$dhw_stack
+  peak_calc[[as.character(yy)]]       <- res$peak_dhw
+
+  # also read CRW product
+  dhw_stacks_crw[[as.character(yy)]] <- read_crw_dhw_year(yy, ext_use = fl_ext)
+  peak_crw[[as.character(yy)]] <- app(dhw_stacks_crw[[as.character(yy)]], max, na.rm = TRUE)
+
+  # convenience objects
+  assign(paste0("dhw_stack_calc_", yy), res$dhw_stack, envir = .GlobalEnv)
+  assign(paste0("peak_dhw_calc_", yy),  res$peak_dhw,  envir = .GlobalEnv)
+
+  assign(paste0("dhw_stack_crw_", yy), dhw_stacks_crw[[as.character(yy)]], envir = .GlobalEnv)
+  assign(paste0("peak_dhw_crw_", yy),  peak_crw[[as.character(yy)]],       envir = .GlobalEnv)
+}
+```
+
+```{r}
+# ============================================================
+# 6) Comparison function
+# ============================================================
+
+compare_dhw_stacks <- function(calc_stack, crw_stack) {
+
+  calc_dates <- as.Date(time(calc_stack))
+  crw_dates  <- as.Date(time(crw_stack))
+
+  stopifnot(identical(calc_dates, crw_dates))
+  stopifnot(compareGeom(calc_stack[[1]], crw_stack[[1]], stopOnError = FALSE))
+
+  diff_stack <- calc_stack - crw_stack
+
+  stats <- global(diff_stack, c("min", "mean", "max"), na.rm = TRUE) |>
+    as.data.frame() |>
+    tibble::rownames_to_column("layer") |>
+    mutate(date = calc_dates)
+
+  frac_diff <- global(abs(diff_stack) > 1e-6, "mean", na.rm = TRUE)[,1]
+
+  diff_ts <- tibble(
+    date = calc_dates,
+    mean_diff = global(diff_stack, "mean", na.rm = TRUE)[,1],
+    min_diff  = global(diff_stack, "min",  na.rm = TRUE)[,1],
+    max_diff  = global(diff_stack, "max",  na.rm = TRUE)[,1],
+    frac_cells_different = frac_diff
+  )
+
+  peak_diff_max <- app(diff_stack, max, na.rm = TRUE)
+  peak_diff_min <- app(diff_stack, min, na.rm = TRUE)
+
+  list(
+    diff_stack    = diff_stack,
+    stats         = stats,
+    diff_ts       = diff_ts,
+    peak_diff_max = peak_diff_max,
+    peak_diff_min = peak_diff_min
+  )
+}
+```
+
+```{r}
+# ============================================================
+# 7) Run comparisons
+# ============================================================
+
+cmp_2023 <- compare_dhw_stacks(dhw_stack_calc_2023, dhw_stack_crw_2023)
+cmp_2024 <- compare_dhw_stacks(dhw_stack_calc_2024, dhw_stack_crw_2024)
+cmp_2014 <- compare_dhw_stacks(dhw_stack_calc_2014, dhw_stack_crw_2014)
+cmp_2015 <- compare_dhw_stacks(dhw_stack_calc_2015, dhw_stack_crw_2015)
+
+cmp_2023$stats
+cmp_2024$stats
+cmp_2014$stats
+cmp_2015$stats
+```
+
+Calculated DHW's match CRW's DHW product so we can move forward with the calculated values
+
+# Extract DHWs for each surveyed site on date surveyed
+```{r}
+
+# ------------------------------------------------------------
+# Helper: standardize raster CRS if terra reports "unknown"
+# ------------------------------------------------------------
+fix_lonlat_crs <- function(r) {
+  r_crs <- terra::crs(r)
+  if (is.na(r_crs) || r_crs == "" || grepl('GEOGCRS\\["unknown"', r_crs)) {
+    terra::crs(r) <- "OGC:CRS84"
+  }
+  r
+}
+
+# great-circle distance in meters
+haversine_m <- function(lon1, lat1, lon2, lat2) {
+  rad <- pi / 180
+  lon1 <- lon1 * rad
+  lat1 <- lat1 * rad
+  lon2 <- lon2 * rad
+  lat2 <- lat2 * rad
+
+  dlon <- lon2 - lon1
+  dlat <- lat2 - lat1
+
+  a <- sin(dlat / 2)^2 + cos(lat1) * cos(lat2) * sin(dlon / 2)^2
+  2 * 6371000 * asin(pmin(1, sqrt(a)))
+}
+
+extract_layer_values_diag <- function(r_layer, df_xy, max_dist_m = 6000) {
+  r_layer <- fix_lonlat_crs(r_layer)
+
+  # first try: direct cell extraction
+  simple <- terra::extract(
+    r_layer,
+    df_xy[, c("Longitude", "Latitude")],
+    method = "simple",
+    ID = FALSE
+  )[, 1]
+
+  vals <- terra::values(r_layer, mat = FALSE)
+  good_cells <- which(!is.na(vals))
+
+  good_xy <- terra::xyFromCell(r_layer, good_cells)
+  good_vals <- vals[good_cells]
+
+  final <- simple
+  used_nearest <- rep(FALSE, length(simple))
+  nearest_dist_m <- rep(NA_real_, length(simple))
+
+  miss <- which(is.na(simple))
+
+  for (i in miss) {
+    d <- haversine_m(
+      lon1 = df_xy$Longitude[i],
+      lat1 = df_xy$Latitude[i],
+      lon2 = good_xy[, 1],
+      lat2 = good_xy[, 2]
+    )
+
+    j <- which.min(d)
+
+    if (length(j) == 1 && is.finite(d[j])) {
+      nearest_dist_m[i] <- d[j]
+
+      if (d[j] <= max_dist_m) {
+        final[i] <- as.numeric(good_vals[j])
+        used_nearest[i] <- TRUE
+      }
+    }
+  }
+
+  tibble(
+    value_simple = simple,
+    value_final = final,
+    used_nearest = used_nearest,
+    nearest_dist_m = nearest_dist_m
+  )
+}
+
+# ------------------------------------------------------------
+# For a survey table with one row per survey, extract raster values
+# from the layer matching each survey date
+#
+# Required columns in surveys:
+#   Date, Longitude, Latitude
+#
+# value_name is the output column name, e.g. "dhw_crw"
+# ------------------------------------------------------------
+extract_stack_on_survey_dates <- function(rstk, surveys, prefix = "dhw", max_dist_m = 6000) {
+  rstk <- fix_lonlat_crs(rstk)
+
+  layer_dates  <- as.Date(time(rstk))
+  survey_dates <- as.Date(surveys$Date)
+
+  lyr_idx <- match(survey_dates, layer_dates)
+
+  out_simple <- rep(NA_real_, nrow(surveys))
+  out_final  <- rep(NA_real_, nrow(surveys))
+  out_used   <- rep(FALSE, nrow(surveys))
+  out_dist   <- rep(NA_real_, nrow(surveys))
+
+  idx_by_date <- split(seq_len(nrow(surveys)), survey_dates)
+
+  for (dd in names(idx_by_date)) {
+    rows <- idx_by_date[[dd]]
+    k <- match(as.Date(dd), layer_dates)
+
+    if (is.na(k)) next
+
+    ex <- extract_layer_values_diag(
+      r_layer = rstk[[k]],
+      df_xy = surveys[rows, c("Longitude", "Latitude")],
+      max_dist_m = max_dist_m
+    )
+
+    out_simple[rows] <- ex$value_simple
+    out_final[rows]  <- ex$value_final
+    out_used[rows]   <- ex$used_nearest
+    out_dist[rows]   <- ex$nearest_dist_m
+  }
+
+  surveys[[paste0(prefix, "_simple")]] <- out_simple
+  surveys[[prefix]] <- out_final
+  surveys[[paste0(prefix, "_used_nearest")]] <- out_used
+  surveys[[paste0(prefix, "_nearest_dist_m")]] <- out_dist
+  surveys$layer_matched <- lyr_idx
+
+  surveys
+}
+```
+
+```{r}
+# ------------------------------------------------------------
+# Read survey data once
+# ------------------------------------------------------------
+surveys_all <- read_csv("data/drm/FRRP_EXPORT.csv", show_col_types = FALSE) %>%
+  mutate(
+    Date = as_date(as.character(Date), format = "%m/%d/%Y %H:%M:%S")
+  ) %>%
+  filter(!is.na(Date),
+         !is.na(Longitude),
+         !is.na(Latitude)) %>%
+  distinct(Site, Date, Latitude, Longitude, Subregion)
+```
+
+```{r}
+# ------------------------------------------------------------
+# Named lists of stacks
+# ------------------------------------------------------------
+dhw_stacks_crw <- list(
+  "2014" = dhw_stack_crw_2014,
+  "2015" = dhw_stack_crw_2015,
+  "2023" = dhw_stack_crw_2023,
+  "2024" = dhw_stack_crw_2024
+)
+
+dhw_stacks_calc <- list(
+  "2014" = dhw_stack_calc_2014,
+  "2015" = dhw_stack_calc_2015,
+  "2023" = dhw_stack_calc_2023,
+  "2024" = dhw_stack_calc_2024
+)
+
+years_keep <- c(2014, 2015, 2023, 2024)
+
+dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
+
+survey_dhw_list <- vector("list", length(years_keep))
+names(survey_dhw_list) <- as.character(years_keep)
+
+for (yy in years_keep) {
+
+  message("Extracting survey-date DHW for year: ", yy)
+
+  surveys_yy <- surveys_all %>%
+    filter(year(Date) == yy)
+
+  if (nrow(surveys_yy) == 0) {
+    warning("No surveys found for year ", yy)
+    next
+  }
+
+  r_crw  <- dhw_stacks_crw[[as.character(yy)]]
+  r_calc <- dhw_stacks_calc[[as.character(yy)]]
+
+  # sanity checks
+  stopifnot(identical(as.Date(time(r_crw)), as.Date(time(r_calc))))
+  stopifnot(compareGeom(r_crw[[1]], r_calc[[1]], stopOnError = FALSE))
+
+  # extract CRW
+  out_yy <- extract_stack_on_survey_dates(
+  rstk = r_crw,
+  surveys = surveys_yy,
+  prefix = "dhw_crw",
+  max_dist_m = 6000
+)
+
+out_yy <- extract_stack_on_survey_dates(
+  rstk = r_calc,
+  surveys = out_yy,
+  prefix = "dhw_calc",
+  max_dist_m = 6000
+) %>%
+  mutate(
+    year = yy,
+    dhw_diff = dhw_calc - dhw_crw
+  )
+
+  survey_dhw_list[[as.character(yy)]] <- out_yy
+
+  write_csv(
+    out_yy,
+    file = sprintf("data/processed/%d_survey_date_dhw_compare.csv", yy)
+  )
+}
+
+survey_dhw_compare <- bind_rows(survey_dhw_list)
+
+write_csv(
+  survey_dhw_compare,
+  file = "data/processed/survey_date_dhw_compare_all_years.csv"
+)
+```
+
+
+```{r}
+
+
+# overall agreement
+survey_dhw_compare %>%
+  summarize(
+    n = n(),
+    n_missing_crw = sum(is.na(dhw_crw)),
+    n_missing_calc = sum(is.na(dhw_calc)),
+    mean_diff = mean(dhw_diff, na.rm = TRUE),
+    median_diff = median(dhw_diff, na.rm = TRUE),
+    max_abs_diff = max(abs(dhw_diff), na.rm = TRUE),
+    cor = cor(dhw_crw, dhw_calc, use = "complete.obs")
+  )
+
+# by year
+survey_dhw_compare %>%
+  group_by(year) %>%
+  summarize(
+    n = n(),
+    mean_diff = mean(dhw_diff, na.rm = TRUE),
+    median_diff = median(dhw_diff, na.rm = TRUE),
+    max_abs_diff = max(abs(dhw_diff), na.rm = TRUE),
+    cor = cor(dhw_crw, dhw_calc, use = "complete.obs"),
+    .groups = "drop"
+  )
+```
+
+```{r}
+
+# format once
+df_out <- survey_dhw_compare %>%
+  dplyr::select(Date, Site, Subregion, Longitude, Latitude,
+         dhw_crw, dhw_calc, year)
+
+# loop years and write
+for (yy in unique(df_out$year)) {
+
+  df_yy <- df_out %>% filter(year == yy)
+
+  # CRW
+  df_crw <- df_yy %>%
+    dplyr::select(Date, Site, Subregion, Longitude, Latitude, dhw = dhw_crw)
+
+  write_csv(
+    df_crw,
+    file = sprintf("data/processed/%d_dhw_processed_new.csv", yy),
+    na = ""
+  )
+
+  # calculated
+  df_calc <- df_yy %>%
+    dplyr::select(Date, Site, Subregion, Longitude, Latitude, dhw = dhw_calc)
+
+  write_csv(
+    df_calc,
+    file = sprintf("data/processed/%d_dhw_calc_processed_new.csv", yy),
+    na = ""
+  )
+}
+```
+
+```{r}
+# check if same as original extracted dhw data (WHICH COULD HAVE HAD ERRORS IN EXTRACTION PROCESS)
+og <- read_csv("data/processed/2023_dhw_processed.csv")
+new <- read_csv("data/processed/2023_dhw_processed_new.csv") %>%
+  rename(date = Date)
+
+hi <- og %>% right_join(new, by = c("date", "Site", "Subregion", "Longitude", "Latitude")) %>%
+  mutate(diff = dhw.x - dhw.y)
+hi
+
+
+
+# site/date to inspect - biggest mismatch between old/new dhw extract process for 2023 sites
+lon0  <- -80.89928
+lat0  <-  24.73763
+date0 <- as.Date("2023-08-03")
+
+# matching CRW layer from the already-imported stack
+k <- match(date0, as.Date(time(dhw_stack_crw_2023)))
+r <- dhw_stack_crw_2023[[k]]
+
+# direct extracted value from the true CRW grid
+val_simple <- terra::extract(r, matrix(c(lon0, lat0), ncol = 2), method = "simple")[1,1]
+
+# nearest non-NA fallback, same logic as new method
+vals <- terra::values(r, mat = FALSE)
+ok   <- which(!is.na(vals))
+xy   <- terra::xyFromCell(r, ok)
+d    <- geosphere::distHaversine(matrix(c(lon0, lat0), ncol = 2), xy)
+j    <- which.min(d)
+val_nearest <- vals[ok[j]]
+dist_nearest_m <- d[j]
+
+# cell the point falls in
+cell0 <- terra::cellFromXY(r, cbind(lon0, lat0))
+xy0   <- terra::xyFromCell(r, cell0)
+
+# nearby map extent
+pad <- 0.15
+e <- terra::ext(lon0 - pad, lon0 + pad, lat0 - pad, lat0 + pad)
+
+# crop raster for plotting
+r_crop <- crop(r, e)
+
+# point + true raster cell center
+pts <- tibble(
+  type = c("site", "cell_center"),
+  x = c(lon0, xy0[1,1]),
+  y = c(lat0, xy0[1,2])
+)
+
+# optional basemap
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+
+# convert raster to data frame with cell centers
+df_cells <- as.data.frame(r_crop, xy = TRUE, na.rm = TRUE) %>%
+  rename(dhw = 3)  # third column is the raster value
+
+ggplot() +
+  geom_spatraster(data = r_crop) +
+  
+  # label each cell
+  geom_text(
+    data = df_cells,
+    aes(x = x, y = y, label = round(dhw, 1)),
+    size = 2.8,
+    color = "black"
+  ) +
+  
+  # basemap
+  geom_sf(data = world, fill = "gray90", color = "gray40", linewidth = 0.2) +
+  
+  # site + cell center
+  geom_point(
+    data = pts,
+    aes(x, y, shape = type),
+    size = 3.5,
+    stroke = 1.2,
+    fill = "white",
+    color = "black"
+  ) +
+  
+  # annotation box
+  geom_text(
+    data = tibble(
+      x = lon0,
+      y = lat0,
+      lab = paste0(
+        "Y1315\n",
+        "simple = ", round(val_simple, 2), "\n",
+        "nearest = ", round(val_nearest, 2)
+      )
+    ),
+    aes(x, y, label = lab),
+    nudge_y = 0.03,
+    size = 3.5
+  ) +
+  
+  coord_sf(
+    xlim = c(lon0 - pad, lon0 + pad),
+    ylim = c(lat0 - pad, lat0 + pad),
+    expand = FALSE
+  ) +
+  
+  scale_shape_manual(values = c(site = 21, cell_center = 4)) +
+  
+  labs(
+    title = paste("CRW DHW grid on", date0, "- site Y1315"),
+    subtitle = paste(
+      "Old =", 13.97,
+      "| New =", 10.70,
+      "| True =", round(val_simple, 2)
+    ),
+    x = "Longitude",
+    y = "Latitude",
+    fill = "DHW"
+  ) +
+  
+  theme_bw()
+```
+
