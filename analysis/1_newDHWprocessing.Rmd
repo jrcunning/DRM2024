@@ -15,6 +15,101 @@ library(sf)
 library(rnaturalearth)
 ```
 
+# Download Florida map
+```{r}
+# Download map for Florida
+world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+# Create base map of Florida
+basemap <- ggplot() +
+  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+  scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
+                       midpoint = 0.5, limits = c(0, 1), na.value = NA,
+                       labels = scales::label_percent(), name = "Corals\nbleached") +
+  theme(text = element_text(size = 10),
+        axis.title = element_blank(),
+        panel.background = element_rect(fill = "lightsteelblue1"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.grid = element_blank(),
+        legend.position = c(0.2, 0.5),
+        legend.background = element_blank())
+
+
+# Create reef hull/polygon surrounding all surveyed sites
+all_survey_pts0 <- read_csv("data/drm/FRRP_EXPORT.csv") %>%
+  distinct(Latitude, Longitude)
+
+all_survey_pts <- sf::st_as_sf(x = all_survey_pts0, coords = c('Longitude', 'Latitude'))
+reef_hull <- sf::st_concave_hull(sf::st_union(all_survey_pts), ratio = 0.09)
+reef_hull <- sf::st_buffer(reef_hull, dist = 0.015)
+reef_hull <- reef_hull %>% sf::st_set_crs(4326)
+saveRDS(reef_hull, "data/spatial/reef_hull.rds")
+all_survey_pts <- all_survey_pts %>% sf::st_set_crs(4326)
+
+
+
+basemap +
+  geom_sf(data = reef_hull, fill = NA, color = "black", linewidth = 0.7) +
+  geom_sf(data = all_survey_pts, size = 1, alpha = 0.05) +
+  coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE)
+```
+
+
+# Download all SST data
+```{r download_sst_data}
+
+# Pixel-level CoralTemp SST stacks for Florida Reef Tract (robust lon/lat indexing + scaling)
+library(tidyverse)
+library(lubridate)
+library(purrr)
+library(ncdf4)
+library(terra)
+library(stringr)
+
+# ---- CONFIG ----
+base_sst <- "https://www.star.nesdis.noaa.gov/pub/socd/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily/sst"
+years <- c(1997:2025)
+start_mmdd <- "03-01"
+end_mmdd   <- "12-31"
+out_dir <- "data/coraltemp"
+
+# Florida Reef Tract bbox (WGS84)
+bbox <- list(lon_min = -83.525, lon_max = -78.975, lat_min = 23.975, lat_max = 28.025)
+
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# ---- BUILD DATE LIST (preserve Date class) ----
+dates <- map(years, \(yy) seq.Date(as.Date(sprintf("%d-%s", yy, start_mmdd)),
+                                   as.Date(sprintf("%d-%s", yy, end_mmdd)),
+                                   by = "day")) |> 
+  list_c()
+
+# ---- URLS + DOWNLOAD (only missing files) ----
+sst_urls  <- sprintf("%s/%d/coraltemp_v3.1_%s.nc", base_sst, year(dates), format(dates, "%Y%m%d"))
+sst_files <- file.path(out_dir, basename(sst_urls))
+miss <- which(!file.exists(sst_files))
+#if (length(miss)) walk2(sst_urls[miss], sst_files[miss], \(u, f) download.file(u, f, mode = "wb"))
+
+library(purrr)
+library(furrr)
+library(future)
+# download in parallel
+if (length(miss)) {
+  plan(multisession, workers = 8) 
+  future_walk2(
+    sst_urls[miss], sst_files[miss],
+    \(u, f) download.file(u, f, mode = "wb", quiet = TRUE)
+  )
+}
+```
+
+```{r}
+# Download CRW DHW data
+# DHW data downloaded 5/1/24 using:
+# wget -r -l1 -A "ct*" https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily/dhw/2023/
+
+```
+
 ```{r}
 # ============================================================
 # 1) Helpers + constants
@@ -284,6 +379,54 @@ cmp_2015$stats
 
 Calculated DHW's match CRW's DHW product so we can move forward with the calculated values
 
+# Plot peak calculated DHWs for each pixel for during each year
+```{r}
+# peak calculated dhw for each pixel in each year
+peak_calc
+
+#reef pixels
+reef_hull_v <- terra::vect(reef_hull)
+
+# Highest DHW reached in reef pixel in 2023?
+maxdhw <- global(mask(peak_calc$`2023`, reef_hull_v), "max", na.rm = TRUE)[1,1]
+
+
+make_peak_map <- function(r, yy, reef_hull_v) {
+  r_reef <- terra::mask(r, reef_hull_v)
+
+  basemap +
+    geom_spatraster(data = r_reef) +
+    geom_sf(data = world, linewidth = 0.1, fill = "gray90") +
+    coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
+    scale_fill_distiller(
+      palette = "Spectral",
+      limits = c(0, maxdhw),
+      na.value = NA,
+      name = "Peak\nDHW "
+    )
+}
+
+dhwmap_calc14 <- make_peak_map(peak_calc[["2014"]], "2014", reef_hull_v)
+dhwmap_calc15 <- make_peak_map(peak_calc[["2015"]], "2015", reef_hull_v)
+dhwmap_calc23 <- make_peak_map(peak_calc[["2023"]], "2023", reef_hull_v)
+dhwmap_calc24 <- make_peak_map(peak_calc[["2024"]], "2024", reef_hull_v)
+
+cowplot::plot_grid(
+  dhwmap_calc14, dhwmap_calc15,
+  dhwmap_calc23, dhwmap_calc24,
+  ncol = 2,
+  labels = c("2014", "2015", "2023", "2024"),
+  label_x = 0.1, label_y = 0.92
+)
+
+ggsave(
+  filename = "figures/FigS2.png",
+  width = 200, height = 185, units = "mm"
+)
+
+```
+
+
 # Extract DHWs for each surveyed site on date surveyed
 ```{r}
 
@@ -416,6 +559,7 @@ extract_stack_on_survey_dates <- function(rstk, surveys, prefix = "dhw", max_dis
 }
 ```
 
+
 ```{r}
 # ------------------------------------------------------------
 # Read survey data once
@@ -429,6 +573,7 @@ surveys_all <- read_csv("data/drm/FRRP_EXPORT.csv", show_col_types = FALSE) %>%
          !is.na(Latitude)) %>%
   distinct(Site, Date, Latitude, Longitude, Subregion)
 ```
+
 
 ```{r}
 # ------------------------------------------------------------
@@ -495,24 +640,22 @@ out_yy <- extract_stack_on_survey_dates(
 
   survey_dhw_list[[as.character(yy)]] <- out_yy
 
-  write_csv(
-    out_yy,
-    file = sprintf("data/processed/%d_survey_date_dhw_compare.csv", yy)
-  )
+  # write_csv(
+  #   out_yy,
+  #   file = sprintf("data/processed/%d_survey_date_dhw_compare.csv", yy)
+  # )
 }
 
 survey_dhw_compare <- bind_rows(survey_dhw_list)
 
-write_csv(
-  survey_dhw_compare,
-  file = "data/processed/survey_date_dhw_compare_all_years.csv"
-)
+# write_csv(
+#   survey_dhw_compare,
+#   file = "data/processed/survey_date_dhw_compare_all_years.csv"
+# )
 ```
 
 
 ```{r}
-
-
 # overall agreement
 survey_dhw_compare %>%
   summarize(
@@ -538,6 +681,7 @@ survey_dhw_compare %>%
   )
 ```
 
+# Write calculated DHWs for each survey site on date surveyed to file
 ```{r}
 
 # format once
@@ -550,15 +694,15 @@ for (yy in unique(df_out$year)) {
 
   df_yy <- df_out %>% filter(year == yy)
 
-  # CRW
-  df_crw <- df_yy %>%
-    dplyr::select(Date, Site, Subregion, Longitude, Latitude, dhw = dhw_crw)
-
-  write_csv(
-    df_crw,
-    file = sprintf("data/processed/%d_dhw_processed_new.csv", yy),
-    na = ""
-  )
+  # # CRW
+  # df_crw <- df_yy %>%
+  #   dplyr::select(Date, Site, Subregion, Longitude, Latitude, dhw = dhw_crw)
+  # 
+  # write_csv(
+  #   df_crw,
+  #   file = sprintf("data/processed/%d_dhw_crw_processed.csv", yy),
+  #   na = ""
+  # )
 
   # calculated
   df_calc <- df_yy %>%
@@ -566,130 +710,11 @@ for (yy in unique(df_out$year)) {
 
   write_csv(
     df_calc,
-    file = sprintf("data/processed/%d_dhw_calc_processed_new.csv", yy),
+    file = sprintf("data/processed/%d_dhw_calc_processed.csv", yy),
     na = ""
   )
 }
 ```
 
-```{r}
-# check if same as original extracted dhw data (WHICH COULD HAVE HAD ERRORS IN EXTRACTION PROCESS)
-og <- read_csv("data/processed/2023_dhw_processed.csv")
-new <- read_csv("data/processed/2023_dhw_processed_new.csv") %>%
-  rename(date = Date)
 
-hi <- og %>% right_join(new, by = c("date", "Site", "Subregion", "Longitude", "Latitude")) %>%
-  mutate(diff = dhw.x - dhw.y)
-hi
-
-
-
-# site/date to inspect - biggest mismatch between old/new dhw extract process for 2023 sites
-lon0  <- -80.89928
-lat0  <-  24.73763
-date0 <- as.Date("2023-08-03")
-
-# matching CRW layer from the already-imported stack
-k <- match(date0, as.Date(time(dhw_stack_crw_2023)))
-r <- dhw_stack_crw_2023[[k]]
-
-# direct extracted value from the true CRW grid
-val_simple <- terra::extract(r, matrix(c(lon0, lat0), ncol = 2), method = "simple")[1,1]
-
-# nearest non-NA fallback, same logic as new method
-vals <- terra::values(r, mat = FALSE)
-ok   <- which(!is.na(vals))
-xy   <- terra::xyFromCell(r, ok)
-d    <- geosphere::distHaversine(matrix(c(lon0, lat0), ncol = 2), xy)
-j    <- which.min(d)
-val_nearest <- vals[ok[j]]
-dist_nearest_m <- d[j]
-
-# cell the point falls in
-cell0 <- terra::cellFromXY(r, cbind(lon0, lat0))
-xy0   <- terra::xyFromCell(r, cell0)
-
-# nearby map extent
-pad <- 0.15
-e <- terra::ext(lon0 - pad, lon0 + pad, lat0 - pad, lat0 + pad)
-
-# crop raster for plotting
-r_crop <- crop(r, e)
-
-# point + true raster cell center
-pts <- tibble(
-  type = c("site", "cell_center"),
-  x = c(lon0, xy0[1,1]),
-  y = c(lat0, xy0[1,2])
-)
-
-# optional basemap
-world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
-
-# convert raster to data frame with cell centers
-df_cells <- as.data.frame(r_crop, xy = TRUE, na.rm = TRUE) %>%
-  rename(dhw = 3)  # third column is the raster value
-
-ggplot() +
-  geom_spatraster(data = r_crop) +
-  
-  # label each cell
-  geom_text(
-    data = df_cells,
-    aes(x = x, y = y, label = round(dhw, 1)),
-    size = 2.8,
-    color = "black"
-  ) +
-  
-  # basemap
-  geom_sf(data = world, fill = "gray90", color = "gray40", linewidth = 0.2) +
-  
-  # site + cell center
-  geom_point(
-    data = pts,
-    aes(x, y, shape = type),
-    size = 3.5,
-    stroke = 1.2,
-    fill = "white",
-    color = "black"
-  ) +
-  
-  # annotation box
-  geom_text(
-    data = tibble(
-      x = lon0,
-      y = lat0,
-      lab = paste0(
-        "Y1315\n",
-        "simple = ", round(val_simple, 2), "\n",
-        "nearest = ", round(val_nearest, 2)
-      )
-    ),
-    aes(x, y, label = lab),
-    nudge_y = 0.03,
-    size = 3.5
-  ) +
-  
-  coord_sf(
-    xlim = c(lon0 - pad, lon0 + pad),
-    ylim = c(lat0 - pad, lat0 + pad),
-    expand = FALSE
-  ) +
-  
-  scale_shape_manual(values = c(site = 21, cell_center = 4)) +
-  
-  labs(
-    title = paste("CRW DHW grid on", date0, "- site Y1315"),
-    subtitle = paste(
-      "Old =", 13.97,
-      "| New =", 10.70,
-      "| True =", round(val_simple, 2)
-    ),
-    x = "Longitude",
-    y = "Latitude",
-    fill = "DHW"
-  ) +
-  
-  theme_bw()
-```
 
