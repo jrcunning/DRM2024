@@ -112,17 +112,17 @@ label_p_expr <- function(p, accuracy = 1e-4, digits = 4) {
 ## DHW and peak heat stress
 ```{r}
 # Get processed DHW data for all sites surveyed in each year
-dhw2014 <- read_csv("data/processed/2014_dhw_processed.csv")
-dhw2015 <- read_csv("data/processed/2015_dhw_processed.csv")
-dhw2023 <- read_csv("data/processed/2023_dhw_processed.csv")
-dhw2024 <- read_csv("data/processed/2024_dhw_processed.csv")
+dhw2014 <- read_csv("data/processed/2014_dhw_calc_site_traj.csv")
+dhw2015 <- read_csv("data/processed/2015_dhw_calc_site_traj.csv")
+dhw2023 <- read_csv("data/processed/2023_dhw_calc_site_traj.csv")
+dhw2024 <- read_csv("data/processed/2024_dhw_calc_site_traj.csv")
 
 # Combine all DHW data
 dhw_all <- bind_rows(dhw2014, dhw2015, dhw2023, dhw2024) %>%
   mutate(year = year(date))
 
 ggplot(dhw_all, aes(x = yday(date), y = dhw)) +
-  geom_line(aes(group = Site, color = Subregion), alpha = 0.2) +
+  geom_line(aes(group = Site, color = Subregion), alpha = 0.9) +
   facet_wrap(~year)
 
 # Compute daily average DHW across all surveyed sites
@@ -156,7 +156,7 @@ dhw_daily <- dhw_daily %>%
 
 # --- parameters defining the "early rising limb" ---
 p_lo <- 0.05   # 5% of annual max
-p_hi <- 0.60   # 60% of annual max
+p_hi <- 0.55   # 60% of annual max
 
 # --- function: fit rising limb and compute intersection with annual max ---
 peak_extrapolated <- function(d) {

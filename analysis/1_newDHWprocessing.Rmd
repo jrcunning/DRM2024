@@ -595,7 +595,7 @@ dhw_stacks_calc <- list(
 
 years_keep <- c(2014, 2015, 2023, 2024)
 
-dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
+
 
 survey_dhw_list <- vector("list", length(years_keep))
 names(survey_dhw_list) <- as.character(years_keep)
@@ -654,7 +654,7 @@ survey_dhw_compare <- bind_rows(survey_dhw_list)
 # )
 ```
 
-
+## Compare extracted DHW values from CRW and from SST-calculations
 ```{r}
 # overall agreement
 survey_dhw_compare %>%
@@ -710,11 +710,77 @@ for (yy in unique(df_out$year)) {
 
   write_csv(
     df_calc,
-    file = sprintf("data/processed/%d_dhw_calc_processed.csv", yy),
+    file = sprintf("data/processed/%d_dhw_calc_site_surveyed.csv", yy),
     na = ""
   )
 }
 ```
 
+# Write full DHW trajectory for each surveyed site to file
+```{r}
+# ============================================================
+# Write calculated DHW trajectories for every site on every day
+# June 1–Dec 31, using only sites surveyed in that same year
+# Output files like: 2014_dhw_calc_site_traj.csv
+# ============================================================
+
+extract_full_site_traj <- function(rstk, sites_df, max_dist_m = 6000) {
+  rstk <- fix_lonlat_crs(rstk)
+
+  layer_dates <- as.Date(time(rstk))
+  out_list <- vector("list", length(layer_dates))
+
+  for (k in seq_along(layer_dates)) {
+    ex <- extract_layer_values_diag(
+      r_layer = rstk[[k]],
+      df_xy = sites_df[, c("Longitude", "Latitude")],
+      max_dist_m = max_dist_m
+    )
+
+    out_list[[k]] <- sites_df %>%
+      mutate(
+        date = layer_dates[k],
+        dhw  = ex$value_final
+      ) %>%
+      select(date, Site, Subregion, Longitude, Latitude, dhw)
+  }
+
+  bind_rows(out_list) %>%
+    arrange(date)
+}
+
+for (yy in years_keep) {
+  message("Writing full site DHW trajectory for year: ", yy)
+
+  r_calc <- dhw_stacks_calc[[as.character(yy)]]
+
+  if (is.null(r_calc)) {
+    warning("No calculated DHW stack found for year ", yy)
+    next
+  }
+
+  # only sites surveyed in this year
+  sites_yy <- surveys_all %>%
+    filter(lubridate::year(Date) == yy) %>%
+    distinct(Site, Subregion, Longitude, Latitude)
+
+  if (nrow(sites_yy) == 0) {
+    warning("No survey sites found for year ", yy)
+    next
+  }
+
+  df_yy <- extract_full_site_traj(
+    rstk = r_calc,
+    sites_df = sites_yy,
+    max_dist_m = 6000
+  )
+
+  write_csv(
+    df_yy,
+    file = sprintf("data/processed/%d_dhw_calc_site_traj.csv", yy),
+    na = ""
+  )
+}
+```
 
 
