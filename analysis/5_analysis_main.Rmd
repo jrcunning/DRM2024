@@ -1789,8 +1789,11 @@ p1 <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
 
 # ============================================================
 # 2) Mechanistic link: Realized symbiont community change predicts heat tolerance change 
-#.   (Hellinger dist → Δ°C, controlling for density change)
+#    (Hellinger dist → Δ°C, controlling for density change)
 # ============================================================
+#
+#    USE UNCERTAINTY IN PREDICTOR (HELLINGER DIST) FOR THIS PART OF THE ANALYSIS?
+#
 # Fit the model, with intercept zero at density change estimate = 0 and med(Hel dist) = 0
 #  Weight observations using the standard error of the degC response
 # mod1 <- lm(degC ~ 0 + estimate + med, data = sym_shifts, weights = 1/degC.se^2)
