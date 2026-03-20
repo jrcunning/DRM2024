@@ -630,9 +630,10 @@ line_df <- w_slope_year_res %>%
   rename(add = add_grid)
 
 # 3) Plot
-ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = year)) +
+figs4 <- ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = year)) +
   geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
   geom_line(linewidth = 0.7, alpha = 0.9) +
+  annotate(geom = "text", x = 1.5, y = 2, label = paste0("Mean = ", round(dhw.per.degC, 1), " DHW per °C")) +
   scale_x_continuous(
     breaks = seq(0, max(adds), by = 0.5),
     expand = c(0, 0)
@@ -643,44 +644,15 @@ ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = year)) +
   ) +
   scale_color_viridis_d(option = "turbo") +
   labs(
-    x = expression(Delta * degree * "C added to threshold"),
-    y = expression("Pixel-weighted reduction in peak DHW, " * Delta * "DHW (" * degree * "C-weeks)"),
+    x = expression(Delta * degree * "C added to bleaching threshold"),
+    y = expression("Reduction in peak DHW (" * degree * "C-weeks)"),
     color = "Year"
   ) +
   theme_classic()
+ggsave(filename = "figures/FigS4.png", plot = figs4, width = 160, height = 120, units = "mm")
 
 
-
-ggplot(line_df, aes(x = add, y = diff, group = year)) +
-  geom_line(linewidth = 0.5, alpha = 0.9, color = "gray") +
-  geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
-  geom_line(data = line_df %>% filter(year %in% c(2014, 2015, 2023, 2024)),
-            aes(color = factor(year)), linewidth = 1, alpha = 0.9) +
-  ggrepel::geom_text_repel(data = line_df %>% filter(year %in% c(2014, 2015, 2023, 2024)) %>%
-               group_by(year, max_add_used) %>% summarize(maxdiff = max(diff)),
-             aes(x = max_add_used, y = maxdiff, label = year, color = factor(year)),
-             nudge_x = c(0.2, 0.2, -0.2, -0.2)) +
-  scale_x_continuous(
-    breaks = seq(0, max(adds), by = 0.5),
-    expand = c(0, 0)
-  ) +
-  scale_y_continuous(
-    limits = c(0, 21),
-    expand = expansion(mult = c(0, 0.05))
-  ) +
-  #scale_color_manual(values = c("gray", "red")) +
-  labs(
-    x = expression(Delta * degree * "C added to threshold"),
-    y = expression("Pixel-weighted reduction in peak DHW, " * Delta * "DHW (" * degree * "C-weeks)"),
-    color = "Year"
-  ) +
-  theme_classic() +
-  theme(legend.position = "none")
-
-
-
-
-ggplot(line_df, aes(x = add, y = diff, group = year)) +
+overall_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
   geom_line(linewidth = 0.5, alpha = 0.9, color = "gray") +
   geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
   scale_y_continuous(
@@ -693,12 +665,45 @@ ggplot(line_df, aes(x = add, y = diff, group = year)) +
   ) +
   #scale_color_manual(values = c("gray", "red")) +
   labs(
-    x = expression(Delta * degree * "C added to threshold"),
-    y = expression("Pixel-weighted reduction in peak DHW, " * Delta * "DHW (" * degree * "C-weeks)"),
+    x = expression(Delta * degree * "C"),
+    y = expression(Delta * DHW),
     color = "Year"
   ) +
   theme_classic() +
   theme(legend.position = "none")
+saveRDS(overall_inset, "data/processed/overall_inset.rds")
+
+
+years_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
+  geom_line(linewidth = 0.5, alpha = 0.9, color = "gray") +
+  geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
+  geom_line(data = line_df %>% filter(year %in% c(2014, 2015, 2023, 2024)),
+            aes(color = factor(year)), linewidth = 1, alpha = 0.9) +
+  ggrepel::geom_text_repel(data = line_df %>% filter(year %in% c(2014, 2015, 2023, 2024)) %>%
+               group_by(year, max_add_used) %>% summarize(maxdiff = max(diff)),
+             aes(x = c(0.9, 1, 1.55, 1.1), y = c(8.97, 9.70, 20, 13.9), label = year, color = factor(year)),
+             nudge_x = c(0.2, 0.2, -0.2, -0.2), size = 3) +
+  scale_x_continuous(
+    breaks = seq(0, max(adds), by = 0.5),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(
+    limits = c(0, 21),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  #scale_color_manual(values = c("gray", "red")) +
+  labs(
+    x = expression(Delta * degree * "C"),
+    y = expression(Delta * DHW),
+    color = "Year"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+saveRDS(years_inset, "data/processed/years_inset.rds")
+
+
+
+
 ```
 
 

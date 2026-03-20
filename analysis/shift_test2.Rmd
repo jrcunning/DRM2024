@@ -86,10 +86,10 @@ bleach50 <- ed50s.fun_fast(dhw.mod24)
 bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-set.seed(1)
-boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
-                        seed = 123, parallel = "multicore", ncpus = 6)
-saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
+# set.seed(1)
+# boot.outnull <- bootMer(dhw.mod24, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
+#                         seed = 123, parallel = "multicore", ncpus = 6)
+# saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
 boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -134,12 +134,12 @@ dhw.res3 <- as_tibble(dhw.res) %>%
 # Plot
 dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE, fill = year), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
   geom_line(aes(color = year)) +
   geom_line(data = dhw.res3, linetype = 2, linewidth = 0.1) +
   # Add year text labels
   geom_text(data = dhw_ranges,
-           aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year),
+           aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year, color = year),
            hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,-0.3), size = 3) +
   # Add line segments at ED50s
   geom_segment(data = slice(ed50conf, 1:4),
@@ -227,7 +227,7 @@ add_by_year <- degC_year %>%
 
 add_by_year
 #   2014   2015   2023   2024
-#  0.000  0.513  0.980  1.600
+#  0.000  0.470  0.900  1.474
 ```
 
 
@@ -583,10 +583,10 @@ bleach50.shift <- ed50s.fun_fast(dhw.mod24.shift)
 bleach50.shift
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-set.seed(1)
-boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
-                      seed = 123, parallel = "multicore", ncpus = 6)
-saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
+# set.seed(1)
+# boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+#                       seed = 123, parallel = "multicore", ncpus = 20)
+# saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
 boot.shift <- readRDS(file = "data/processed/boot.shift.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -627,13 +627,13 @@ dhw.shift.res2 <- as_tibble(dhw.shift.res) %>%
 # Plot
 dhw.shift.bleach.plot <- ggplot(as.tibble(dhw.shift.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE, fill = year), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
   geom_line(aes(color = year)) +
   scale_x_continuous(limits = c(-1, 20.4), breaks = seq(0, 20, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1),
                      labels = scales::label_percent()) +
   theme_classic() +
-  labs(x = "Recomputed DHW with shifted thresholds\n(°C-weeks; across-year ∆°C per ∆DHW)", y = "Bleaching prevalence") +
+  labs(x = "Recomputed DHW with increased thresholds\n(shifted using average ∆°C per ∆DHW)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
   geom_errorbar(
     data = ed50conf_shift %>% dplyr::filter(year %in% c("2014","2015","2023")),
@@ -646,12 +646,13 @@ dhw.shift.bleach.plot <- ggplot(as.tibble(dhw.shift.res2), aes(x = dhw, y = prob
     size = 1
   )
   # -------------------
-
+dhw.shift.bleach.plot
 
 
 # years are not perfectly corrected for
 ed50conf_shift
-# because 2014-2023 shifts -1.86 (overcorrected by global shift using across-years slope)
+# because 2014-2015 shifts 0.876 (undercorrected by across-years slope)
+# because 2014-2023 shifts -1.38 (overcorrected by across-years slope)
 ```
 
 
@@ -789,10 +790,10 @@ bleach50.shift2 <- ed50s.fun_fast(dhw.mod24.shift2)
 bleach50.shift2
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-set.seed(1)
-boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 120, re.form = NULL,
-                    seed = 123, parallel = "multicore", ncpus = 6)
-saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
+# set.seed(1)
+# boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+#                     seed = 123, parallel = "multicore", ncpus = 20)
+# saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
 boot.shift2 <- readRDS(file = "data/processed/boot.shift2.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift2$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -834,13 +835,13 @@ dhw.shift2.res2 <- as_tibble(dhw.shift2.res) %>%
 # Plot
 dhw.shift2.bleach.plot <- ggplot(as.tibble(dhw.shift2.res2), aes(x = dhw, y = prob, group = year)) +
   # Add lines and conf intervals for each year
-  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
+  geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE, fill = year), lwd = 0, alpha = 0.1) +            # WHY NOT SE?
   geom_line(aes(color = year)) +
   scale_x_continuous(limits = c(-1, 20.4), breaks = seq(0, 20, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1),
                      labels = scales::label_percent()) +
   theme_classic() +
-  labs(x = "Recomputed DHW with shifted thresholds\n(°C-weeks; year-specific ∆°C per ∆DHW)", 
+  labs(x = "Recomputed DHW with increased thresholds\n(shifted using year-specific ∆°C per ∆DHW)", 
        y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
   geom_errorbar(
@@ -863,14 +864,30 @@ ed50conf_shift2
 
 ## 8. Plot figure
 ```{r}
+# Load insets showing DHW/degC slopes
+overall_inset <- readRDS("data/processed/overall_inset.rds")
+years_inset   <- readRDS("data/processed/years_inset.rds")
+
+# Create panels
+# Initial model
+p1 <- dhw.bleach.plot
+# Validation 1 (across-years slope for shifted DHWs)
+p2 <- dhw.shift.bleach.plot +
+  theme(legend.position = "none") +
+  cowplot::draw_plot(overall_inset, x = 8, y = 0, width = 12, height = 0.6)
+p2
+# Validation 2 (year-specific slope for shifted DHWs)
+p3 <- dhw.shift2.bleach.plot +
+  theme(legend.position = "none") +
+  cowplot::draw_plot(years_inset, x = 8, y = 0, width = 12, height = 0.6)
+p3
 
 cowplot::plot_grid(
-  dhw.bleach.plot,
-  dhw.shift.bleach.plot + theme(legend.position = "none"),
-  dhw.shift2.bleach.plot + theme(legend.position = "none"),
-  nrow = 1, align = "hv"
+  p1, p2, p3,
+  nrow = 1, align = "hv", labels = "AUTO"
 )
 
+ggsave(filename = "figures/FigSX.png", width = 300, height = 100, units = "mm")
 ```
 
 
