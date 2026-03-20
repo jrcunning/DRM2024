@@ -150,52 +150,7 @@ library(tidyverse)
 # Pixel scale analysis
 
 
-```{r download_sst_data}
 
-# Pixel-level CoralTemp SST stacks for Florida Reef Tract (robust lon/lat indexing + scaling)
-library(tidyverse)
-library(lubridate)
-library(purrr)
-library(ncdf4)
-library(terra)
-library(stringr)
-
-# ---- CONFIG ----
-base_sst <- "https://www.star.nesdis.noaa.gov/pub/socd/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily/sst"
-years <- c(1997:2025)
-start_mmdd <- "03-01"
-end_mmdd   <- "12-31"
-out_dir <- "data/coraltemp"
-
-# Florida Reef Tract bbox (WGS84)
-bbox <- list(lon_min = -83.525, lon_max = -78.975, lat_min = 23.975, lat_max = 28.025)
-
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-
-# ---- BUILD DATE LIST (preserve Date class) ----
-dates <- map(years, \(yy) seq.Date(as.Date(sprintf("%d-%s", yy, start_mmdd)),
-                                   as.Date(sprintf("%d-%s", yy, end_mmdd)),
-                                   by = "day")) |> 
-  list_c()
-
-# ---- URLS + DOWNLOAD (only missing files) ----
-sst_urls  <- sprintf("%s/%d/coraltemp_v3.1_%s.nc", base_sst, year(dates), format(dates, "%Y%m%d"))
-sst_files <- file.path(out_dir, basename(sst_urls))
-miss <- which(!file.exists(sst_files))
-#if (length(miss)) walk2(sst_urls[miss], sst_files[miss], \(u, f) download.file(u, f, mode = "wb"))
-
-library(purrr)
-library(furrr)
-library(future)
-# download in parallel
-if (length(miss)) {
-  plan(multisession, workers = 8) 
-  future_walk2(
-    sst_urls[miss], sst_files[miss],
-    \(u, f) download.file(u, f, mode = "wb", quiet = TRUE)
-  )
-}
-```
 
 
 ## Get slopes for each pixel (all years)
