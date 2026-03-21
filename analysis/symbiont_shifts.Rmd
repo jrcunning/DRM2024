@@ -531,7 +531,7 @@ symsumm.ag <- read_csv("data/processed/symsumm.ag.csv")
 # Import coral species ∆degC
 sp.degC.w <- read_csv("data/processed/sp.degC.w.csv")
 # Import coral density changes
-densdiffs <- read_csv("data/processed/densdiffs_smoth3.csv")
+densdiffs <- read_csv("data/processed/densdiffs_smooth.csv")
   
 net <- sp.degC.w %>%
   left_join(dplyr::select(as.tibble(densdiffs), Species, 

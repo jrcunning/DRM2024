@@ -1300,7 +1300,7 @@ write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 
 ```{r bleachthresh_vs_density, fig.width = 10}
 #densdiffs <- readRDS("data/processed/dens20142023.rds")
-densdiffs <- read_csv("data/processed/densdiffs_smoth3.csv")
+densdiffs <- read_csv("data/processed/densdiffs_smooth.csv")
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- sp.degC.w %>%
   left_join(dplyr::select(as.tibble(densdiffs), Species, 
@@ -1488,7 +1488,7 @@ net_clean$Residual_Variation <- residuals(ols_model_adjusted)
 ### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
 
 # Add jitter to ngen to prevent overlap
-set.seed(46)
+set.seed(47)
 net_clean$Jittered_Ngen <- jitter(net_clean$ngen, amount = 0.1)
 
 # Generate regression lines data using correct centering
@@ -1550,7 +1550,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
   #geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
   #              width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 2.47, seed = 8) +
+                           fontface = "italic", size = 2.47, seed = 10) +
   annotate("text", x = -Inf, y = Inf, hjust = -0.2, vjust = 2,
            label = label_p_expr(ngen_pval), parse = TRUE) +
   labs(x = "Number of symbiont genera", 
@@ -1566,7 +1566,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig4_smoth3.png", width = 300, height = 95, units = "mm")
+ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
 
 # cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")

@@ -10,6 +10,79 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRU
 library(lme4)
 library(emmeans)
 library(tidyverse)
+
+
+
+# Create species labeller
+species_names <- c(
+  AAGA = "Agaricia agaricites",
+  AFRA = "Agaricia fragilis",
+  AGAR = "Agaricia sp.",
+  AGRA = "Agaricia grahamae",
+  AHUM = "Agaricia humilis",
+  ALAM = "Agaricia lamarcki",
+  ACER = "Acropora cervicornis",
+  AGAR = "Agaricia sp.",
+  APAL = "Acropora palmata",
+  APRO = "Acropora prolifera",
+  CNAT = "Colpophyllia natans",
+  DCYL = "Dendrogyra cylindrus",
+  DLAB = "Diploria labyrinthiformis",
+  DSTO = "Dichocoenia stokesii",
+  EFAS = "Eusmilia fastigiata",
+  FFRA = "Favia fragum",
+  HCUC = "Helioseris cucullata",
+  ISIN = "Isophyllia sinuosa",
+  IRIG = "Isophyllia rigida",
+  ISOP = "Isophyllia sp.",
+  MADR = "Madracis sp.",
+  MANG = "Mussa angulosa",
+  MARE = "Manicina areolata",
+  MAUR = "Madriacis auretenra",
+  MCAV = "Montastraea cavernosa",
+  MDEC = "Madracis decactis",
+  MFER = "Mycetophyllia ferox",
+  MALI = "Mycetophyllia aliciae",
+  MLAM = "Mycetophyllia lamarckiana",
+  MFOR = "Madracis formosa",
+  MJAC = "Meandrina jacksoni",
+  MMEA = "Meandrina meandrites",
+  MSEN = "Madracis senaria",
+  MYCE = "Mycetophyllia sp.",
+  OANN = "Orbicella annularis",
+  OCUL = "Oculina sp.",
+  ODIF = "Oculina diffusa",
+  OFAV = "Orbicella faveolata",
+  OFRA = "Orbicella franksi",
+  ORBI = "Orbicella sp.",
+  PAST = "Porites astreoides",
+  PBRA = "Porites branneri",
+  PBRC = "Porites (branching)",
+  PCLI = "Pseudodiploria clivosa",
+  PDIV = "Porites divaricata",
+  PFUR = "Porites furcata",
+  PORI = "Porites sp.",
+  PPOR = "Porites porites",
+  PSTR = "Pseudodiploria strigosa",
+  SBOU = "Solenastrea bournoni",
+  SCOL = "Scolymia sp.",
+  SHYA = "Solenastrea hyades",
+  SIDE = "Siderastrea sp.",
+  SINT = "Stephanocoenia intersepta",
+  SOLE = "Solenastrea sp.",
+  SRAD = "Siderastrea radians",
+  SSID = "Siderastrea siderea",
+  UNKN = "Unknown"
+)
+
+species_names_2l <- gsub(" ", "\n", species_names)
+abbrev_names <- as_tibble(species_names) %>%
+  separate(value, into = c("genus", "species"), sep = " ") %>%
+  mutate(genus = case_when(species == "sp." ~ genus,
+                           species != "sp." ~ gsub("[a-z]+", ".", genus))) %>%
+  unite(genus, species, col = "name", sep = " ")
+abbrev_names <- c(abbrev_names$name)
+names(abbrev_names) <- names(species_names)
 ```
 
 ### Import DRM data
@@ -65,37 +138,6 @@ spp_to_include <- df %>%
 
 ```
 
-# Changes in density of each species over time
-```{r}
-# dens <- df %>%
-#   # Count number of colonies of each species per transect
-#   count(year, Species, Site, Transect, Subregion) %>%
-#   # Add zeros for all species not counted on a transect
-#   complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
-#   # SUBSET FOR FASTER MODELING
-#   filter(Species %in% spp_to_include$Species)
-# 
-# mod_1 <- glmer(n ~ Species * year + (1|Subregion), data = dens, family = "poisson",
-#                verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
-# anova(mod_1)
-# 
-# res <- emmeans(mod_1, specs = c("Species", "year"), type = "response")
-# 
-# as.tibble(res) %>%
-#   ggplot(aes(x = year, y = rate)) +
-#   geom_point() + #aes(color = Subregion)
-#   geom_errorbar(aes(ymin = rate - SE, ymax = rate + SE)) +
-#   geom_line(aes(group = 1)) + #aes(group = Subregion, color = Subregion
-#   facet_wrap(~Species, scales = "free_y") +
-#   geom_vline(aes(xintercept = "2014")) +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-# 
-# densres <- res
-# saveRDS(densres, file = "processed/density.rds")
-```
-
-
-
 # Change in density 2014-2023 for each Species
 ```{r}
 # Model change in density from 2014-2023 for each species
@@ -122,40 +164,7 @@ saveRDS(diffs, file = "data/processed/dens20142023.rds")
 ```
 
 
-```{r}
-dens2 <- df %>%
-  # Count number of colonies of each species per transect
-  count(year, Species, Site, Transect, Subregion) %>%
-  # Add zeros for all species not counted on a transect
-  complete(Species, nesting(year, Site, Transect, Subregion), fill = list(n = 0)) %>%
-  # SUBSET FOR FASTER MODELING
-  group_by(Species, year) %>%
-  filter(sum(n) >= 40) %>%
-  ungroup()
-
-mod6 <- glmer(n ~ Species * year + (1|Species:Subregion), data = dens2, family = "poisson",
-              verbose = TRUE, nAGQ=0, control=glmerControl(optimizer = "nloptwrap")) 
-
-res<-emmeans(mod6, specs = c("Species", "year"), type = "response") %>%
-  as_tibble()
-ggplot(res, aes(x = as.numeric(as.character(year)), y = rate)) +
-  geom_point(aes(color = year %in% c("2014", "2023"))) +
-  facet_wrap(~Species, scales = "free") +
-  scale_color_manual(values = c("black", "red")) +
-  geom_smooth(method = "loess")
-
-res2<-emmeans(mod6, specs = c("Species", "year")) %>%
-  as_tibble()
-ggplot(res2, aes(x = as.numeric(as.character(year)), y = emmean)) +
-  geom_point(aes(color = year %in% c("2014", "2023"))) +
-  facet_wrap(~Species, scales = "free") +
-  scale_color_manual(values = c("black", "red")) +
-  geom_smooth(method = "loess")
-
-
-```
-
-# Smooth working VVV
+#### Fit smooths
 ```{r}
 ## ============================================================
 ## Discrete year-specific population averages (GLMM with year as factor)
@@ -185,6 +194,15 @@ dens2 <- df %>%
     Subregion = factor(Subregion),
     sp_sub   = interaction(Species, Subregion, drop = TRUE) |> factor()
   )
+
+# only keep taxa with at least 3 years of data in focal period (2014-2023)
+spp_to_keep <- dens2 %>%
+  filter(year %in% 2014:2023) %>%
+  group_by(Species) %>%
+  summarize(nyears = n_distinct(year)) %>%
+  filter(nyears >= 3)
+
+dens2 <- dens2 %>% filter(Species %in% spp_to_keep$Species)
 
 mod6 <- lme4::glmer(
   n ~ Species * year + (1 | sp_sub),
@@ -244,9 +262,9 @@ res_year2 <- res_year2 %>%
 k_blue <- 6  # tweak if you want more/less wiggle; this is usually plenty for annual series
 
 mod_blue <- mgcv::bam(
-  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2), #original
-  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2)    #smoth2
-  rate ~ s(year_num, Species, bs = "fs", k = 10, m = 1),   #smoth3
+  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2), #originalsmooth
+  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2)    #smooth2
+  rate ~ s(year_num, Species, bs = "fs", k = 10, m = 1),   #smooth3
   data    = res_year2,
   family  = "gaussian",
   #weights = w,
@@ -297,7 +315,7 @@ ann_pos <- res_year2 %>%
   dplyr::mutate(
     y = pmax(y, y_fit, na.rm = TRUE),
     y_black = y * 0.92,
-    y_blue  = y * 0.78
+    y_blue  = y * 0.9
   )
 
 ann_black <- ann_pos %>%
@@ -308,6 +326,10 @@ ann_blue <- ann_pos %>%
   dplyr::left_join(pct_blue2, by = "Species") %>%
   dplyr::mutate(label_blue = ifelse(is.na(pct_smooth), NA_character_, sprintf("%+.0f%%", pct_smooth)))
 
+```
+
+#### Figure and save results
+```{r}
 # Plot: black points (discrete-year GLMM means) + blue response-scale smooth of those means
 p <- ggplot2::ggplot() +
   ggplot2::geom_line(
@@ -321,34 +343,51 @@ p <- ggplot2::ggplot() +
     data = res_year2,
     ggplot2::aes(x = year_num, y = rate),
     color = "black",
-    size = 1.8
+    size = 1
   ) +
   ggplot2::geom_vline(xintercept = c(2014, 2023), linetype = "dashed", alpha = 0.25) +
-  ggplot2::geom_text(
-    data = ann_black,
-    ggplot2::aes(x = x, y = y_black, label = label_black),
-    inherit.aes = FALSE,
-    color = "black",
-    size = 2.7,
-    hjust = 0
-  ) +
+  # ggplot2::geom_text(
+  #   data = ann_black,
+  #   ggplot2::aes(x = x, y = y_black, label = label_black),
+  #   inherit.aes = FALSE,
+  #   color = "black",
+  #   size = 2.7,
+  #   hjust = 0
+  # ) +
   ggplot2::geom_text(
     data = ann_blue,
-    ggplot2::aes(x = x, y = y_blue, label = label_blue),
+    ggplot2::aes(x = 2022.5, y = Inf, label = label_blue),
     inherit.aes = FALSE,
     color = "#1f78b4",
     size = 2.7,
-    hjust = 0
+    hjust = 1, vjust = 1.3
   ) +
-  ggplot2::facet_wrap(~Species, scales = "free_y") +
+  ggplot2::facet_wrap(~Species, scales = "free_y",
+                      labeller = labeller(Species = abbrev_names)) +
+  scale_y_continuous(expand = expansion(mult = c(0.1,0.3))) +
   ggplot2::theme_classic() +
   ggplot2::labs(
     x = "Year",
-    y = "Population-average fitted density",
-    title = "Population-average density trajectories\nBlack points: discrete-year GLMM fitted means   Blue curve: response-scale smooth of those means\nBlack text: GLMM %Δ (2014→2023)   Blue text: smoothed %Δ (2014→2023)"
-  )
+    y = expression("Density (colonies / 10 m"^2*")")#,
+    #title = "Population-average density trajectories\nBlack points: discrete-year GLMM fitted means   Blue curve: response-scale smooth of those means\nBlack text: GLMM %Δ (2014→2023)   Blue text: smoothed %Δ (2014→2023)"
+  ) +
+  theme_classic() +
+  theme(legend.position = c(0.8, 0.06),
+        legend.direction = "vertical",
+        legend.key.height = grid::unit(0.35, "lines"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "italic", size = 9, 
+                                  margin = margin(t = 2, b = 2, l = 1, r = 1)),
+        legend.margin = margin(t = 0, b = 0, l = 0, r = 0),
+        legend.title = element_text(size = 7, margin = margin(t = 0, b = 0, l = 0, r = 0)),
+        legend.text = element_text(size = 7),
+        axis.line  = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.text.x = element_text(angle = 45, hjust = 1))
 
 p
+
+ggsave(filename = "figures/FigSY.png", width = 185, height = 120, units = "mm")
 
 ## ============================================================
 ## Write densdiffs_smoth.csv with 2014→2023 changes per Species:
@@ -398,7 +437,7 @@ densdiffs_smoth <- dplyr::full_join(disc_14_23, smooth_14_23, by = "Species") %>
                 estimate_smooth,   pct_smooth) %>%
   dplyr::arrange(Species)
 
-write.csv(densdiffs_smoth, "data/processed/densdiffs_smoth3.csv", row.names = FALSE)
+write.csv(densdiffs_smoth, "data/processed/densdiffs_smooth.csv", row.names = FALSE)
 ```
 
 
