@@ -887,7 +887,7 @@ cowplot::plot_grid(
   nrow = 1, align = "hv", labels = "AUTO"
 )
 
-ggsave(filename = "figures/FigSX.png", width = 300, height = 100, units = "mm")
+ggsave(filename = "figures/FigS5.png", width = 300, height = 100, units = "mm")
 ```
 
 

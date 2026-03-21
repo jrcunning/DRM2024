@@ -387,7 +387,7 @@ p <- ggplot2::ggplot() +
 
 p
 
-ggsave(filename = "figures/FigSY.png", width = 185, height = 120, units = "mm")
+ggsave(filename = "figures/FigS6.png", width = 185, height = 120, units = "mm")
 
 ## ============================================================
 ## Write densdiffs_smoth.csv with 2014→2023 changes per Species:
