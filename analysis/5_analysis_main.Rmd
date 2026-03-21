@@ -338,6 +338,8 @@ symsumm.ag <- sym0  %>%
   add_row(Species = "AGAR", domsyms = "CD") %>%
   mutate(ngen = nchar(domsyms)) %>%
   mutate(D = grepl("D", domsyms)) 
+
+write_csv(symsumm.ag, file = "data/processed/symsumm.ag.csv")
 ```
 
 ## Survey timing
@@ -1290,6 +1292,7 @@ sp.degC.w <- sp.ed50s %>%
 sp.degC.w %>% arrange(degC_w.se)
 sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0495
 
+write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 ```
 
 
@@ -1744,175 +1747,4 @@ sizefreq <- sizefreq +
 ggsave("figures/FigS8.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
 
-# Symbiont genera as proxy for compositional change
-```{r}
-# Use symbiont shift data calculated in symbiont_shifts.Rmd for a subset of species
-
-# ============================================================
-# 1) Proxy justification: Symbiont diversity predicts realized community change (ngen → hellinger dist (med))
-# ============================================================
-
-sym_shifts <- read_csv("data/processed/symbiont_shifts.csv") %>%
-  left_join(net_clean %>% dplyr::select(Species, degC_w, degC_w.se, ngen, estimate))
-
-# We constrain the model so that expected shift equals zero when only one symbiont genus is present, reflecting the mathematical property of compositional distance metrics.
-# An unweighted model is preferable here, because the weights (~error bars on Hellinger dist) may be correlated with ngen. Because species with higher symbiont diversity tended to have larger uncertainty in Hellinger distance estimates, inverse-variance weighting would systematically down-weight high-diversity species and potentially attenuate the relationship of interest, so we present unweighted regressions as the primary analysis. We performed weighted regression as a sensitivity check and the relationship is still positive and significant.
-# mod_w <- lm(med ~ 0 + I(ngen - 1), data = sym_shifts, weights = w)
-# summary(mod_w)
-# mod_w_pval <- broom::tidy(mod_w)[1,5]
-mod_u <- lm(med ~ 0 + I(ngen - 1), data = sym_shifts)
-summary(mod_u)
-mod_u_pval <- broom::tidy(mod_u)[1,5]
-
-regression_line_mod_u <- tibble(
-  ngen_seq = seq(1, 4, 1),
-  predicted_med = coef(mod_u)[1] * ngen_seq - coef(mod_u)[1]
-)
-
-p1 <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
-  geom_line(data = regression_line_mod_u, aes(x = ngen_seq, y = predicted_med), 
-            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
-  geom_point(position = position_jitter(width = 0.15, seed = 3),
-             size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
-  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0, linewidth = 0.3,
-                position = position_jitter(width = 0.15, seed = 3)) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, seed = 8) +
-  scale_x_continuous(breaks = seq(1, 4, 1), limits = c(1, 4.2)) +
-  coord_cartesian(xlim = c(1, 4.2), ylim = c(0, 0.6)) +
-  annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod_u_pval, 5)), 
-           hjust = -0.1, vjust = 1.1) +
-  theme_classic() +
-  labs(x = "Number of symbiont genera", 
-       y = "Change in symbiont genus composition\n(2001-03 to 2019-20; Hellinger distance)")
-
-
-# ============================================================
-# 2) Mechanistic link: Realized symbiont community change predicts heat tolerance change 
-#    (Hellinger dist → Δ°C, controlling for density change)
-# ============================================================
-#
-#    USE UNCERTAINTY IN PREDICTOR (HELLINGER DIST) FOR THIS PART OF THE ANALYSIS?
-#
-# Fit the model, with intercept zero at density change estimate = 0 and med(Hel dist) = 0
-#  Weight observations using the standard error of the degC response
-# mod1 <- lm(degC ~ 0 + estimate + med, data = sym_shifts, weights = 1/degC.se^2)
-# summary(mod1)
-# mod1_pval <- broom::tidy(mod1)[2,5]
-mod1 <- lm(degC_w ~ estimate + med, data = sym_shifts, weights = 1/degC_w.se^2)
-summary(mod1)
-mod1_pval <- broom::tidy(mod1)[3,5]
-
-# Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
-#VVV another way. equivalent, but more explicit because ngen_centered = 0 and estimate = 0 are specified in predict
-sym_shifts$Adj_degC_med <- predict(mod1, newdata = data.frame(estimate = 0, med = sym_shifts$med)) + residuals(mod1)
-### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
-
-
-# Generate regression lines data using correct centering
-med_seq <- seq(0, max(sym_shifts$med), length.out = 100)
-
-pred_med <- predict(
-  mod1,
-  newdata = data.frame(estimate = 0, med = med_seq),
-  se.fit = TRUE
-)
-
-regression_line_med <- tibble(
-  med = med_seq,
-  fit = as.numeric(pred_med$fit),
-  se  = as.numeric(pred_med$se.fit)
-) %>%
-  mutate(lo = fit - 1.96 * se,
-         hi = fit + 1.96 * se)
-
-# regression_line_med <- data.frame(
-#   med = med_seq,
-#   predicted_degC = coef(mod1)["(Intercept)"] + coef(mod1)["med"] * med_seq)
-
-# Plot Effect of med (sym shift) on Adjusted degC (Holding estimate = 0, with residuals)
-p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
-  geom_line(data = regression_line_med, aes(x = med, y = fit), 
-            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
-  geom_ribbon(data = regression_line_med, aes(ymin = lo, ymax = hi, y = fit),
-              alpha = 0.1) +
-  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
-  #geom_errorbar(aes(ymin = Adj_degC_med - degC.se, ymax = Adj_degC_med + degC.se), 
-  #              width = 0, alpha = 0.7, lwd = 0.3) +
-  annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod1_pval, 5)), 
-           hjust = -0.1, vjust = 1.1) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, seed = 8) +
-  labs(x = "Change in symbiont genus composition\n(2001-03 to 2019-20; Hellinger distance)", 
-       y = "Model-adjusted change in bleaching threshold (°C)") +
-  scale_size_continuous(range = c(2, 5)) +
-  theme_classic()
-
-
-
-# ============================================================
-# 3) Proxy validation: Symbiont diversity predicts heat tolerance change (ngen → Δ°C, controlling for density change)
-# ============================================================
-
-# Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
-sym_shifts$ngen_centered <- sym_shifts$ngen - 1
-
-# Fit the model, with intercept zero at estimate = 0 and ngen = 1
-#  Weight observations using the standard error of the degC response
-mod2 <- lm(degC_w ~ 0 + estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
-summary(mod2)
-mod2_pval <- broom::tidy(mod2)[2,5]
-mod2 <- lm(degC_w ~ estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
-summary(mod2)
-mod2_pval <- broom::tidy(mod2)[3,5]
-
-# Partition variance
-
-# Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
-sym_shifts$Adj_degC_Ngen <- predict(mod2, newdata = data.frame(estimate = 0, ngen_centered = sym_shifts$ngen_centered)) + residuals(mod2)
-### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
-
-# Add jitter to ngen to prevent overlap
-set.seed(42)
-sym_shifts$Jittered_Ngen <- jitter(sym_shifts$ngen, amount = 0.15)
-
-# Generate regression lines data using correct centering
-ngen_seq <- seq(1, max(sym_shifts$ngen), length.out = 100)
-
-regression_line_ngen <- tibble(
-  ngen = ngen_seq,
-  fit = as.numeric(pred_ngen$fit),
-  se  = as.numeric(pred_ngen$se.fit)
-) %>%
-  mutate(lo = fit - 1.96 * se,
-         hi = fit + 1.96 * se)
-# regression_line_ngen <- data.frame(
-#   ngen = ngen_seq,
-#   predicted_degC = coef(mod2)["(Intercept)"] + coef(mod2)["ngen_centered"] * (ngen_seq - 1)
-# )
-
-# Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
-p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
-  geom_line(data = regression_line_ngen, aes(x = ngen, y = fit), 
-            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
-  geom_ribbon(data = regression_line_ngen, aes(ymin = lo, ymax = hi, y = fit, x = ngen),
-              alpha = 0.1) +
-  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
-  #geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
-  #              width = 0, alpha = 0.7, lwd = 0.3) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 3, seed = 8) +
-  annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod2_pval, 5)), 
-           hjust = -0.1, vjust = 1.1) +
-  labs(x = "Number of symbiont genera", 
-       y = "Model-adjusted change in bleaching threshold (°C)") +
-  scale_size_continuous(range = c(2, 5)) +
-  theme_classic()
-
-
-# FINAL FIGURE for proxy validation
-cowplot::plot_grid(p1, p2, p3, nrow = 1, align = "h")
-
-ggsave(filename = "figures/FigS6.png", width = 300, height = 105, units = "mm")
-```
 

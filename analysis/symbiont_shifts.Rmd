@@ -34,7 +34,7 @@ md <- read_csv("data/sym_composition/sym_metadata.csv") %>%
 # Pawar run
 sam0 <- read_tsv("data/sym_composition/20240723T194127_Pawar_Run /post_med_seqs/500_20240730T092802_DBV_20240730T195050.seqs.absolute.abund_and_meta.txt") %>%
   clean_names() %>%
-  select(sample_uid, sample_name, fastq_fwd_file_name, fastq_rev_file_name, data_set_uid, data_set_name,
+  dplyr::select(sample_uid, sample_name, fastq_fwd_file_name, fastq_rev_file_name, data_set_uid, data_set_name,
          host_genus, host_species, collection_latitude, collection_longitude, collection_date, collection_depth, post_med_absolute) %>%
   slice(1:(n() - 1)) # Remove last row - not a sample
 sam1 <- as.matrix(sam0)
@@ -45,7 +45,7 @@ sam <- sample_data(data.frame(sam1))
 taxnames <- read_tsv(
   file = "data/sym_composition/20240723T194127_Pawar_Run /post_med_seqs/500_20240730T092802_DBV_20240730T195050.seqs.absolute.abund_and_meta.txt",
   n_max = 0) %>%
-  select(-(1:39)) %>%
+  dplyr::select(-(1:39)) %>%
   names(.)
 tax0 <- data_frame(
   DIV = taxnames,
@@ -57,7 +57,7 @@ tax <- tax_table(tax1)
 
 otu0 <- read_tsv(
   file = "data/sym_composition/20240723T194127_Pawar_Run /post_med_seqs/500_20240730T092802_DBV_20240730T195050.seqs.absolute.abund_and_meta.txt") %>% 
-  select(-1, -(3:39))
+  dplyr::select(-1, -(3:39))
 otu1 <- as.matrix(otu0[, -1])
 rownames(otu1) <- otu0$sample_name
 otu <- otu_table(otu1, taxa_are_rows = FALSE)
@@ -68,7 +68,7 @@ variants_pawar <- phyloseq(otu, tax, sam)
 ## ============================================================
 ## 4) QC: drop low-read samples + drop zero-sum taxa
 ## ============================================================
-low <- sample_sums(variants_pawar) < 50
+low <- sample_sums(variants_pawar) < 100
 table(low) #31
 variants <- subset_samples(variants_pawar, !low)
 variants <- prune_taxa(taxa_sums(variants) != 0, variants)
@@ -97,13 +97,13 @@ outnew <- variants %>%
   mutate(
     dominant_clade = {
       clades <- intersect(c("A","B","C","D","G"), names(.))
-      m <- as.matrix(select(., all_of(clades)))
+      m <- as.matrix(dplyr::select(., all_of(clades)))
       clades[max.col(m, ties.method = "first")]
     }
   ) %>%
   left_join(
     md %>%
-      select(
+      dplyr::select(
         sample_name,
         host_genus, host_species,
         collection_date, era,
@@ -245,7 +245,7 @@ dat <- outnew %>%
     across(all_of(CLADE_COLS), ~ ifelse(s > 0, .x / s, .x))
   ) %>%
   ungroup() %>%
-  select(-s)
+  dplyr::select(-s)
 
 keepers <- dat %>%
   count(Species, era) %>%
@@ -320,7 +320,7 @@ depth_std_comps <- function(g) {
   target <- gb %>%
     count(depth_bin) %>%
     mutate(p_target = n / sum(n)) %>%
-    select(depth_bin, p_target)
+    dplyr::select(depth_bin, p_target)
   
   # (d) add weights so each era matches pooled target
   gbw <- gb %>%
@@ -332,7 +332,7 @@ depth_std_comps <- function(g) {
       src <- subg %>%
         count(depth_bin) %>%
         mutate(p_src = n / sum(n)) %>%
-        select(depth_bin, p_src)
+        dplyr::select(depth_bin, p_src)
       
       # align src to target bins
       aligned <- target %>%
@@ -359,7 +359,7 @@ depth_std_comps <- function(g) {
     mutate(s = sum(c_across(all_of(CLADE_COLS))),
            across(all_of(CLADE_COLS), ~ .x / s)) %>%
     ungroup() %>%
-    select(-s)
+    dplyr::select(-s)
   
   comp
 }
@@ -373,17 +373,17 @@ depth_std_comps <- function(g) {
 #   - comp_std is used for plotting (tidy long format)
 #   - res_point distances are computed from the same compositions
 # ============================================================
-dat_keep
+
 species_comp <- dat_keep %>%
   group_by(Species) %>%
   group_nest() %>%
   mutate(comp = map(data, depth_std_comps)) %>%
   filter(!map_lgl(comp, is.null)) %>%
-  select(-data)
+  dplyr::select(-data)
 
 # (a) Exact compositions being compared (for plotting)
 comp_std <- species_comp %>%
-  select(Species, comp) %>%
+  dplyr::select(Species, comp) %>%
   unnest(comp) %>%  # columns: Species, era, A,B,C,D
   pivot_longer(all_of(CLADE_COLS), names_to = "clade", values_to = "p")
 
@@ -395,18 +395,18 @@ res_point <- species_comp %>%
     n1 = dat_keep %>% filter(era == ERA1) %>% count(Species) %>% right_join(tibble(Species), by="Species") %>% pull(n) %>% replace_na(0),
     n2 = dat_keep %>% filter(era == ERA2) %>% count(Species) %>% right_join(tibble(Species), by="Species") %>% pull(n) %>% replace_na(0),
     TV = map_dbl(comp, ~{
-      p1 <- .x %>% filter(era == ERA1) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
-      p2 <- .x %>% filter(era == ERA2) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
+      p1 <- .x %>% filter(era == ERA1) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
+      p2 <- .x %>% filter(era == ERA2) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
       tv_dist(p1, p2)
     }),
     Hellinger = map_dbl(comp, ~{
-      p1 <- .x %>% filter(era == ERA1) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
-      p2 <- .x %>% filter(era == ERA2) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
+      p1 <- .x %>% filter(era == ERA1) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
+      p2 <- .x %>% filter(era == ERA2) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
       hellinger_dist(p1, p2)
     }),
     JSD = map_dbl(comp, ~{
-      p1 <- .x %>% filter(era == ERA1) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
-      p2 <- .x %>% filter(era == ERA2) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
+      p1 <- .x %>% filter(era == ERA1) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
+      p2 <- .x %>% filter(era == ERA2) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
       jsd_dist(p1, p2)
     })
   ) %>%
@@ -443,8 +443,8 @@ res_boot <- dat_keep %>%
       comp <- depth_std_comps(bind_rows(b1, b2))
       if (is.null(comp)) return(c(TV = NA, Hel = NA, JSD = NA))
       
-      p1 <- comp %>% filter(era == ERA1) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
-      p2 <- comp %>% filter(era == ERA2) %>% select(all_of(CLADE_COLS)) %>% as.numeric()
+      p1 <- comp %>% filter(era == ERA1) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
+      p2 <- comp %>% filter(era == ERA2) %>% dplyr::select(all_of(CLADE_COLS)) %>% as.numeric()
       
       c(
         TV  = tv_dist(p1, p2),
@@ -485,7 +485,7 @@ res_boot %>%
 # ============================================================
 
 ress <- res_boot %>%
-  select(Species, med = Hel_med, lo = Hel_lo, hi = Hel_hi) %>%
+  dplyr::select(Species, med = Hel_med, lo = Hel_lo, hi = Hel_hi) %>%
   mutate(
     se = (hi - lo) / 2,
     w  = 1 / se^2
@@ -500,6 +500,7 @@ species_names_it <- setNames(
  paste0("italic('", species_names, "')"),
  names(species_names)
 )
+
 
 figs5 <- comp_std %>% left_join(ress) %>%
   mutate(genus = case_match(clade, "A" ~ "Symbiodinium", "B" ~ "Breviolum", 
@@ -518,5 +519,214 @@ figs5 <- comp_std %>% left_join(ress) %>%
 
 ggsave(filename = "figures/FigS5.png", width = 180, height = 150, units = "mm")
 
+```
+
+
+# Symbiont genera as proxy for compositional change
+
+## 1) Proxy justification: ngen -> Hel
+```{r}
+# Import coral species sym genera summary
+symsumm.ag <- read_csv("data/processed/symsumm.ag.csv")
+# Import coral species ∆degC
+sp.degC.w <- read_csv("data/processed/sp.degC.w.csv")
+# Import coral density changes
+densdiffs <- read_csv("data/processed/densdiffs_smoth3.csv")
+  
+net <- sp.degC.w %>%
+  left_join(dplyr::select(as.tibble(densdiffs), Species, 
+                          estimate = estimate_smooth)) %>%
+                          #estimate)) %>%
+  left_join(symsumm.ag) %>%
+  drop_na(estimate)
+# Remove missing values
+net_clean <- na.omit(net[, c("Species", "degC_w", "estimate", "ngen", "degC_w.se", "D")])
+# Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
+net_clean$ngen_centered <- net_clean$ngen - 1
+
+
+# Use symbiont shift data calculated in symbiont_shifts.Rmd for a subset of species
+
+# ============================================================
+# 1) Proxy justification: Symbiont diversity predicts realized community change (ngen → hellinger dist (med))
+# ============================================================
+
+sym_shifts <- read_csv("data/processed/symbiont_shifts.csv") %>%
+  left_join(net_clean %>% dplyr::select(Species, degC_w, degC_w.se, ngen, estimate))
+
+# We constrain the model so that expected shift equals zero when only one symbiont genus is present, reflecting the mathematical property of compositional distance metrics.
+# An unweighted model is preferable here, because the weights (~error bars on Hellinger dist) may be correlated with ngen. Because species with higher symbiont diversity tended to have larger uncertainty in Hellinger distance estimates, inverse-variance weighting would systematically down-weight high-diversity species and potentially attenuate the relationship of interest, so we present unweighted regressions as the primary analysis. We performed weighted regression as a sensitivity check and the relationship is still positive and significant.
+# mod_w <- lm(med ~ 0 + I(ngen - 1), data = sym_shifts, weights = w)
+# summary(mod_w)
+# mod_w_pval <- broom::tidy(mod_w)[1,5]
+mod_u <- lm(med ~ 0 + I(ngen - 1), data = sym_shifts)
+summary(mod_u)
+mod_u_pval <- broom::tidy(mod_u)[1,5]
+
+regression_line_mod_u <- tibble(
+  ngen_seq = seq(1, 4, 1),
+  predicted_med = coef(mod_u)[1] * ngen_seq - coef(mod_u)[1]
+)
+
+p1 <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
+  geom_line(data = regression_line_mod_u, aes(x = ngen_seq, y = predicted_med), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_point(position = position_jitter(width = 0.15, seed = 3),
+             size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0, linewidth = 0.3,
+                position = position_jitter(width = 0.15, seed = 3)) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8) +
+  scale_x_continuous(breaks = seq(1, 4, 1), limits = c(1, 4.2)) +
+  coord_cartesian(xlim = c(1, 4.2), ylim = c(0, 0.6)) +
+  # annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod_u_pval, 5)), 
+  #          hjust = -0.1, vjust = 1.1) +
+  theme_classic() +
+  labs(x = "Number of symbiont genera", 
+       y = "Change in symbiont genus composition\n(Hellinger distance)")
+```
+
+## 2) Mechanistic link: Hel -> ∆°C
+```{r}
+# ============================================================
+# 2) Mechanistic link: Realized symbiont community change predicts heat tolerance change 
+#    (Hellinger dist → Δ°C, controlling for density change)
+# ============================================================
+#
+#
+# Fit the model
+#  Weight observations using the standard error of the ∆degC response
+mod1 <- lm(degC_w ~ estimate + med, data = sym_shifts, weights = 1/degC_w.se^2)
+summary(mod1)
+mod1_pval <- broom::tidy(mod1)[3,5]
+cooks.distance(mod1)
+hist(cooks.distance(mod1))    #some highly influential observations, expected due to small n
+
+# Robust regression with Hellinger dist (med) + density change (estimate) 
+## Robust to outliers for small sample size (n=9)
+mod_rob <- MASS::rlm(
+  degC_w ~ estimate + med,
+  data = sym_shifts,
+  weights = 1 / degC_w.se^2,
+  psi = psi.huber,  # default; can also try psi.bisquare
+  maxit = 100
+)
+summary(mod_rob)
+mod_rob_ftest <- sfsmisc::f.robftest(mod_rob, var = "med")
+mod_rob_pval <- mod_rob_ftest$p.value
+
+# adjusted response on the response scale
+sym_shifts <- sym_shifts %>%
+  mutate(
+    Adj_degC_med = degC_w - coef(mod_rob)[["estimate"]] * estimate
+  )
+
+# fitted line holding estimate = 0
+med_seq <- seq(0, max(sym_shifts$med, na.rm = TRUE), length.out = 100)
+# 
+regression_line_med <- tibble(
+  med = med_seq,
+  fit = coef(mod_rob)[["(Intercept)"]] + coef(mod_rob)[["med"]] * med_seq
+)
+
+# # approximate SE/ribbon for visualization
+V <- vcov(mod_rob)
+X <- cbind(1, med_seq)
+colnames(X) <- c("(Intercept)", "med")
+V_sub <- V[c("(Intercept)", "med"), c("(Intercept)", "med")]
+se_fit <- sqrt(diag(X %*% V_sub %*% t(X)))
+
+regression_line_med <- regression_line_med %>%
+  mutate(
+    se = se_fit,
+    lo = fit - 1.96 * se,
+    hi = fit + 1.96 * se
+  )
+
+# Plot Effect of med (sym shift) on Adjusted degC (Holding estimate = 0, with residuals)
+p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
+  geom_line(data = regression_line_med, aes(x = med, y = fit), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_ribbon(data = regression_line_med, aes(ymin = lo, ymax = hi, y = fit),
+              alpha = 0.1) +
+  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  # annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod_rob_pval, 5)), 
+  #          hjust = -0.1, vjust = 1.1) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8) +
+  labs(x = "Change in symbiont genus composition\n(Hellinger distance)", 
+       y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
+  scale_size_continuous(range = c(2, 5)) +
+  theme_classic()
+p2
+```
+
+## 3) Proxy validation: ngen -> ∆°C
+```{r}
+# ============================================================
+# 3) Proxy validation: Symbiont diversity predicts heat tolerance change (ngen → Δ°C, controlling for density change)
+# ============================================================
+
+# Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
+sym_shifts$ngen_centered <- sym_shifts$ngen - 1
+
+# Fit the model,
+#  Weight observations using the standard error of the degC response
+mod2 <- lm(degC_w ~ estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
+summary(mod2)
+mod2_pval <- broom::tidy(mod2)[3,5]
+
+# Partition variance
+
+# Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
+sym_shifts$Adj_degC_Ngen <- predict(mod2, newdata = data.frame(estimate = 0, ngen_centered = sym_shifts$ngen_centered)) + residuals(mod2)
+### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
+
+# Add jitter to ngen to prevent overlap
+set.seed(42)
+sym_shifts$Jittered_Ngen <- jitter(sym_shifts$ngen, amount = 0.15)
+
+# Generate regression lines data using correct centering
+ngen_seq <- seq(0, max(sym_shifts$ngen_centered), length.out = 100)
+
+pred_ngen <- predict(
+  mod2,
+  newdata = data.frame(estimate = 0, ngen_centered = ngen_seq),
+  se.fit = TRUE
+)
+
+regression_line_ngen <- tibble(
+  ngen = ngen_seq + 1,
+  fit = as.numeric(pred_ngen$fit),
+  se  = as.numeric(pred_ngen$se.fit)
+) %>%
+  mutate(lo = fit - 1.96 * se,
+         hi = fit + 1.96 * se)
+
+# Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
+p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
+  geom_line(data = regression_line_ngen, aes(x = ngen, y = fit), 
+            color = "#ef8a62", linewidth = 1.5, alpha = 1) +
+  geom_ribbon(data = regression_line_ngen, aes(ymin = lo, ymax = hi, y = fit, x = ngen),
+              alpha = 0.1) +
+  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  #geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
+  #              width = 0, alpha = 0.7, lwd = 0.3) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 3, seed = 8) +
+  # annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod2_pval, 5)), 
+  #          hjust = -0.1, vjust = 1.1) +
+  labs(x = "Number of symbiont genera", 
+       y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
+  scale_size_continuous(range = c(2, 5)) +
+  theme_classic()
+```
+
+## Final figure for proxy validation
+```{r}
+# FINAL FIGURE for proxy validation
+cowplot::plot_grid(p1, p2, p3, nrow = 1, align = "h")
+
+ggsave(filename = "figures/FigS6.png", width = 300, height = 105, units = "mm")
 ```
 
