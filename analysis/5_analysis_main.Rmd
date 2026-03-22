@@ -873,7 +873,231 @@ ggplot(allf, aes(Depth, color = year)) +
     legend.margin = margin(0,0,0,0)
   )
 
-#figsx
+# Changes in depth across years?
+
+# APPROACH 1
+dat_depth <- allf %>%
+  filter(!is.na(Depth), !is.na(Species), !is.na(year), !is.na(Subregion)) %>%
+  mutate(
+    year = factor(year),
+    Species = factor(Species),
+    Subregion = factor(Subregion)
+  )
+
+mod_depth_all <- lmer(
+  Depth ~ year * Species + (1 | Subregion) + (1 | Species:Subregion),
+  data = dat_depth
+)
+summary(mod_depth_all)
+
+emm <- emmeans(mod_depth_all, ~ year | Species)
+
+contrast_2014_2023 <- contrast(
+  emm,
+  method = list("2014 - 2023" = c(1, 0, -1, 0)),  # assumes 4 levels: 2014, 2015, 2023, 2024
+  adjust = "none"
+)
+pairs_2014_2023 <- as.data.frame(contrast_2014_2023)
+pairs_2014_2023 <- pairs_2014_2023 %>%
+  dplyr::mutate(
+    p.adj = p.adjust(p.value, method = "bonferroni")  # or "fdr"
+  ) %>%
+  dplyr::arrange(p.adj)
+pairs_2014_2023
+
+depthshift <- pairs_2014_2023 %>%
+  mutate(depthshift = estimate)
+
+
+# # APPROACH 2
+# 
+# mod_depth <- lmer(
+#   siteDepth ~ year * Species + (1 | Subregion),
+#   data = allg
+# )
+# 
+# emm <- emmeans(mod_depth, ~ year | Species)
+# 
+# contrast_2014_2023 <- contrast(
+#   emm,
+#   method = list("2014 - 2023" = c(1, 0, -1, 0)),  # assumes 4 levels: 2014, 2015, 2023, 2024
+#   adjust = "none"
+# )
+# 
+# rbind(contrast_2014_2023)
+
+
+# APPROACH 3
+# make sure count exists
+allg_c <- allg %>%
+  mutate(count = BL + NB)
+
+# define surveyed site-years (one row per surveyed site in a given year)
+survey_keys <- allg_c %>%
+  distinct(year, Subregion, Site, siteDepth)
+
+# complete to explicit zeros for all species at each surveyed site-year
+allg_full <- allg_c %>%
+  dplyr::select(year, Subregion, Site, siteDepth, Species, count) %>%
+  complete(
+    nesting(year, Subregion, Site, siteDepth),
+    Species,
+    fill = list(count = 0)
+  ) %>%
+  mutate(
+    year = factor(year),
+    Species = factor(Species),
+    Subregion = factor(Subregion)
+  )
+
+dat_1423 <- allg_full %>%
+  filter(year %in% c("2014", "2023")) %>%
+  mutate(
+    year = factor(year, levels = c("2014", "2023"))
+  )
+
+dat_1423 <- dat_1423 %>%
+  mutate(
+    depth_sc = as.numeric(scale(siteDepth))
+  )
+
+depth_center <- mean(dat_1423$siteDepth, na.rm = TRUE)
+depth_scale  <- sd(dat_1423$siteDepth, na.rm = TRUE)
+
+fit_depth_model <- function(df_sp) {
+  df_sp <- droplevels(df_sp)
+
+  # skip species with too little information
+  info <- df_sp %>%
+    group_by(year) %>%
+    summarise(
+      n_sites = n(),
+      n_nonzero = sum(count > 0),
+      .groups = "drop"
+    )
+
+  if (nrow(info) < 2 || any(info$n_nonzero < 3)) {
+    return(list(
+      model = NULL,
+      family = NA_character_,
+      ok = FALSE,
+      reason = "too few nonzero observations in one or both years"
+    ))
+  }
+
+  # try NB first
+  mod_nb <- try(
+    MASS::glm.nb(count ~ year * depth_sc + Subregion, data = df_sp),
+    silent = TRUE
+  )
+
+  if (!inherits(mod_nb, "try-error")) {
+    return(list(
+      model = mod_nb,
+      family = "negbin",
+      ok = TRUE,
+      reason = NA_character_
+    ))
+  }
+
+  # fallback to Poisson
+  mod_pois <- try(
+    glm(count ~ year * depth_sc + Subregion,
+        data = df_sp,
+        family = poisson()),
+    silent = TRUE
+  )
+
+  if (!inherits(mod_pois, "try-error")) {
+    return(list(
+      model = mod_pois,
+      family = "poisson",
+      ok = TRUE,
+      reason = "NB failed; used Poisson fallback"
+    ))
+  }
+
+  list(
+    model = NULL,
+    family = NA_character_,
+    ok = FALSE,
+    reason = "both NB and Poisson failed"
+  )
+}
+
+mods_by_species <- dat_1423 %>%
+  group_split(Species) %>%
+  set_names(levels(dat_1423$Species)) %>%
+  map(fit_depth_model)
+
+extract_depth_metrics <- function(fit_obj, sp_name) {
+  if (!fit_obj$ok || is.null(fit_obj$model)) {
+    return(tibble(
+      Species = sp_name,
+      fit_ok = FALSE,
+      family = fit_obj$family,
+      reason = fit_obj$reason,
+      beta_year = NA_real_,
+      se_year = NA_real_,
+      p_year = NA_real_,
+      beta_depthshift = NA_real_,
+      se_depthshift = NA_real_,
+      p_depthshift = NA_real_
+    ))
+  }
+
+  tt <- broom::tidy(fit_obj$model)
+
+  yr_row <- tt %>% filter(term == "year2023")
+  int_row <- tt %>% filter(term == "year2023:depth_sc")
+
+  tibble(
+    Species = sp_name,
+    fit_ok = TRUE,
+    family = fit_obj$family,
+    reason = fit_obj$reason,
+    beta_year = ifelse(nrow(yr_row) == 1, yr_row$estimate, NA_real_),
+    se_year   = ifelse(nrow(yr_row) == 1, yr_row$std.error, NA_real_),
+    p_year    = ifelse(nrow(yr_row) == 1, yr_row$p.value, NA_real_),
+    beta_depthshift = ifelse(nrow(int_row) == 1, int_row$estimate, NA_real_),
+    se_depthshift   = ifelse(nrow(int_row) == 1, int_row$std.error, NA_real_),
+    p_depthshift    = ifelse(nrow(int_row) == 1, int_row$p.value, NA_real_)
+  )
+}
+
+depth_metrics <- imap_dfr(mods_by_species, extract_depth_metrics)
+depth_metrics
+
+depth_metrics <- depth_metrics %>%
+  mutate(
+    p_year_adj       = p.adjust(p_year, method = "fdr"),
+    p_depthshift_adj = p.adjust(p_depthshift, method = "fdr")
+  ) %>%
+  arrange(p_depthshift_adj)
+
+depth_metrics
+
+hi <- depth_metrics %>% right_join(net_clean, by = "Species") %>%
+  mutate(beta_depthshift = -beta_depthshift)
+ggplot(hi, aes(x = estimate, y = beta_depthshift)) + geom_point() + geom_text(aes(label = Species)) + ggpubr::stat_cor()
+ggplot(hi, aes(x = estimate, y = depthshift)) + geom_point() + geom_text(aes(label = Species)) + ggpubr::stat_cor()
+ggplot(hi, aes(x = depthshift, y = beta_depthshift)) + geom_point() + geom_text(aes(label = Species)) + ggpubr::stat_cor()
+
+mod_mech <- lm(
+    degC_w ~ estimate + ngen + sizechange + sus_group + beta_depthshift,
+    data = hi,
+    weights = 1/degC_w.se^2
+)
+summary(mod_mech)
+
+mod_mech2 <- lm(
+    degC_w ~ estimate + ngen + sizechange + sus_group + depthshift,
+    data = hi,
+    weights = 1/degC_w.se^2
+)
+summary(mod_mech2)
+
+cor(hi$depthshift, hi$beta_depthshift)
 ```
 
 ## All corals - ED50s by year
@@ -884,15 +1108,17 @@ dhw.mod24 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Speci
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 summary(dhw.mod24)
 
-# dhw.mod24.depth <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + 
-#                            (dhw + year | Species) + (year | Subregion),  
-#                  family = "binomial", data = allg, 
-#                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
-# 
-# anova(dhw.mod24, dhw.mod24.depth)
-# summary(dhw.mod24.depth)
-# emmeans(dhw.mod24, specs = c("year", "dhw"), type = "response")
-# emmeans(dhw.mod24.depth, specs = c("year", "dhw"), type = "response")
+dhw.mod24.depth <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 +
+                           (dhw + year | Species) + (year | Subregion),
+                 family = "binomial", data = allg,
+                 verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
+summary(dhw.mod24.depth)
+anova(dhw.mod24, dhw.mod24.depth)
+summary(dhw.mod24.depth)
+d1 <- emmeans(dhw.mod24, specs = c("year", "dhw"), type = "response", at = list(dhw = seq(0,20,1)))
+d2 <- emmeans(dhw.mod24.depth, specs = c("year", "dhw"), type = "response", at = list(dhw = seq(0,20,1)))
+ggplot(data.frame(d1), aes(x = dhw, y = prob, group = factor(year), color = factor(year))) + geom_line()
+ggplot(data.frame(d2), aes(x = dhw, y = prob, group = factor(year), color = factor(year))) + geom_line()
 
 # Function to get ED50s and ∆ED50s
 ed50s.fun_fast <- function(mod, peak_dates = NULL) {
@@ -1106,6 +1332,22 @@ dhw.sp.mod.24 <- glmer(
   family = "binomial", data = allg, verbose = FALSE,
   nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
 #### relevant reading: https://stats.oarc.ucla.edu/stata/seminars/deciphering-interactions-in-logistic-regression/#:~:text=If%20the%20differences%20are%20not,or%20odds%20ratios%20or%20probability%3F
+dhw.sp.mod.24.depth <- glmer(
+  cbind(BL, NB) ~ siteDepth + Species + dhw + Species:dhw + year + Species:year + year:Week2 + (year|Subregion),  
+  family = "binomial", data = allg, verbose = FALSE,
+  nAGQ=0, control=glmerControl(optimizer = "nloptwrap"))
+anova(dhw.sp.mod.24, dhw.sp.mod.24.depth)
+summary(dhw.sp.mod.24.depth)
+d1 <- emmeans(dhw.sp.mod.24, specs = c("year", "dhw", "Species"), type = "response", 
+              at = list(dhw = seq(0,20,1)), rg.limit = 200000)
+d2 <- emmeans(dhw.sp.mod.24.depth, specs = c("year", "dhw", "Species"), type = "response", 
+              at = list(dhw = seq(0,20,1)), rg.limit = 200000)
+ggplot(data.frame(d1), aes(x = dhw, y = prob, group = factor(year), color = factor(year))) + 
+  geom_line() + facet_wrap(~Species)
+ggplot(data.frame(d2), aes(x = dhw, y = prob, group = factor(year), color = factor(year))) + 
+  geom_line() + facet_wrap(~Species)
+
+
 
 # Get emmeans for just the specific 2-week windows of interest in each year (corresp. to max. bleaching)
 # And select just the range of peak DHWs experienced across sites in each year
@@ -1119,9 +1361,19 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
   (year == "2024" & Week2 == "(37,39]" & dhw <= 11.5 & dhw > 0.30) 
 )
 
+dhw.sp.res.24.depth <- emmeans(dhw.sp.mod.24.depth, specs = c("Species", "dhw", "year", "Week2"), type = "response",
+                      at = list(dhw = seq(0, maxdhw, 0.1), Week2 = c("(33,35]", "(35,37]", "(37,39]")), 
+                      rg.limit = 200000, level = 0.84)
+dhw.sp.res.24.2.depth <- subset(dhw.sp.res.24.depth,
+  (year == "2014" & Week2 == "(35,37]" & dhw <= 7.12 & dhw > 0.48) |
+  (year == "2015" & Week2 == "(37,39]" & dhw <= 8.00 & dhw > 0) |
+  (year == "2023" & Week2 == "(33,35]" & dhw <= 20.4 & dhw > 1.46) |
+  (year == "2024" & Week2 == "(37,39]" & dhw <= 11.5 & dhw > 0.30) 
+)
+
 
 # Plot
-(dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2), aes(x = dhw, y = prob, group = year)) +
+(dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2.depth), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
   geom_line(aes(color = year), lwd = 0.75, alpha = 0.9) +
@@ -1639,6 +1891,10 @@ group_definitions <- tibble(
 net_clean <- net_clean %>% 
   left_join(group_definitions)
 
+# add depth shift?
+net_clean <- net_clean %>%
+  left_join(depthshift %>% dplyr::select(Species, depthshift), by = "Species")
+
 
 ## ------------------------------------------------------------
 # Prepare data for testing
@@ -1661,11 +1917,12 @@ dat <- dat %>%
   )
 
 # Simple version to double check visualization
-# mod_full <- lm(
-#   degC_w ~ estimate + ngen + logdens2014 + sizechange + sus_group,
-#   data = dat,
-#   weights = w
-# )
+mod_full <- lm(
+  degC_w ~ estimate + ngen + logdens2014 + sizechange + sus_group + depthshift,
+  data = dat,
+  weights = w
+)
+summary(mod_full)
 # 
 # library(visreg)
 # 
@@ -1674,7 +1931,29 @@ dat <- dat %>%
 # visreg(mod_full, "logdens2014", ylim = c(-0.25,2.25))
 # visreg(mod_full, "sizechange", ylim = c(-0.25,2.25))
 # visreg(mod_full, "sus_group", ylim = c(-0.25,2.25))
+visreg(mod_full, "depthshift")
+ggplot(dat, aes(x = estimate, y = depthshift)) +
+  geom_point() +
+  geom_text(aes(label = Species))
+cor(dat$estimate, dat$depthshift)
 
+modA <- lm(
+  degC_w ~ estimate + ngen + logdens2014 + sizechange + sus_group,
+  data = dat,
+  weights = w
+)
+modB <- lm(
+  degC_w ~ depthshift + ngen + logdens2014 + sizechange + sus_group,
+  data = dat,
+  weights = w
+)
+modC <- lm(
+  degC_w ~ estimate + depthshift + ngen + logdens2014 + sizechange + sus_group,
+  data = dat,
+  weights = w
+)
+anova(modC, modB)
+anova(modC, modA)
 
 # ------------------------------------------------------------
 # 1) Five-panel figure of UNIVARIATE relationships
@@ -1692,6 +1971,7 @@ mod_uni_ngen  <- lm(degC_w ~ ngen,         data = dat, weights = w)
 mod_uni_logd  <- lm(degC_w ~ logdens2014,  data = dat, weights = w)
 mod_uni_size  <- lm(degC_w ~ sizechange,   data = dat, weights = w)
 mod_uni_sus   <- lm(degC_w ~ sus_group,    data = dat, weights = w)
+mod_uni_depth <- lm(degC_w ~ depthshift,   data = dat, weights = w)
 
 # ============================================================
 # 3) Helpers to extract predictions + annotations
@@ -1761,12 +2041,14 @@ pred_ngen <- make_cont_pred(mod_uni_ngen, dat, "ngen")
 pred_logd <- make_cont_pred(mod_uni_logd, dat, "logdens2014")
 pred_size <- make_cont_pred(mod_uni_size, dat, "sizechange")
 pred_sus  <- make_factor_pred(mod_uni_sus, dat, "sus_group")
+pred_depth  <- make_cont_pred(mod_uni_depth, dat, "depthshift")
 
 ann_est  <- make_num_ann(mod_uni_est,  "estimate")
 ann_ngen <- make_num_ann(mod_uni_ngen, "ngen")
 ann_logd <- make_num_ann(mod_uni_logd, "logdens2014")
 ann_size <- make_num_ann(mod_uni_size, "sizechange")
 ann_sus  <- make_ord_ann(mod_uni_sus)
+ann_depth <- make_num_ann(mod_uni_depth, "depthshift")
 
 # ============================================================
 # 5) Univariate plots
@@ -1794,6 +2076,31 @@ p_uni_est <- ggplot(dat, aes(x = estimate, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in population density\n(log ratio)", y = "Change in\nbleaching threshold (°C)") +
+  theme_bw()
+
+p_uni_depth <- ggplot(dat, aes(x = depthshift, y = degC_w)) +
+  geom_point(alpha = 0.8) +
+  geom_ribbon(
+    data = pred_depth,
+    aes(x = depthshift, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = pred_depth,
+    aes(x = depthshift, y = fit),
+    inherit.aes = FALSE,
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_depth,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "Change in depth", y = "Change in\nbleaching threshold (°C)") +
   theme_bw()
 
 set.seed(3)
