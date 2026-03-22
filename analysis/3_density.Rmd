@@ -437,6 +437,9 @@ densdiffs_smoth <- dplyr::full_join(disc_14_23, smooth_14_23, by = "Species") %>
                 estimate_smooth,   pct_smooth) %>%
   dplyr::arrange(Species)
 
+# Join with 2014 density for sens.check
+densdiffs_smoth <- densdiffs_smoth %>% left_join(pred_blue %>% filter(year_num == 2014) %>% rename(dens2014=fit))
+
 write.csv(densdiffs_smoth, "data/processed/densdiffs_smooth.csv", row.names = FALSE)
 ```
 
