@@ -1305,7 +1305,7 @@ densdiffs <- read_csv("data/processed/densdiffs_smooth.csv")
 # Combine net changes in heat tolerance with changes in density and levels of symbiont diversity across species
 net <- sp.degC.w %>%
   left_join(dplyr::select(as.tibble(densdiffs), Species, 
-                          estimate = estimate_smooth)) %>%
+                          estimate = estimate_smooth, dens2014)) %>%
                           #estimate)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
@@ -1373,7 +1373,7 @@ myticks2 <- log(myticks + 1)
 # STATISTICALLY MODEL DENSITY AND SYMBIONT EFFECTS
 
 # Remove missing values
-net_clean <- na.omit(net[, c("Species", "degC_w", "estimate", "ngen", "degC_w.se", "D")])
+net_clean <- na.omit(net[, c("Species", "degC_w", "estimate", "ngen", "dens2014", "degC_w.se", "D")])
 
 # Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
 net_clean$ngen_centered <- net_clean$ngen - 1
@@ -1573,8 +1573,11 @@ ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
 # ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
 
 
+```
 
-
+### Sensitivity checks
+```{r}
+# ----------------------------------------------
 # Test whether number of symbiont genera as a factor instead of continuous variable changes interpretation
 ols_model_adjusted_factor <- lm(degC_w ~ estimate + factor(ngen_centered), data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted_factor)
@@ -1585,6 +1588,597 @@ as_tibble(factorres) %>%
   geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE))
 contrast(factorres, method = "consec", adjust = "none")
 ## Same results --> use continuous
+# ----------------------------------------------
+```
+
+
+```{r}
+# ----------------------------------------------
+# Test whether changes in colony size or SCTLD susceptibility 
+# or initial population density predict changes in tolerance
+# ----------------------------------------------
+
+## Get size changes -- Fit model for colony width by Species and year
+allw <- allf %>%
+  mutate(Width2 = case_when(Width >= 4 ~ Width,
+                            Width < 4 ~ 4))
+wmod <- lmer(log(Width2) ~ year * Species + (1|Species:Subregion), data = allw)
+
+## Get EMMs for colony size
+sizeemms <- emmeans(wmod, specs = "year", by = "Species")
+
+## Get 2023 - 2014 change for each species
+size_change <- contrast(
+  sizeemms,
+  method = list("2023-2014" = c(-1, 0, 1, 0)),  # assumes order: 2014, 2015, 2023, 2024
+  by = "Species"
+)
+
+sizechange <- as_tibble(rbind(size_change)) %>%
+  rename(sizechange = estimate,
+         sizechange.SE = SE)
+
+## Join with species' heat tolerance change data
+net_clean <- net_clean %>% left_join(sizechange, by = "Species")
+
+
+# Define SCTLD susceptibility groups (following Papke et al. 2024)
+group_definitions <- tibble(
+  Species = unique(net_clean$Species),
+  sus_group = case_when(
+    Species %in% c("DSTO", "EFAS", "MMEA", "DLAB", "CNAT", "PSTR", "PCLI") ~ "high_sus",
+    Species %in% c("MCAV", "ORBI", "SRAD", "SSID", "SINT", "SOLE") ~ "mod_sus",
+    Species %in% c("ACER", "PAST", "PFUR", "PDIV", "PPOR", "AAGA", "AGAR", "MYCE", "MDEC") ~ "low_sus",
+    TRUE ~ NA_character_
+  )
+) %>%
+  mutate(sus_group = factor(sus_group, levels = c("low_sus", "mod_sus", "high_sus"), ordered = TRUE))
+# Disease susceptibility is ordered low -> high
+# so that the linear contrast tests a monotonic trend.
+
+net_clean <- net_clean %>% 
+  left_join(group_definitions)
+
+
+## ------------------------------------------------------------
+# Prepare data for testing
+
+library(visreg)
+library(cowplot)
+
+dat <- net_clean
+dat <- dat %>% 
+  mutate(logdens2014 = log(dens2014),
+         w = 1 / degC_w.se^2) %>%
+  mutate(
+    sus_group = dplyr::recode(
+      sus_group,
+      "low_sus"  = "low",
+      "mod_sus"  = "med",
+      "high_sus" = "high"
+    ),
+    sus_group = factor(sus_group, levels = c("low", "med", "high"), ordered = TRUE)
+  )
+
+# Simple version to double check visualization
+# mod_full <- lm(
+#   degC_w ~ estimate + ngen + logdens2014 + sizechange + sus_group,
+#   data = dat,
+#   weights = w
+# )
+# 
+# library(visreg)
+# 
+# visreg(mod_full, "estimate", ylim = c(-0.25,2.25))
+# visreg(mod_full, "ngen", ylim = c(-0.25,2.25))
+# visreg(mod_full, "logdens2014", ylim = c(-0.25,2.25))
+# visreg(mod_full, "sizechange", ylim = c(-0.25,2.25))
+# visreg(mod_full, "sus_group", ylim = c(-0.25,2.25))
+
+
+# ------------------------------------------------------------
+# 1) Five-panel figure of UNIVARIATE relationships
+#    - continuous predictors: weighted lm line
+#    - factor predictor: boxplot + jittered points
+# ------------------------------------------------------------
+
+ylims <- c(-0.25, 2.25)
+
+# ============================================================
+# 2) Fit univariate weighted models
+# ============================================================
+mod_uni_est   <- lm(degC_w ~ estimate,     data = dat, weights = w)
+mod_uni_ngen  <- lm(degC_w ~ ngen,         data = dat, weights = w)
+mod_uni_logd  <- lm(degC_w ~ logdens2014,  data = dat, weights = w)
+mod_uni_size  <- lm(degC_w ~ sizechange,   data = dat, weights = w)
+mod_uni_sus   <- lm(degC_w ~ sus_group,    data = dat, weights = w)
+
+# ============================================================
+# 3) Helpers to extract predictions + annotations
+# ============================================================
+make_cont_pred <- function(model, data, var, n = 200) {
+  newdat <- data.frame(x = seq(min(data[[var]], na.rm = TRUE),
+                               max(data[[var]], na.rm = TRUE),
+                               length.out = n))
+  names(newdat) <- var
+  
+  pr <- predict(model, newdata = newdat, se.fit = TRUE)
+  
+  newdat$fit <- pr$fit
+  newdat$lwr <- pr$fit - 1.96 * pr$se.fit
+  newdat$upr <- pr$fit + 1.96 * pr$se.fit
+  newdat
+}
+
+make_factor_pred <- function(model, data, var) {
+  newdat <- data.frame(x = levels(data[[var]]))
+  names(newdat) <- var
+  newdat[[var]] <- factor(newdat[[var]], levels = levels(data[[var]]), ordered = is.ordered(data[[var]]))
+  
+  pr <- predict(model, newdata = newdat, se.fit = TRUE)
+  
+  newdat$fit <- pr$fit
+  newdat$lwr <- pr$fit - 1.96 * pr$se.fit
+  newdat$upr <- pr$fit + 1.96 * pr$se.fit
+  newdat
+}
+
+make_num_ann <- function(model, term, x = -Inf, y = Inf, digits_b = 3) {
+  sm <- coef(summary(model))
+  b  <- sm[term, "Estimate"]
+  p  <- sm[term, "Pr(>|t|)"]
+  
+  data.frame(
+    x = x,
+    y = y,
+    label = sprintf("ß = %.3f, P = %s",
+                    b, format.pval(p, digits = 2, eps = 0.001))
+  )
+}
+
+make_ord_ann <- function(model, prefix = "ß", x = -Inf, y = Inf) {
+  sm <- coef(summary(model))
+  row_L <- grep("\\.L$", rownames(sm), value = TRUE)
+  
+  if (length(row_L) != 1) stop("Could not uniquely identify ordered-factor linear trend (.L) term.")
+  
+  b <- sm[row_L, "Estimate"]
+  p <- sm[row_L, "Pr(>|t|)"]
+  
+  data.frame(
+    x = x,
+    y = y,
+    label = sprintf("%s = %.3f, P = %s",
+                    prefix, b, format.pval(p, digits = 2, eps = 0.001))
+  )
+}
+
+# ============================================================
+# 4) Prediction data + annotation data
+# ============================================================
+pred_est  <- make_cont_pred(mod_uni_est,  dat, "estimate")
+pred_ngen <- make_cont_pred(mod_uni_ngen, dat, "ngen")
+pred_logd <- make_cont_pred(mod_uni_logd, dat, "logdens2014")
+pred_size <- make_cont_pred(mod_uni_size, dat, "sizechange")
+pred_sus  <- make_factor_pred(mod_uni_sus, dat, "sus_group")
+
+ann_est  <- make_num_ann(mod_uni_est,  "estimate")
+ann_ngen <- make_num_ann(mod_uni_ngen, "ngen")
+ann_logd <- make_num_ann(mod_uni_logd, "logdens2014")
+ann_size <- make_num_ann(mod_uni_size, "sizechange")
+ann_sus  <- make_ord_ann(mod_uni_sus)
+
+# ============================================================
+# 5) Univariate plots
+# ============================================================
+p_uni_est <- ggplot(dat, aes(x = estimate, y = degC_w)) +
+  geom_point(alpha = 0.8) +
+  geom_ribbon(
+    data = pred_est,
+    aes(x = estimate, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = pred_est,
+    aes(x = estimate, y = fit),
+    inherit.aes = FALSE,
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_est,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "Change in population density\n(log ratio)", y = "Change in\nbleaching threshold (°C)") +
+  theme_bw()
+
+set.seed(3)
+p_uni_ngen <- ggplot(dat, aes(x = ngen, y = degC_w)) +
+  geom_jitter(alpha = 0.8, width = 0.1) +
+  geom_ribbon(
+    data = pred_ngen,
+    aes(x = ngen, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = pred_ngen,
+    aes(x = ngen, y = fit),
+    inherit.aes = FALSE,
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_ngen,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "Number of symbiont genera", y = "Change in\nbleaching threshold (°C)") +
+  theme_bw()
+
+p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
+  geom_point(alpha = 0.8) +
+  geom_ribbon(
+    data = pred_logd,
+    aes(x = logdens2014, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = pred_logd,
+    aes(x = logdens2014, y = fit),
+    inherit.aes = FALSE,
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_logd,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "Initial population density\n(log [colonies / 10 m2])", 
+       y = "Change in\nbleaching threshold (°C)" ) +
+  theme_bw()
+
+p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
+  geom_point(alpha = 0.8) +
+  geom_ribbon(
+    data = pred_size,
+    aes(x = sizechange, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = pred_size,
+    aes(x = sizechange, y = fit),
+    inherit.aes = FALSE,
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_size,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "Change in colony size\n(log ratio)", y = "Change in\nbleaching threshold (°C)" ) +
+  theme_bw()
+
+p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
+  geom_boxplot() +
+  geom_point(alpha = 0.8, position = position_jitter(width = 0.12, height = 0)) +
+  geom_text(
+    data = ann_sus,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "SCTLD susceptibility", y = "Change in\nbleaching threshold (°C)" ) +
+  theme_bw()
+
+
+
+# ------------------------------------------------------------
+# 2) Five-panel figure of PARTIAL EFFECTS from the full model
+#    similar to visreg, but using ggplot
+# ------------------------------------------------------------
+
+# ============================================================
+# 1) Data + model
+#    - sus_group treated as ordered factor for linear trend test
+#    - ngen = Number of symbiont genera
+# ============================================================
+
+mod_full <- lm(
+  degC_w ~ estimate + ngen + logdens2014 + sizechange + sus_group,
+  data = dat,
+  weights = w
+)
+
+ylims <- c(-0.25, 2.25)
+
+# ============================================================
+# 2) Extract visreg plotting data
+#    - uses visreg's exact fitted values / CI / partial residuals
+# ============================================================
+get_visreg_data <- function(model, var, ...) {
+  vr <- visreg(model, var, plot = FALSE, ...)
+  list(
+    fit = as.data.frame(vr$fit),
+    res = as.data.frame(vr$res)
+  )
+}
+
+vr_est   <- get_visreg_data(mod_full, "estimate")
+vr_ngen  <- get_visreg_data(mod_full, "ngen")
+vr_logd  <- get_visreg_data(mod_full, "logdens2014")
+vr_size  <- get_visreg_data(mod_full, "sizechange")
+vr_sus   <- get_visreg_data(mod_full, "sus_group")
+
+# keep factor levels consistent for categorical plotting
+vr_sus$fit$sus_group <- factor(vr_sus$fit$sus_group, levels = levels(dat$sus_group))
+vr_sus$res$sus_group <- factor(vr_sus$res$sus_group, levels = levels(dat$sus_group))
+
+# ============================================================
+# 3) Build annotation labels from the ACTUAL model summary
+#    - continuous predictors: coefficient + p-value from coef(summary())
+#    - ordered factor: linear trend (.L) coefficient + p-value
+# ============================================================
+ctab <- coef(summary(mod_full))
+
+make_num_label <- function(term, ctab, prefix = "ß") {
+  b <- ctab[term, "Estimate"]
+  p <- ctab[term, "Pr(>|t|)"]
+  sprintf("%s = %.3f, P = %s",
+          prefix,
+          b,
+          format.pval(p, digits = 2, eps = 0.001))
+}
+
+
+# continuous predictors
+label_est  <- make_num_label("estimate",     ctab)
+label_ngen <- make_num_label("ngen",         ctab)
+label_logd <- make_num_label("logdens2014",  ctab)
+label_size <- make_num_label("sizechange",   ctab)
+
+# ordered-factor linear trend for sus_group
+sus_L_row <- grep("^sus_group.*\\.L$", rownames(ctab), value = TRUE)
+
+if (length(sus_L_row) != 1) {
+  stop("Could not uniquely identify the linear trend (.L) term for sus_group.")
+}
+
+label_sus <- sprintf(
+  "ß = %.3f, P = %s",
+  ctab[sus_L_row, "Estimate"],
+  format.pval(ctab[sus_L_row, "Pr(>|t|)"], digits = 2, eps = 0.001)
+)
+
+# generic annotation data frame helper
+make_ann <- function(label, x = -Inf, y = Inf) {
+  data.frame(x = x, y = y, label = label)
+}
+
+ann_est  <- make_ann(label_est)
+ann_ngen <- make_ann(label_ngen)
+ann_logd <- make_ann(label_logd)
+ann_size <- make_ann(label_size)
+ann_sus  <- make_ann(label_sus)
+
+# ============================================================
+# 4) Plot continuous predictors from visreg data
+#    - easy to customize panel by panel
+# ============================================================
+p_part_est <- ggplot() +
+  geom_point(
+    data = vr_est$res,
+    aes(x = estimate, y = visregRes),
+    alpha = 0.8
+  ) +
+  geom_ribbon(
+    data = vr_est$fit,
+    aes(x = estimate, ymin = visregLwr, ymax = visregUpr),
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = vr_est$fit,
+    aes(x = estimate, y = visregFit),
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_est,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(
+    x = "Change in population density\n(log ratio)",
+    y = "Modeled change in\nbleaching threshold (°C)"
+  ) +
+  theme_bw()
+
+set.seed(3)
+p_part_ngen <- ggplot() +
+  geom_jitter(
+    data = vr_ngen$res,
+    aes(x = ngen, y = visregRes),
+    alpha = 0.8, width = 0.1
+  ) +
+  geom_ribbon(
+    data = vr_ngen$fit,
+    aes(x = ngen, ymin = visregLwr, ymax = visregUpr),
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = vr_ngen$fit,
+    aes(x = ngen, y = visregFit),
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_ngen,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(
+    x = "Number of symbiont genera",
+    y = "Modeled change in\nbleaching threshold (°C)"
+  ) +
+  theme_bw()
+
+p_part_logd <- ggplot() +
+  geom_point(
+    data = vr_logd$res,
+    aes(x = logdens2014, y = visregRes),
+    alpha = 0.8
+  ) +
+  geom_ribbon(
+    data = vr_logd$fit,
+    aes(x = logdens2014, ymin = visregLwr, ymax = visregUpr),
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = vr_logd$fit,
+    aes(x = logdens2014, y = visregFit),
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_logd,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(x = "Initial population density\n(log [colonies / 10 m2])", 
+       y = "Change in\nbleaching threshold (°C)" ) +
+  theme_bw()
+
+p_part_size <- ggplot() +
+  geom_point(
+    data = vr_size$res,
+    aes(x = sizechange, y = visregRes),
+    alpha = 0.8
+  ) +
+  geom_ribbon(
+    data = vr_size$fit,
+    aes(x = sizechange, ymin = visregLwr, ymax = visregUpr),
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = vr_size$fit,
+    aes(x = sizechange, y = visregFit),
+    linewidth = 0.9, color = "blue"
+  ) +
+  geom_text(
+    data = ann_size,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(
+    x = "Change in colony size\n(log ratio)",
+    y = "Modeled change in\nbleaching threshold (°C)"
+  ) +
+  theme_bw()
+
+# ============================================================
+# 5) Plot ordered categorical predictor from visreg data
+#    - annotate with ordered-factor linear trend from model summary
+# ============================================================
+p_part_sus <- ggplot() +
+  geom_boxplot(
+    data = vr_sus$res,
+    aes(x = sus_group, y = visregRes)
+  ) +
+  geom_point(
+    data = vr_sus$res,
+    aes(x = sus_group, y = visregRes),
+    alpha = 0.8,
+    position = position_jitter(width = 0.12, height = 0)
+  ) +
+  
+  geom_text(
+    data = ann_sus,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05, vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = ylims) +
+  labs(
+    x = "SCTLD susceptibility",
+    y = "Modeled change in\nbleaching threshold (°C)"
+  ) +
+  theme_bw()
+
+# ============================================================
+# 6) FINAL FIGURE
+# ============================================================
+
+top_row <- plot_grid(
+  p_uni_est, p_uni_ngen, p_uni_logd, p_uni_size, p_uni_sus,
+  nrow = 1
+)
+
+bottom_row <- plot_grid(
+  p_part_est, p_part_ngen, p_part_logd, p_part_size, p_part_sus,
+  nrow = 1
+)
+
+
+
+title_grob <- function(text) {
+  ggdraw() +
+    draw_label(
+      text,
+      x = 0, y = 0.5,
+      hjust = 0, vjust = 0.5,
+      fontface = "bold"
+    )
+}
+
+top_with_title <- plot_grid(
+  title_grob("A.  Univariate relationships"),
+  top_row,
+  ncol = 1,
+  rel_heights = c(0.15, 1)
+)
+
+bottom_with_title <- plot_grid(
+  title_grob("B.  Partial effects from full model (all predictors included)"),
+  bottom_row,
+  ncol = 1,
+  rel_heights = c(0.15, 1)
+)
+
+final_plot <- plot_grid(
+  top_with_title,
+  bottom_with_title,
+  ncol = 1
+)
+
+final_plot
+ggsave(filename = "figures/FigS9.png", width = 330, height = 140, units = "mm", bg = "white")
+
 ```
 
 
@@ -1672,7 +2266,7 @@ RR <- p90andsmall %>%
         strip.text = element_text(face = "italic", hjust = 0),
         strip.background = element_blank()))
 
-ggsave(filename = "figures/FigS9.png", plot = sizeplot,
+ggsave(filename = "figures/FigS10.png", plot = sizeplot,
        width = 120, height = 100, units = "mm")
 
 
@@ -1724,7 +2318,7 @@ grps <- as_tibble(multcomp::cld(emms, Letters = letters))
 # Convert from log scale to actual size
 emms_size <- summary(emms) %>%
   mutate(Estimated_Size = exp(emmean)) %>%
-  select(Species, year, Estimated_Size) %>%
+  dplyr::select(Species, year, Estimated_Size) %>%
   left_join(grps) %>%
   mutate(
   label = purrr::map2(
@@ -1745,7 +2339,7 @@ sizefreq <- sizefreq +
             aes(x = Inf, y = Inf, label = label), 
             parse = TRUE, vjust = 4, hjust = 1, size = 3, color = "#00BA38") 
 
-ggsave("figures/FigS10.png", plot = sizefreq, width = 220, height = 220, units = "mm")
+ggsave("figures/FigS11.png", plot = sizefreq, width = 220, height = 220, units = "mm")
 ```
 
 
