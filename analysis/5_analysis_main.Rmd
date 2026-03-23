@@ -1337,7 +1337,7 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
 
 
 # Plot
-(dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2.depth), aes(x = dhw, y = prob, group = year)) +
+(dhw.sp.bleach.plot.24 <- ggplot(as.tibble(dhw.sp.res.24.2), aes(x = dhw, y = prob, group = year)) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names)) +
   geom_ribbon(aes(ymin = prob - SE, ymax = prob + SE), lwd = 0, alpha = 0.1) +
   geom_line(aes(color = year), lwd = 0.75, alpha = 0.9) +
@@ -1552,28 +1552,39 @@ sp_mean_slope <- sp_w_slope %>%
     dropped_weight = 1 - kept_weight,
     .groups = "drop"
   )
+# filter to just included species
+sp_mean_slope <- sp_mean_slope %>% filter(Species %in% sp.ed50s$Species)
 
 # convert ∆ED50s to ∆degC based on species-specific slopes
 sp.degC.w <- sp.ed50s %>%
   left_join(sp_mean_slope, by = "Species") %>%
   mutate(degC_u = ed50 / dhw.per.degC,
          degC_w = ed50 / mean_slope,
-         degC_w.se = sqrt((se/pmax(ed50, 0.1))^2 + (mean_slope_se/mean_slope)^2) * pmax(degC_w, 0.1))
-
+         #degC_w.se = sqrt((se/pmax(ed50, 0.1))^2 + (mean_slope_se/mean_slope)^2) * pmax(degC_w, 0.1))
+         degC_w.se = sqrt((se/ed50)^2 + (mean_slope_se/mean_slope)^2) * abs(degC_w))
+# PDIV and PFUR get NaN for SE because ∆ED50 is zero. assign these SE values to lowest defined SE value.
 sp.degC.w %>% arrange(degC_w.se)
-sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0475
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0475 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0475 # lowest value non PDIV/PFUR
 
 write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 
 
 
 
-# UPDATE: CONVERT TO DEGC INSIDE BOOTSTRAP?
-boot_degC <- sweep(sp.boot.out.24$t, 2, sp_mean_slope$mean_slope, "/")
-degC_se <- apply(boot_degC, 2, sd, na.rm = TRUE)
-degC_est <- sp.ed50s %>%
-  left_join(sp_mean_slope, by = "Species") %>%
-  mutate(degC_est = ed50 / mean_slope)
+# # UPDATE: CONVERT TO DEGC INSIDE BOOTSTRAP? BUT CURR DOES NOT ACCOUNT FOR ERROR IN MEAN.SLOPE
+# sp.boot.1423 <- sp.boot.out.24$t[,grepl("2023-2014", colnames(sp.boot.out.24$t))]
+# boot_degC <- sweep(sp.boot.1423, 2, sp_mean_slope$mean_slope, "/")
+# degC_se <- apply(boot_degC, 2, sd, na.rm = TRUE)
+# 
+# sp.degC.w2 <- sp.ed50s %>%
+#   left_join(sp_mean_slope, by = "Species") %>%
+#   mutate(degC_w = ed50 / mean_slope,
+#          degC_w.se = degC_1423_se)
+# 
+# sp.degC.w2 %>% arrange(degC_w.se)
+# sp.degC.w2[which(sp.degC.w2$Species == "PDIV"), "degC_w.se"] <- 0.0603 # lowest value non PDIV/PFUR
+# sp.degC.w2[which(sp.degC.w2$Species == "PFUR"), "degC_w.se"] <- 0.0603 # lowest value non PDIV/PFUR
 ```
 
 
@@ -1658,10 +1669,8 @@ net_clean <- na.omit(net[, c("Species", "degC_w", "estimate", "ngen", "dens2014"
 # Center ngen so that the intercept represents `degC = 0` when `estimate = 0` and `ngen = 1`
 net_clean$ngen_centered <- net_clean$ngen - 1
 
-# Fit the model, with intercept zero at estimate = 0 and ngen = 1
+# Fit the model
 #  Weight observations using the standard error of the degC response
-# ols_model_adjusted <- lm(degC ~ 0 + estimate + ngen_centered, data = net_clean, weights = 1/degC.se^2)
-# summary(ols_model_adjusted)
 ols_model_adjusted <- lm(degC_w ~ estimate + ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted)
 
@@ -1724,7 +1733,7 @@ pct_density <- pct_tab$pct[pct_tab$name == "Estimate_Contribution"]
 pct_unexp <- pct_tab$pct[pct_tab$name == "Unexplained_Variation"]
 pct_modeled <- pct_symb + pct_density
 label_decomp <- sprintf(
-  "Modeled drivers account for %.0f%% of total |Δ°C|\n(Symbionts %.0f%%, Density %.0f%%)",
+  "Modeled drivers account for %.1f%% of total |Δ°C|\n(Symbionts %.1f%%, Density %.1f%%)",
   pct_modeled,
   pct_symb,
   pct_density
