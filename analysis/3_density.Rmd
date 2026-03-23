@@ -665,6 +665,44 @@ pd <- ggplot2::ggplot() +
         axis.text.x = element_text(angle = 45, hjust = 1))
 
 pd
+
+# 1) Discrete 2014 vs 2023 from GLMM fitted means (rate)
+disc_14_23d <- res_year2d %>%
+  dplyr::mutate(year_chr = as.character(year)) %>%
+  dplyr::filter(year_chr %in% c("2014", "2023")) %>%
+  dplyr::select(Species, year_chr, rate) %>%
+  tidyr::pivot_wider(names_from = year_chr, values_from = rate, names_prefix = "y") %>%
+  dplyr::filter(!is.na(y2014), !is.na(y2023), y2014 > 0, y2023 > 0) %>%
+  dplyr::mutate(
+    estimate_discrete = log(y2023 / y2014),
+    pct_discrete      = 100 * (y2023 / y2014 - 1)
+  ) %>%
+  dplyr::select(Species, estimate_discrete, pct_discrete)
+
+# 2) Smooth 2014 vs 2023 from the response-scale smooth fits
+smooth_14_23d <- pred_blued %>%
+  dplyr::filter(year_num %in% c(2014, 2023)) %>%
+  dplyr::select(Species, year_num, fit) %>%
+  tidyr::pivot_wider(names_from = year_num, values_from = fit, names_prefix = "y") %>%
+  dplyr::filter(!is.na(y2014), !is.na(y2023), y2014 > 0, y2023 > 0) %>%
+  dplyr::mutate(
+    estimate_smooth = log(y2023 / y2014),
+    pct_smooth      = 100 * (y2023 / y2014 - 1)
+  ) %>%
+  dplyr::select(Species, estimate_smooth, pct_smooth)
+
+# 3) Join + write
+densdiffs_smothd <- dplyr::full_join(disc_14_23d, smooth_14_23d, by = "Species") %>%
+  dplyr::mutate(contrast = "2023 - 2014") %>%
+  dplyr::select(Species, contrast,
+                estimate_discrete, pct_discrete,
+                estimate_smooth,   pct_smooth) %>%
+  dplyr::arrange(Species)
+
+# Join with 2014 density for sens.check
+densdiffs_smothd <- densdiffs_smothd %>% left_join(pred_blued %>% filter(year_num == 2014) %>% rename(dens2014=fit))
+
+write.csv(densdiffs_smothd, "data/processed/densdiffs_smooth.csv", row.names = FALSE)
 ```
 
 
