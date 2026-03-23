@@ -1248,7 +1248,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
 dhw.bleach.plot
 ```
 
-### ∆ED50 --> ∆°C (spatial)
+### ∆ED50 --> ∆°C (spatially-weighted)
 ```{r change_degC_thresh}
 
 # Load dhw vs degC slopes for each pixel
@@ -1485,40 +1485,7 @@ sp.ed50conf.24 <- tibble(
 
 ```
 
-
-### ∆ED50 --> ∆°C
-```{r sp.changeED50, fig.width = 7, fig.height = 8}
-# # Convert ∆ED50s to degC with error propagation
-# sp.degC <- sp.ed50conf.24 %>%
-#   filter(year == "2023-2014") %>%
-#   mutate(degC = ed50 / dhw.per.degC,
-#          # pmax(ed50, 0.1) uses 0.1 as a constant for cases (PFUR/PDIV) with ed50 = 0 (can't div. by 0), which serves to propagate the absolute error
-#          degC.se = sqrt((se/pmax(ed50, 0.1))^2 + (dhw.per.degC.se/dhw.per.degC)^2) * pmax(degC, 0.1),
-#          degC.lower = degC - (1.96 * degC.se),
-#          degC.upper = degC + (1.96 * degC.se)) %>%
-#   separate(year, into = c("year", "2014")) %>%
-#   mutate(Species = fct_reorder(Species, degC))
-# 
-# ggplot(sp.degC, aes(x = Species, y = degC)) +
-#   geom_point() +
-#   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se))
-# 
-# 
-# # Plot change in heat tolerance in degC for all species
-# ## Need to decide whether to use SE or CI for error bars
-# (finplot <- sp.degC %>%
-#   ggplot(aes(x = Species, y = degC)) +
-#   geom_point() +
-#   #geom_errorbar(aes(ymin = lower.degC, ymax = upper.degC), width = 0) +
-#   geom_errorbar(aes(ymin = degC - degC.se, ymax = degC + degC.se), width = 0.2) +
-#   theme_classic() +
-#   theme(axis.text.x = element_text(angle = 90)) +
-#   labs(y = "Change in heat tolerance (°C)        "))
-# 
-# sp.degC %>% arrange(-degC) %>% print(n = nrow(.))
-```
-
-### Spatial ∆ED50 --> ∆°C
+### ∆ED50 --> ∆°C (per-species, spatially weighted)
 ```{r}
 # Species ∆ED50s
 sp.ed50s <- sp.ed50conf.24 %>%
@@ -1568,23 +1535,6 @@ sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0475 # lowest va
 sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0475 # lowest value non PDIV/PFUR
 
 write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
-
-
-
-
-# # UPDATE: CONVERT TO DEGC INSIDE BOOTSTRAP? BUT CURR DOES NOT ACCOUNT FOR ERROR IN MEAN.SLOPE
-# sp.boot.1423 <- sp.boot.out.24$t[,grepl("2023-2014", colnames(sp.boot.out.24$t))]
-# boot_degC <- sweep(sp.boot.1423, 2, sp_mean_slope$mean_slope, "/")
-# degC_se <- apply(boot_degC, 2, sd, na.rm = TRUE)
-# 
-# sp.degC.w2 <- sp.ed50s %>%
-#   left_join(sp_mean_slope, by = "Species") %>%
-#   mutate(degC_w = ed50 / mean_slope,
-#          degC_w.se = degC_1423_se)
-# 
-# sp.degC.w2 %>% arrange(degC_w.se)
-# sp.degC.w2[which(sp.degC.w2$Species == "PDIV"), "degC_w.se"] <- 0.0603 # lowest value non PDIV/PFUR
-# sp.degC.w2[which(sp.degC.w2$Species == "PFUR"), "degC_w.se"] <- 0.0603 # lowest value non PDIV/PFUR
 ```
 
 
@@ -1600,66 +1550,9 @@ net <- sp.degC.w %>%
                           #estimate)) %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
-# net <- net %>%
-#   filter(!Species %in% c("PFUR", "PDIV", "AAGA"))
 
-# # Model change in tolerance vs. change in density
-# # Passing Bablok regression
-# PBreg <- mcr::mcreg(net$estimate+3, net$degC+3,
-#                method.reg = "PaBa",  method.ci = "bootstrap", nsamples = 9999)
-# summary(PBreg)
-# 
-# PBfit <- mcr::calcResponse(PBreg, x.levels = seq(1.645, 4.178, 0.1), 
-#                       alpha = 0.1) %>% as_tibble()
-# PBfit <- PBfit %>%
-#   mutate(estimate = X - 3, degC = Y - 3)
-# 
-# # Plot
 myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
 myticks2 <- log(myticks + 1)
-# set.seed(8)
-# (dens_sym_viz <- net %>%
-#   ggplot(aes(x = estimate, y = degC)) + 
-#   geom_line(data = PBfit, color = "black", lwd = 1, alpha = 0.4) +
-#   geom_errorbar(aes(ymin = degC - degC.se, 
-#                     ymax = degC + degC.se), width = 0, alpha = 0.7, lwd = 0.3) +
-#   geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
-#   geom_point(aes(color = factor(ngen)), size = 4, alpha = 0.7, stroke = 0) + 
-#   
-#   #geom_smooth(method = "lm", se = FALSE) +
-#   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-#                            fontface = "italic", size = 3, segment.size = 0.25, seed = 8) +
-#   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
-#   scale_color_brewer(name = "Symbiont\nGenera",
-#                      palette = "RdYlBu", direction = -1,
-#                      na.translate = FALSE) +
-#   labs(x = "Change in population size (2014-2023)", 
-#        y = "Change in bleaching threshold (°C)") +
-#   theme_classic() +
-#   theme(legend.position = c(0.075,0.1),
-#         legend.key.width = unit(-10, "mm"),
-#         legend.key.spacing.y = unit(-3, "mm"), 
-#         legend.spacing.y = unit(-5, "mm"),
-#         legend.text = element_text(size = 8),
-#         legend.title = element_text(size = 8, margin = margin(b = -2)),
-#         legend.margin = margin(-10, 0, 0, 0),
-#         legend.background = element_blank(),
-#         legend.key = element_blank()) +
-#    guides(
-#     color = guide_legend(
-#       reverse = TRUE,
-#       title.hjust = 0.5,  # Further adjusts alignment
-#       override.aes = list(size = 3)  # Adjusts point size in legend
-#     ))) +
-#   #coord_cartesian(ylim = c(min(PBfit$degC), max(PBfit$degC)))
-#   coord_cartesian(ylim = c(0, 2))
-
-
-
-# For main text: use this fig showing absolute degC and estimate on x-axis and ngen as color.
-# Then, model and produce effect plots for either supplement or as multipanel?
-
-
 
 # STATISTICALLY MODEL DENSITY AND SYMBIONT EFFECTS
 
@@ -1766,16 +1659,11 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
          shape = guide_legend(order = 1, label.theme = element_text(size = 8)))
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
-# Compute adjusted degC while preserving species-level variation
-# net_clean$Adj_degC_Estimate1 <- (ols_slope_estimate * net_clean$estimate) + residuals(ols_model_adjusted)
-# net_clean$Adj_degC_Ngen1 <- (ols_slope_ngen * (net_clean$ngen - 1)) + residuals(ols_model_adjusted)
-# net_clean$Residual_Variation1 <- residuals(ols_model_adjusted)
-#^^^ one way to calculate. 
-#VVV another way. equivalent, but more explicit because ngen_centered = 0 and estimate = 0 are specified in predict
+
 net_clean$Adj_degC_Estimate <- predict(ols_model_adjusted, newdata = data.frame(estimate = net_clean$estimate, ngen_centered = 0)) + residuals(ols_model_adjusted)
 net_clean$Adj_degC_Ngen <- predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = net_clean$ngen_centered)) + residuals(ols_model_adjusted)
 net_clean$Residual_Variation <- residuals(ols_model_adjusted)
-### We're adding the total residuals for both effect plots. is this correct? or do we need get partial residuals?
+### We're adding the total residuals for both effect plots.
 
 # Add jitter to ngen to prevent overlap
 set.seed(47)
@@ -1857,11 +1745,6 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 
 cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
 ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
-
-# cowplot::plot_grid(dens_sym_viz, p1, p2, nrow = 1, rel_widths = c(1,1,1), labels = "AUTO")
-# ggsave(filename = "figures/Fig5alt2.png", width = 300, height = 95, units = "mm")
-
-
 ```
 
 ### Sensitivity checks
@@ -1877,13 +1760,12 @@ as_tibble(factorres) %>%
   geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE))
 contrast(factorres, method = "consec", adjust = "none")
 ## Same results --> use continuous
-# ----------------------------------------------
 ```
 
 
 ```{r}
 # ----------------------------------------------
-# Test whether changes in colony size or SCTLD susceptibility 
+# Test whether changes in colony size, SCTLD susceptibility, 
 # or initial population density predict changes in tolerance
 # ----------------------------------------------
 
