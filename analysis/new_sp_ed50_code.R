@@ -1,97 +1,94 @@
 ed50s.fun_fast_sp <- function(mod) {
+  peak_dates <- get("peak_dates", envir = .GlobalEnv)
   
-  combos <- peak_dates  # same object you used before: year, Week2 rows (e.g., 4 rows)
+  # drop 2024
+  peak_dates <- peak_dates[peak_dates$year != 2024, ]
+  
   b <- fixef(mod)
-  
-  # helper to safely grab coefficients that may not exist (rank deficiency)
-  getb <- function(nm) if (nm %in% names(b)) unname(b[nm]) else 0
-  
-  # levels in the model (to identify reference levels robustly)
   mf <- model.frame(mod)
+  depth_value <- mean(mf$siteDepth)
+  
   ref_year <- levels(mf$year)[1]
   ref_sp   <- levels(mf$Species)[1]
-  
-  # all species we will compute
   sp_levels <- levels(mf$Species)
   
-  # storage
+  getb <- function(nm) unname(b[nm])
+  
+  get_interaction <- function(a, b2) {
+    n1 <- paste0(a, ":", b2)
+    n2 <- paste0(b2, ":", a)
+    if (n1 %in% names(b)) unname(b[n1]) else unname(b[n2])
+  }
+  
   out_list <- vector("list", length(sp_levels))
   
   for (s in seq_along(sp_levels)) {
     sp <- sp_levels[s]
     
-    ## slope for this species (dhw + Species:dhw if not reference)
     slope <- getb("dhw")
     if (sp != ref_sp) {
-      # interaction name is usually "Species<sp>:dhw" (not "dhw:Species<sp>")
-      slope <- slope + getb(paste0("Species", sp, ":dhw"))
+      slope <- slope + get_interaction(paste0("Species", sp), "dhw")
     }
     
-    ## eta0 for each year/week combo at dhw = 0
-    eta0 <- numeric(nrow(combos))
-    for (i in seq_len(nrow(combos))) {
-      yr <- as.character(combos$year[i])
-      wk <- as.character(combos$Week2[i])
+    eta0 <- numeric(nrow(peak_dates))
+    
+    for (i in seq_len(nrow(peak_dates))) {
+      yr <- as.character(peak_dates$year[i])
+      wk <- as.character(peak_dates$Week2[i])
       
-      eta <- getb("(Intercept)")
+      eta <- getb("(Intercept)") + getb("siteDepth") * depth_value
       
-      # Species main effect (intercept offset) if not reference
-      if (sp != ref_sp) eta <- eta + getb(paste0("Species", sp))
-      
-      # year main effect if not reference year
-      if (yr != ref_year) eta <- eta + getb(paste0("year", yr))
-      
-      # Species:year interaction (treatment-coded; present only for non-ref sp and non-ref year)
-      if (sp != ref_sp && yr != ref_year) {
-        eta <- eta + getb(paste0("Species", sp, ":year", yr))
+      if (sp != ref_sp) {
+        eta <- eta + getb(paste0("Species", sp))
       }
       
-      # year:Week2 interaction (you previously noted even ref year can appear here)
-      eta <- eta + getb(paste0("year", yr, ":Week2", wk))
+      if (yr != ref_year) {
+        eta <- eta + getb(paste0("year", yr))
+      }
+      
+      if (sp != ref_sp && yr != ref_year) {
+        eta <- eta + get_interaction(paste0("Species", sp), paste0("year", yr))
+      }
+      
+      eta <- eta + get_interaction(paste0("year", yr), paste0("Week2", wk))
       
       eta0[i] <- eta
     }
     
-    # ED50 per combo
-    ed50 <- if (abs(slope) < 1e-12) rep(NA_real_, length(eta0)) else -eta0 / slope
+    #ed50 <- -eta0 / slope
+    # censor at zero
+    ed50 <- pmax(-eta0 / slope, 0)
     
-    # name ED50s by year (assumes each year appears once in combos)
-    yrs <- as.character(combos$year)
+    yrs <- as.character(peak_dates$year)
     names(ed50) <- yrs
     
-    # deltas vs first combo/year (exactly your prior pattern)
-    ed50_ref <- ed50[1]
-    d1 <- ed50[2] - ed50_ref
-    d2 <- ed50[3] - ed50_ref
-    d3 <- ed50[4] - ed50_ref
+    deltas <- ed50[-1] - ed50[1]
+    names(deltas) <- paste0(yrs[-1], "-", yrs[1])
     
-    res <- c(ed50, d1, d2, d3)
+    res <- c(ed50, deltas)
+    names(res) <- paste0(sp, "|", c(yrs, names(deltas)))
     
-    nm <- c(yrs,
-            paste0(yrs[2], "-", yrs[1]),
-            paste0(yrs[3], "-", yrs[1]),
-            paste0(yrs[4], "-", yrs[1]))
-    
-    out_list[[s]] <- setNames(res, paste0(sp, "|", nm))
+    out_list[[s]] <- res
   }
   
   unlist(out_list)
 }
 
-bleach50_sp <- ed50s.fun_fast_sp(dhw.sp.mod)
-bleach50_sp
 
+bleach50new_sp <- ed50s.fun_fast_sp(dhw.sp.mod.24.depth)
+bleach50new_sp
+sp.bleach50.24
 
 
 set.seed(1)
 boot.out_sp <- bootMer(
-  dhw.sp.mod,
+  dhw.sp.mod.24.depth,
   FUN = ed50s.fun_fast_sp,
-  nsim = 10,
+  nsim = 24,
   re.form = NULL,
   seed = 123,
-  parallel = "multicore",
-  ncpus = 10
+  parallel = "multicore", 
+  ncpus = 8
 )
 
 # CIs
@@ -114,4 +111,10 @@ sp.ed50conf2 <- ci_sp %>%
          ed50 = est)
 
 ggplot(sp.ed50conf2, aes(x = Species, y = ed50)) +
-  geom_point()
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper)) + ylim(0,20)
+
+ggplot(sp.ed50conf.24 %>% filter(grepl("2023-2014", year)) %>% mutate(Species = fct_reorder(Species, ed50)), 
+       aes(x = Species, y = ed50)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper))+ ylim(0,20)
