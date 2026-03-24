@@ -874,230 +874,22 @@ ggplot(allf, aes(Depth, color = year)) +
   )
 
 # Changes in depth across years?
-
-# APPROACH 1
-dat_depth <- allf %>%
-  filter(!is.na(Depth), !is.na(Species), !is.na(year), !is.na(Subregion)) %>%
-  mutate(
-    year = factor(year),
-    Species = factor(Species),
-    Subregion = factor(Subregion)
+depth_summary <- allf %>%
+  group_by(Species, year) %>%
+  summarise(
+    mean_depth = mean(Depth, na.rm = TRUE),
+    sd_depth   = sd(Depth, na.rm = TRUE),
+    n          = n(),
+    .groups = "drop"
   )
-
-mod_depth_all <- lmer(
-  Depth ~ year * Species + (1 | Subregion) + (1 | Species:Subregion),
-  data = dat_depth
-)
-summary(mod_depth_all)
-
-emm <- emmeans(mod_depth_all, ~ year | Species)
-
-contrast_2014_2023 <- contrast(
-  emm,
-  method = list("2014 - 2023" = c(1, 0, -1, 0)),  # assumes 4 levels: 2014, 2015, 2023, 2024
-  adjust = "none"
-)
-pairs_2014_2023 <- as.data.frame(contrast_2014_2023)
-pairs_2014_2023 <- pairs_2014_2023 %>%
-  dplyr::mutate(
-    p.adj = p.adjust(p.value, method = "bonferroni")  # or "fdr"
-  ) %>%
-  dplyr::arrange(p.adj)
-pairs_2014_2023
-
-depthshift <- pairs_2014_2023 %>%
-  mutate(depthshift = estimate)
-
-
-# # APPROACH 2
-# 
-# mod_depth <- lmer(
-#   siteDepth ~ year * Species + (1 | Subregion),
-#   data = allg
-# )
-# 
-# emm <- emmeans(mod_depth, ~ year | Species)
-# 
-# contrast_2014_2023 <- contrast(
-#   emm,
-#   method = list("2014 - 2023" = c(1, 0, -1, 0)),  # assumes 4 levels: 2014, 2015, 2023, 2024
-#   adjust = "none"
-# )
-# 
-# rbind(contrast_2014_2023)
-
-
-# APPROACH 3
-# make sure count exists
-allg_c <- allg %>%
-  mutate(count = BL + NB)
-
-# define surveyed site-years (one row per surveyed site in a given year)
-survey_keys <- allg_c %>%
-  distinct(year, Subregion, Site, siteDepth)
-
-# complete to explicit zeros for all species at each surveyed site-year
-allg_full <- allg_c %>%
-  dplyr::select(year, Subregion, Site, siteDepth, Species, count) %>%
-  complete(
-    nesting(year, Subregion, Site, siteDepth),
-    Species,
-    fill = list(count = 0)
-  ) %>%
-  mutate(
-    year = factor(year),
-    Species = factor(Species),
-    Subregion = factor(Subregion)
+depth_summary_w <- allg %>%
+  mutate(total = BL + NB) %>%
+  group_by(Species, year) %>%
+  summarise(
+    mean_depth = weighted.mean(siteDepth, w = total, na.rm = TRUE),
+    n_colonies = sum(total, na.rm = TRUE),
+    .groups = "drop"
   )
-
-dat_1423 <- allg_full %>%
-  filter(year %in% c("2014", "2023")) %>%
-  mutate(
-    year = factor(year, levels = c("2014", "2023"))
-  )
-
-dat_1423 <- dat_1423 %>%
-  mutate(
-    depth_sc = as.numeric(scale(siteDepth))
-  )
-
-depth_center <- mean(dat_1423$siteDepth, na.rm = TRUE)
-depth_scale  <- sd(dat_1423$siteDepth, na.rm = TRUE)
-
-fit_depth_model <- function(df_sp) {
-  df_sp <- droplevels(df_sp)
-
-  # skip species with too little information
-  info <- df_sp %>%
-    group_by(year) %>%
-    summarise(
-      n_sites = n(),
-      n_nonzero = sum(count > 0),
-      .groups = "drop"
-    )
-
-  if (nrow(info) < 2 || any(info$n_nonzero < 3)) {
-    return(list(
-      model = NULL,
-      family = NA_character_,
-      ok = FALSE,
-      reason = "too few nonzero observations in one or both years"
-    ))
-  }
-
-  # try NB first
-  mod_nb <- try(
-    MASS::glm.nb(count ~ year * depth_sc + Subregion, data = df_sp),
-    silent = TRUE
-  )
-
-  if (!inherits(mod_nb, "try-error")) {
-    return(list(
-      model = mod_nb,
-      family = "negbin",
-      ok = TRUE,
-      reason = NA_character_
-    ))
-  }
-
-  # fallback to Poisson
-  mod_pois <- try(
-    glm(count ~ year * depth_sc + Subregion,
-        data = df_sp,
-        family = poisson()),
-    silent = TRUE
-  )
-
-  if (!inherits(mod_pois, "try-error")) {
-    return(list(
-      model = mod_pois,
-      family = "poisson",
-      ok = TRUE,
-      reason = "NB failed; used Poisson fallback"
-    ))
-  }
-
-  list(
-    model = NULL,
-    family = NA_character_,
-    ok = FALSE,
-    reason = "both NB and Poisson failed"
-  )
-}
-
-mods_by_species <- dat_1423 %>%
-  group_split(Species) %>%
-  set_names(levels(dat_1423$Species)) %>%
-  map(fit_depth_model)
-
-extract_depth_metrics <- function(fit_obj, sp_name) {
-  if (!fit_obj$ok || is.null(fit_obj$model)) {
-    return(tibble(
-      Species = sp_name,
-      fit_ok = FALSE,
-      family = fit_obj$family,
-      reason = fit_obj$reason,
-      beta_year = NA_real_,
-      se_year = NA_real_,
-      p_year = NA_real_,
-      beta_depthshift = NA_real_,
-      se_depthshift = NA_real_,
-      p_depthshift = NA_real_
-    ))
-  }
-
-  tt <- broom::tidy(fit_obj$model)
-
-  yr_row <- tt %>% filter(term == "year2023")
-  int_row <- tt %>% filter(term == "year2023:depth_sc")
-
-  tibble(
-    Species = sp_name,
-    fit_ok = TRUE,
-    family = fit_obj$family,
-    reason = fit_obj$reason,
-    beta_year = ifelse(nrow(yr_row) == 1, yr_row$estimate, NA_real_),
-    se_year   = ifelse(nrow(yr_row) == 1, yr_row$std.error, NA_real_),
-    p_year    = ifelse(nrow(yr_row) == 1, yr_row$p.value, NA_real_),
-    beta_depthshift = ifelse(nrow(int_row) == 1, int_row$estimate, NA_real_),
-    se_depthshift   = ifelse(nrow(int_row) == 1, int_row$std.error, NA_real_),
-    p_depthshift    = ifelse(nrow(int_row) == 1, int_row$p.value, NA_real_)
-  )
-}
-
-depth_metrics <- imap_dfr(mods_by_species, extract_depth_metrics)
-depth_metrics
-
-depth_metrics <- depth_metrics %>%
-  mutate(
-    p_year_adj       = p.adjust(p_year, method = "fdr"),
-    p_depthshift_adj = p.adjust(p_depthshift, method = "fdr")
-  ) %>%
-  arrange(p_depthshift_adj)
-
-depth_metrics
-
-hi <- depth_metrics %>% right_join(net_clean, by = "Species") %>%
-  mutate(beta_depthshift = -beta_depthshift)
-ggplot(hi, aes(x = estimate, y = beta_depthshift)) + geom_point() + geom_text(aes(label = Species)) + ggpubr::stat_cor()
-ggplot(hi, aes(x = estimate, y = depthshift)) + geom_point() + geom_text(aes(label = Species)) + ggpubr::stat_cor()
-ggplot(hi, aes(x = depthshift, y = beta_depthshift)) + geom_point() + geom_text(aes(label = Species)) + ggpubr::stat_cor()
-
-mod_mech <- lm(
-    degC_w ~ estimate + ngen + sizechange + sus_group + beta_depthshift,
-    data = hi,
-    weights = 1/degC_w.se^2
-)
-summary(mod_mech)
-
-mod_mech2 <- lm(
-    degC_w ~ estimate + ngen + sizechange + sus_group + depthshift,
-    data = hi,
-    weights = 1/degC_w.se^2
-)
-summary(mod_mech2)
-
-cor(hi$depthshift, hi$beta_depthshift)
 ```
 
 ## All corals - ED50s by year
@@ -1773,7 +1565,7 @@ contrast(factorres, method = "consec", adjust = "none")
 allw <- allf %>%
   mutate(Width2 = case_when(Width >= 4 ~ Width,
                             Width < 4 ~ 4))
-wmod <- lmer(log(Width2) ~ year * Species + (1|Species:Subregion), data = allw)
+wmod <- lmer(log(Width2) ~ year * Species + Species:Depth + (1|Species:Subregion), data = allw)
 
 ## Get EMMs for colony size
 sizeemms <- emmeans(wmod, specs = "year", by = "Species")
