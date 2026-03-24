@@ -19,12 +19,13 @@ allg <- readr::read_rds("data/processed/all_grp_bl.rds")
 peak_dates <- read_csv("data/processed/peak_dates.csv")
 
 # Model differences in bleaching severity between years with DHW as continuous predictor
-dhw.mod24 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
+dhw.mod24 <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                  family = "binomial", data = allg, 
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 summary(dhw.mod24)
 
 
+# Function to get ED50s and ∆ED50s
 # Function to get ED50s and ∆ED50s
 ed50s.fun_fast <- function(mod, peak_dates = NULL) {
   if (is.null(peak_dates)) {
@@ -34,16 +35,16 @@ ed50s.fun_fast <- function(mod, peak_dates = NULL) {
     peak_dates <- get("peak_dates", envir = .GlobalEnv)
   }
   
-  combos <- peak_dates %>%
-    mutate(year = as.integer(as.character(year))) %>%
-    arrange(year)
+  combos <- peak_dates
   b <- fixef(mod)
 
   mf <- model.frame(mod)
+  siteDepth_ref <- mean(mf$siteDepth, na.rm = TRUE)
 
   # ensure year/Week2 are factors with the model's levels (this will also catch fakes)
   combos$year  <- factor(as.character(combos$year),  levels = levels(mf$year))
   combos$Week2 <- factor(as.character(combos$Week2), levels = levels(mf$Week2))
+  combos$siteDepth <- siteDepth_ref
 
   # explicit checks (friendlier error messages than "new levels" downstream)
   bad_year  <- setdiff(as.character(peak_dates$year),  levels(mf$year))
@@ -571,7 +572,7 @@ allg_shift <- allg %>% left_join(survey_dhw_shifted)
 allg_shift <- allg_shift %>% mutate(dhw = dhw_shifted)
 # Validation model
 # Model differences in bleaching severity between years with DHW as continuous predictor
-dhw.mod24.shift <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
+dhw.mod24.shift <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                    family = "binomial", data = allg_shift, 
                    verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 summary(dhw.mod24.shift)
@@ -778,7 +779,7 @@ allg_shift2 <- allg %>% left_join(survey_dhw_shifted2)
 allg_shift2 <- allg_shift2 %>% mutate(dhw = dhw_shifted)
 # Validation model
 # Model differences in bleaching severity between years with DHW as continuous predictor
-dhw.mod24.shift2 <- glmer(cbind(BL, NB) ~ dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
+dhw.mod24.shift2 <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + (dhw + year | Species) + (year | Subregion),  
                    family = "binomial", data = allg_shift2, 
                    verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 summary(dhw.mod24.shift2)
