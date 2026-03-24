@@ -541,6 +541,12 @@ df23f <- df23.abund %>%
   drop_na() %>%
   droplevels()
 
+# df23f %>%
+#   group_by(dhw, Species) %>%
+#   summarize(tot = sum(n)) %>%
+#   ggplot(aes(x = dhw, y = log(tot))) +
+#   facet_grid(Species~., scales = "free_y") + geom_point()
+
 #### DRC (tried 3par, 4par, and 5par -- all work, just slight diffs.)
 # Fit drc independently for each species (same model spec: min=0, max=1)
 fits <- df23f %>%
