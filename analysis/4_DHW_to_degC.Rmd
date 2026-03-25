@@ -244,7 +244,9 @@ cell_map <- tibble(
   mmm_pix   = mmm_vals
 ) %>%
   filter(!is.na(pixel), !is.na(mmm_pix))
+```
 
+```{r}
 # ----------------------------
 # 2) Build long tibble: pixel, year, date, yday, temp
 #    (reef pixels only)
@@ -303,7 +305,8 @@ maxdhw_one <- function(df_year, add, win_days) {
   )
 
   dhw <- slider::slide_index_sum(dhd, df_year$date, before = win_days - 1)
-  max(dhw, na.rm = TRUE)
+  #max(dhw, na.rm = TRUE)
+  quantile(dhw, 0.9, na.rm = TRUE)
 }
 
 # Per-pixel pipeline: returns slope + SE from the mixed model
