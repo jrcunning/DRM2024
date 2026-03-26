@@ -244,9 +244,14 @@ cell_map <- tibble(
   mmm_pix   = mmm_vals
 ) %>%
   filter(!is.na(pixel), !is.na(mmm_pix))
+
+##### save and reload processed SST
+saveRDS(sst_all, file = "data/processed/sst_all.rds")
+sst_all <- readRDS(file = "data/processed/sst_all.rds")
 ```
 
 ```{r}
+
 # ----------------------------
 # 2) Build long tibble: pixel, year, date, yday, temp
 #    (reef pixels only)
