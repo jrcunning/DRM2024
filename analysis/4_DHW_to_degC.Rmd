@@ -206,8 +206,13 @@ sst_all <- sst_all[[which(keep)]]
 # Crop & mask to reef hull 
 # Clip interpolated raster to just area of hull/polygon surrounding the reef tract
 reef_hull <- readRDS("data/spatial/reef_hull.rds")
+
 sst_all <- crop(sst_all, vect(reef_hull))
 sst_all <- mask(sst_all, vect(reef_hull))
+
+##### save and reload processed SST
+saveRDS(sst_all, file = "data/processed/sst_all.rds")
+sst_all <- readRDS(file = "data/processed/sst_all.rds")
 
 # Reef cells = non-NA after mask in any representative layer (use first layer)
 reef_cells <- which(!is.na(values(sst_all[[1]])))
@@ -245,9 +250,7 @@ cell_map <- tibble(
 ) %>%
   filter(!is.na(pixel), !is.na(mmm_pix))
 
-##### save and reload processed SST
-saveRDS(sst_all, file = "data/processed/sst_all.rds")
-sst_all <- readRDS(file = "data/processed/sst_all.rds")
+
 ```
 
 ```{r}
@@ -311,7 +314,7 @@ maxdhw_one <- function(df_year, add, win_days) {
 
   dhw <- slider::slide_index_sum(dhd, df_year$date, before = win_days - 1)
   #max(dhw, na.rm = TRUE)
-  quantile(dhw, 0.9, na.rm = TRUE)
+  quantile(dhw, 0.9, na.rm = TRUE)        # metric for deltadhw
 }
 
 # Per-pixel pipeline: returns slope + SE from the mixed model
@@ -442,7 +445,7 @@ fit_pixel_yearslopes <- function(df_pix, years_keep = c(2014, 2015, 2023, 2024))
   diffs <- dhwout %>%
     group_by(year) %>%
     mutate(diff = maxdhw[add == 0] - maxdhw) %>%
-    filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 2) %>%
+    filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 4) %>%                        # cutoff again here
     ungroup()
 
   if (n_distinct(diffs$year) < 2) {
@@ -640,7 +643,7 @@ line_df <- w_slope_year_res %>%
 # 3) Plot
 figs4 <- ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = year)) +
   geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
-  geom_line(linewidth = 0.7, alpha = 0.9) +
+  geom_line(linewidth = 0.7, alpha = 0.7) +
   annotate(geom = "text", x = 1.5, y = 2, label = paste0("Mean = ", round(dhw.per.degC, 1), " DHW per °C")) +
   scale_x_continuous(
     breaks = seq(0, max(adds), by = 0.5),
@@ -656,9 +659,10 @@ figs4 <- ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = ye
     y = expression("Reduction in peak DHW (" * degree * "C-weeks)"),
     color = "Year"
   ) +
-  theme_classic()
+  theme_classic() +
+  guides(color = guide_legend(ncol = 2))
 figs4
-ggsave(filename = "figures/FigS4n.png", plot = figs4, width = 160, height = 120, units = "mm")
+ggsave(filename = "figures/FigS4.png", plot = figs4, width = 160, height = 120, units = "mm")
 
 
 overall_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
@@ -700,7 +704,7 @@ years_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
     limits = c(0, 21),
     expand = expansion(mult = c(0, 0.05))
   ) +
-  #scale_color_manual(values = c("gray", "red")) +
+  scale_color_manual(values = c("#F8766D", "#7CAE00", "#00BFC4", "#C77CFF")) +
   labs(
     x = expression(Delta * degree * "C"),
     y = expression(Delta * DHW),

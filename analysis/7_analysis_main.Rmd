@@ -1020,8 +1020,8 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   geom_line(data = dhw.res3, linetype = 2, linewidth = 0.1) +
   # Add year text labels
   geom_text(data = dhw_ranges,
-           aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year),
-           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,-0.3), size = 3) +
+           aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.25), label = year),
+           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,0.2), size = 3) +
   # Add line segments at ED50s
   geom_segment(data = slice(ed50conf, 1:4),
               aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = c(1,1,1,2), lwd = 0.1) +
@@ -1100,10 +1100,10 @@ finaldegC24 <- degC %>%
 
 # Annotate bleaching response curves plot // Fig3a
 fig3a <- dhw.bleach.plot +
-  annotate("text", x = 11.1, y = 0.04, hjust = 0, size = 2, 
+  annotate("text", x = 11.5, y = 0.04, hjust = 0, size = 2, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
-  annotate("text", x = 16.5, y = 0.04, hjust = 0, size = 2, fontface = "italic",
+  annotate("text", x = 15.7, y = 0.04, hjust = 0, size = 2, fontface = "italic",
            label = paste0("+", signif(ed50conf$ed50[[7]], 3), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
 fig3a
@@ -1263,9 +1263,9 @@ sp.bleach50.24 <- ed50s.fun_fast_sp(dhw.sp.mod.24.depth)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 # https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-sp.boot.out.24 <- bootMer(dhw.sp.mod.24.depth, FUN = ed50s.fun_fast_sp, nsim = 80, seed = 123, re.form = NULL,
-                          parallel = "multicore", ncpus = 8)
-saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
+# sp.boot.out.24 <- bootMer(dhw.sp.mod.24.depth, FUN = ed50s.fun_fast_sp, nsim = 80, seed = 123, re.form = NULL,
+#                           parallel = "multicore", ncpus = 8)
+# saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
 sp.boot.out.24 <- readRDS(file = "data/processed/sp.boot.out.24.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower.24 <- apply(sp.boot.out.24$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -1329,8 +1329,8 @@ sp.degC.w <- sp.ed50s %>%
          degC_w.se = sqrt((se/ed50)^2 + (mean_slope_se/mean_slope)^2) * abs(degC_w))
 # PDIV and PFUR get NaN for SE because ∆ED50 is zero. assign these SE values to lowest defined SE value.
 sp.degC.w %>% arrange(degC_w.se)
-sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0475 # lowest value non PDIV/PFUR
-sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0475 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0444 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0444 # lowest value non PDIV/PFUR
 
 write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 ```
@@ -1349,8 +1349,7 @@ net <- sp.degC.w %>%
   left_join(symsumm.ag) %>%
   drop_na(estimate)
 
-myticks <- c(-0.9, -0.75, -0.5, -0.25, 0, 0.5, 1, 2)
-myticks2 <- log(myticks + 1)
+
 
 # STATISTICALLY MODEL DENSITY AND SYMBIONT EFFECTS
 
@@ -1458,10 +1457,12 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 
-net_clean$Adj_degC_Estimate <- predict(ols_model_adjusted, newdata = data.frame(estimate = net_clean$estimate, ngen_centered = 0)) + residuals(ols_model_adjusted)
-net_clean$Adj_degC_Ngen <- predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = net_clean$ngen_centered)) + residuals(ols_model_adjusted)
+net_clean$Adj_degC_Estimate <- predict(ols_model_adjusted, newdata = data.frame(estimate = net_clean$estimate, ngen_centered = 0)) + residuals(ols_model_adjusted) - coef(ols_model_adjusted)[["(Intercept)"]]
+net_clean$Adj_degC_Ngen <- predict(ols_model_adjusted, newdata = data.frame(estimate = 0, ngen_centered = net_clean$ngen_centered)) + residuals(ols_model_adjusted) - coef(ols_model_adjusted)[["(Intercept)"]]
 net_clean$Residual_Variation <- residuals(ols_model_adjusted)
 ### We're adding the total residuals for both effect plots.
+
+
 
 # Add jitter to ngen to prevent overlap
 set.seed(47)
@@ -1479,7 +1480,7 @@ pred_est <- predict(
 
 regression_line_estimate <- tibble(
   estimate = estimate_seq,
-  fit = pred_est$fit,
+  fit = pred_est$fit - coef(ols_model_adjusted)[["(Intercept)"]],
   lo = fit - 1.96 * pred_est$se.fit,
   hi = fit + 1.96 * pred_est$se.fit
 )
@@ -1492,12 +1493,15 @@ pred_ngen <- predict(
 
 regression_line_ngen <- tibble(
   ngen = ngen_seq,
-  fit = pred_ngen$fit,
+  fit = pred_ngen$fit - coef(ols_model_adjusted)[["(Intercept)"]],
   lo = fit - 1.96 * pred_ngen$se.fit,
   hi = fit + 1.96 * pred_ngen$se.fit
 )
 
 # Plot Effect of Estimate on Adjusted degC (Holding ngen = 1, with residuals)
+myticks <- c(-0.7, -0.5, -0.25, 0, 0.5, 1)
+myticks2 <- log(myticks + 1)
+mylim <- c(-1.25, 0.95)
 p1 <- ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
   geom_line(data = regression_line_estimate, aes(x = estimate, y = fit), 
             color = "#67a9cf", linewidth = 1.5, alpha = 1) +
@@ -1509,7 +1513,8 @@ p1 <- ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
   #geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 2.47, seed = 8) +
-  scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), breaks = myticks2) +
+  scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), 
+                     breaks = myticks2, limits = mylim, expand = c(0.01,0.01)) +
   annotate("text", x = Inf, y = Inf, hjust = 1.2, vjust = 2,
            label = label_p_expr(estimate_pval), parse = TRUE) +
   labs(x = "Change in population density (2014-2023)", 
@@ -1533,6 +1538,7 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
        y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
   theme_classic()
+
 
 # ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
 # 
