@@ -325,7 +325,7 @@ fit_pixel <- function(df_pix) {
     group_by(year) %>%
     mutate(diff = maxdhw[add == 0] - maxdhw) %>%
     # same filters you used regionally
-    filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 2) %>%
+    filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 4) %>%                           # decide which cutoff
     ungroup()
 
   # need >=2 years to fit (0+add|year)
@@ -557,7 +557,7 @@ pixel_diffs <- temp_long %>%
         mutate(
           diff = maxdhw[add == 0] - maxdhw
         ) %>%
-        filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 2) %>%
+        filter(maxdhw > 0, max(maxdhw, na.rm = TRUE) > 4) %>%                              # specify cutoff again
         ungroup() %>%
         select(year, add, maxdhw, diff)
     })
@@ -652,7 +652,8 @@ figs4 <- ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = ye
     color = "Year"
   ) +
   theme_classic()
-ggsave(filename = "figures/FigS4.png", plot = figs4, width = 160, height = 120, units = "mm")
+figs4
+ggsave(filename = "figures/FigS4n.png", plot = figs4, width = 160, height = 120, units = "mm")
 
 
 overall_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
@@ -680,11 +681,11 @@ saveRDS(overall_inset, "data/processed/overall_inset.rds")
 years_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
   geom_line(linewidth = 0.5, alpha = 0.9, color = "gray") +
   geom_abline(intercept = 0, slope = dhw.per.degC, linetype = 2, color = "black", linewidth = 1) +
-  geom_line(data = line_df %>% filter(year %in% c(2014, 2015, 2023, 2024)),
+  geom_line(data = line_df %>% filter(year %in% c(2014, 2015, 2023)),
             aes(color = factor(year)), linewidth = 1, alpha = 0.9) +
-  ggrepel::geom_text_repel(data = line_df %>% filter(year %in% c(2014, 2015, 2023, 2024)) %>%
+  ggrepel::geom_text_repel(data = line_df %>% filter(year %in% c(2014, 2015, 2023)) %>%
                group_by(year, max_add_used) %>% summarize(maxdiff = max(diff)),
-             aes(x = c(0.9, 1, 1.55, 1.1), y = c(8.97, 9.70, 20, 13.9), label = year, color = factor(year)),
+             aes(x = c(0.9, 1, 1.55), y = c(8.97, 9.70, 20), label = year, color = factor(year)),
              nudge_x = c(0.2, 0.2, -0.2, -0.2), size = 3) +
   scale_x_continuous(
     breaks = seq(0, max(adds), by = 0.5),

@@ -23,7 +23,7 @@ dhw.mod24 <- glmer(cbind(BL, NB) ~ siteDepth + dhw + year + year:Week2 + (dhw + 
                  family = "binomial", data = allg, 
                  verbose = FALSE, nAGQ = 0, control = glmerControl(optimizer = "nloptwrap"))
 summary(dhw.mod24)
-
+mean(model.frame(dhw.mod24)$siteDepth)
 
 # Function to get ED50s and ∆ED50s
 # Function to get ED50s and ∆ED50s
@@ -174,7 +174,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   ) +
   geom_text(data = ed50conf %>% slice(2:4),
             aes(x = ed50, y = c(0.03, 0.01, -0.01), color = year,
-                label = paste0(" + ", round(ed50 - 2.51, 1), " DHW")),
+                label = paste0(" + ", round(ed50 - 2.44, 1), " DHW")),
             hjust = 0, size = 3, fontface = "italic")
 
 dhw.bleach.plot
@@ -585,9 +585,9 @@ bleach50.shift
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
-# boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
-#                       seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
+boot.shift <- bootMer(dhw.mod24.shift, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+                      seed = 123, parallel = "multicore", ncpus = 20)
+saveRDS(boot.shift, file = "data/processed/boot.shift.rds")
 boot.shift <- readRDS(file = "data/processed/boot.shift.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -791,10 +791,10 @@ bleach50.shift2 <- ed50s.fun_fast(dhw.mod24.shift2)
 bleach50.shift2
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
-# set.seed(1)
-# boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
-#                     seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
+set.seed(1)
+boot.shift2 <- bootMer(dhw.mod24.shift2, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+                    seed = 123, parallel = "multicore", ncpus = 20)
+saveRDS(boot.shift2, file = "data/processed/boot.shift2.rds")
 boot.shift2 <- readRDS(file = "data/processed/boot.shift2.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.shift2$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -888,7 +888,7 @@ cowplot::plot_grid(
   nrow = 1, align = "hv", labels = "AUTO"
 )
 
-ggsave(filename = "figures/FigS5.png", width = 300, height = 100, units = "mm")
+ggsave(filename = "figures/FigS5n.png", width = 300, height = 100, units = "mm")
 ```
 
 
