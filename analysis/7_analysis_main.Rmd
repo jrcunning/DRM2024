@@ -869,7 +869,7 @@ ggplot(allf, aes(Depth, color = year)) +
   geom_density(bw = 7) +
   facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 4) +
   scale_color_manual(values = c("2014"="#F9C74F","2015"="#F6E84A","2023"="#F9844A","2024"="#90BE6D"), name = NULL) +
-  labs(y = "Density") +
+  labs(y = "Density", x = "Depth (ft)") +
   theme_classic() +
   theme(
     legend.position = c(0.875, 0.06), legend.direction = "vertical", legend.key.height = grid::unit(0.35, "lines"),
@@ -879,6 +879,7 @@ ggplot(allf, aes(Depth, color = year)) +
     axis.line = element_line(linewidth = 0.3), axis.ticks = element_line(linewidth = 0.3),
     legend.margin = margin(0,0,0,0)
   )
+ggsave(filename = "figures/FigS10.png", width = 120, height = 120, units = "mm")
 
 # Changes in depth across years?
 depth_summary <- allf %>%
@@ -1388,6 +1389,10 @@ net_clean$ngen_centered <- net_clean$ngen - 1
 
 # Fit the model
 #  Weight observations using the standard error of the degC response
+ols_model_adjusted_int <- lm(degC_w ~ estimate * ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
+summary(ols_model_adjusted_int)
+visreg(ols_model_adjusted_int, xvar = "estimate", by = "ngen_centered")
+
 ols_model_adjusted <- lm(degC_w ~ estimate + ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted)
 
@@ -2182,6 +2187,10 @@ final_plot <- plot_grid(
 final_plot
 ggsave(filename = "figures/FigS9.png", width = 330, height = 140, units = "mm", bg = "white")
 
+
+
+ggplot(dat, aes(x = estimate, y = sus_group)) + geom_point()
+ggplot(dat, aes(y = estimate, x = sus_group)) + geom_point()
 ```
 
 
