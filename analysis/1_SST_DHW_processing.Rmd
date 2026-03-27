@@ -256,8 +256,6 @@ compute_dhw_rasters <- function(sst_stack, mmm_raster,
 # 5) Build calculated DHW stacks for all years
 # ============================================================
 
-dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
-
 dhw_stacks_calc <- list()
 dhw_stacks_crw  <- list()
 peak_calc       <- list()
@@ -389,7 +387,10 @@ reef_hull_v <- terra::vect(reef_hull)
 
 # Highest DHW reached in reef pixel in 2023?
 maxdhw <- global(mask(peak_calc$`2023`, reef_hull_v), "max", na.rm = TRUE)[1,1]
-
+# Lowest DHW reach in reef pixel in 2023
+global(mask(peak_calc$`2023`, reef_hull_v), "min", na.rm = TRUE)[1,1]
+# now want south of Miami 25.7617 lat
+global(mask(mask(peak_calc$`2023`, reef_hull_v), init(peak_calc$`2023`, "y") < 25.7617, maskvalues = FALSE), "min", na.rm = TRUE)[1,1]
 
 make_peak_map <- function(r, yy, reef_hull_v) {
   r_reef <- terra::mask(r, reef_hull_v)
