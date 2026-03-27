@@ -534,7 +534,8 @@ df23.abund <- df23 %>%
   filter(n() > 80)  # 80
 df23f <- df23.abund %>%
   group_by(Site, Subregion, Week2, Species, dhw) %>%
-  summarize(BL = sum(Bleaching2 > 1),
+  summarize(siteDepth = mean(Depth, na.rm = TRUE),
+            BL = sum(Bleaching2 > 1),
             NB = sum(Bleaching2 <= 1),
             pctNB = NB / (NB + BL),
             n = n()) %>%
@@ -896,6 +897,32 @@ depth_summary_w <- allg %>%
     n_colonies = sum(total, na.rm = TRUE),
     .groups = "drop"
   )
+
+depth_range_sp <- allf %>%
+  group_by(Species) %>%
+  summarize(depth10 = quantile(Depth, 0.1),
+            depth90 = quantile(Depth, 0.9),
+            n = n()) %>%
+  mutate(depthR = depth90 - depth10) %>%
+  left_join(eds)
+
+ggplot(depth_range_sp, aes(x = depthR, y = Diff_trunc)) +
+  geom_point(aes(size = log(n))) +
+  ggrepel::geom_text_repel(aes(label = Species)) +
+  geom_smooth(method = "lm", se = FALSE, aes(weight = n))
+
+anova(lm(Diff_trunc ~ depthR + ngen, data = depth_range_sp, weights = n))
+anova(lm(Diff_trunc ~ depthR, data = depth_range_sp, weights = n))
+anova(lm(Diff_trunc ~ depthR + ngen, data = depth_range_sp))
+  
+ggplot(allf, aes(x = Depth)) +
+  geom_histogram() +
+  facet_wrap(~Species, scales = "free_y")
+
+
+mymod <- lm(Diff_trunc ~ depthR + ngen, data = depth_range_sp, weights = n)
+visreg(mymod, "depthR")
+visreg(mymod, "ngen")
 ```
 
 ## All corals - ED50s by year
