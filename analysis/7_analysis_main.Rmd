@@ -779,6 +779,35 @@ figs3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
 figs3
 
 ggsave(filename = "figures/FigS3.png", plot = figs3, width = 100, height = 100, units = "mm")
+
+
+
+####### Test depth range as alternate predictor
+# Get species' depth range (90-10 percentile) in 2023 to compare to intraspecific bleaching threshold
+depth_range_sp <- df23.abund %>%
+  group_by(Species) %>%
+  summarize(depth10 = quantile(Depth, 0.1, na.rm = TRUE),
+            depth90 = quantile(Depth, 0.9, na.rm = TRUE),
+            n = n()) %>%
+  mutate(depthR = depth90 - depth10) %>%
+  left_join(eds)
+
+
+# Test if species' depth range affects intraspecific bleaching tolerance breadth, along with ngen
+mod1 <- lm(Diff_trunc ~ depthR + ngen,
+           data = depth_range_sp)
+summary(mod1)
+hist(cooks.distance(mod1))
+visreg(mod1, xvar = "depthR")  
+# depthRange is not significant. has slight trend, but appears to be driven by ACER
+
+# Retest on the rest of the data, without ACER
+depth_range_sp_noACER <- filter(depth_range_sp, Species != "ACER")
+mod2 <- lm(Diff_trunc ~ depthR + ngen,
+           data = depth_range_sp_noACER )
+summary(mod2)
+visreg(mod2, xvar = "depthR")
+# depthRange has no effect at all
 ```
 
 
@@ -811,6 +840,16 @@ spp_to_include %>%
   ggplot(aes(x = year, y = n)) +
   geom_col() +
   facet_wrap(~Species, scales = "free")
+
+spp_to_include %>% ungroup() %>%
+  group_by(year) %>%
+  summarize(mean = mean(n),
+            sd = sd(n),
+            med = median(n),
+            p25 = quantile(n, 0.25),
+            p75 = quantile(n, 0.75)) %>%
+  arrange(mean) %>%
+  print(n = nrow(.))
 
 # Which species are not included?
 anti_join(spp_counts, spp_to_include) %>% distinct(Species)
@@ -882,48 +921,22 @@ ggplot(allf, aes(Depth, color = year)) +
 ggsave(filename = "figures/FigS10.png", width = 120, height = 120, units = "mm")
 
 # Changes in depth across years?
-depth_summary <- allf %>%
-  group_by(Species, year) %>%
-  summarise(
-    mean_depth = mean(Depth, na.rm = TRUE),
-    sd_depth   = sd(Depth, na.rm = TRUE),
-    n          = n(),
-    .groups = "drop"
-  )
-depth_summary_w <- allg %>%
-  mutate(total = BL + NB) %>%
-  group_by(Species, year) %>%
-  summarise(
-    mean_depth = weighted.mean(siteDepth, w = total, na.rm = TRUE),
-    n_colonies = sum(total, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-depth_range_sp <- allf %>%
-  group_by(Species) %>%
-  summarize(depth10 = quantile(Depth, 0.1),
-            depth90 = quantile(Depth, 0.9),
-            n = n()) %>%
-  mutate(depthR = depth90 - depth10) %>%
-  left_join(eds)
-
-ggplot(depth_range_sp, aes(x = depthR, y = Diff_trunc)) +
-  geom_point(aes(size = log(n))) +
-  ggrepel::geom_text_repel(aes(label = Species)) +
-  geom_smooth(method = "lm", se = FALSE, aes(weight = n))
-
-anova(lm(Diff_trunc ~ depthR + ngen, data = depth_range_sp, weights = n))
-anova(lm(Diff_trunc ~ depthR, data = depth_range_sp, weights = n))
-anova(lm(Diff_trunc ~ depthR + ngen, data = depth_range_sp))
-  
-ggplot(allf, aes(x = Depth)) +
-  geom_histogram() +
-  facet_wrap(~Species, scales = "free_y")
-
-
-mymod <- lm(Diff_trunc ~ depthR + ngen, data = depth_range_sp, weights = n)
-visreg(mymod, "depthR")
-visreg(mymod, "ngen")
+# depth_summary <- allf %>%
+#   group_by(Species, year) %>%
+#   summarise(
+#     mean_depth = mean(Depth, na.rm = TRUE),
+#     sd_depth   = sd(Depth, na.rm = TRUE),
+#     n          = n(),
+#     .groups = "drop"
+#   )
+# depth_summary_w <- allg %>%
+#   mutate(total = BL + NB) %>%
+#   group_by(Species, year) %>%
+#   summarise(
+#     mean_depth = weighted.mean(siteDepth, w = total, na.rm = TRUE),
+#     n_colonies = sum(total, na.rm = TRUE),
+#     .groups = "drop"
+#   )
 ```
 
 ## All corals - ED50s by year
@@ -1801,7 +1814,7 @@ p_uni_est <- ggplot(dat, aes(x = estimate, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in population density\n(log ratio)", y = "Change in\nbleaching threshold (°C)") +
-  theme_bw()
+  theme_classic()
 
 
 set.seed(3)
@@ -1828,7 +1841,7 @@ p_uni_ngen <- ggplot(dat, aes(x = ngen, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Number of symbiont genera", y = "Change in\nbleaching threshold (°C)") +
-  theme_bw()
+  theme_classic()
 
 p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
   geom_point(alpha = 0.8) +
@@ -1854,7 +1867,7 @@ p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Initial population density\n(log [colonies / 10 m2])", 
        y = "Change in\nbleaching threshold (°C)" ) +
-  theme_bw()
+  theme_classic()
 
 p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
   geom_point(alpha = 0.8) +
@@ -1879,7 +1892,7 @@ p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in colony size\n(log ratio)", y = "Change in\nbleaching threshold (°C)" ) +
-  theme_bw()
+  theme_classic()
 
 p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
   geom_boxplot() +
@@ -1893,7 +1906,7 @@ p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "SCTLD susceptibility", y = "Change in\nbleaching threshold (°C)" ) +
-  theme_bw()
+  theme_classic()
 
 
 
@@ -2017,7 +2030,7 @@ p_part_est <- ggplot() +
     x = "Change in population density\n(log ratio)",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_bw()
+  theme_classic()
 
 set.seed(3)
 p_part_ngen <- ggplot() +
@@ -2048,7 +2061,7 @@ p_part_ngen <- ggplot() +
     x = "Number of symbiont genera",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_bw()
+  theme_classic()
 
 p_part_logd <- ggplot() +
   geom_point(
@@ -2076,7 +2089,7 @@ p_part_logd <- ggplot() +
   coord_cartesian(ylim = ylims) +
   labs(x = "Initial population density\n(log [colonies / 10 m2])", 
        y = "Change in\nbleaching threshold (°C)" ) +
-  theme_bw()
+  theme_classic()
 
 p_part_size <- ggplot() +
   geom_point(
@@ -2106,7 +2119,7 @@ p_part_size <- ggplot() +
     x = "Change in colony size\n(log ratio)",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_bw()
+  theme_classic()
 
 # ============================================================
 # 5) Plot ordered categorical predictor from visreg data
@@ -2136,7 +2149,7 @@ p_part_sus <- ggplot() +
     x = "SCTLD susceptibility",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_bw()
+  theme_classic()
 
 # ============================================================
 # 6) FINAL FIGURE

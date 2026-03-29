@@ -515,8 +515,11 @@ figs7 <- comp_std %>% left_join(ress) %>%
   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   scale_fill_manual(values = c("#b3cde3", "#ccebc5", "#fbb4ae", "#decbe4")) +
   labs(x = NULL, y = "Depth-standardized mean clade composition", fill = "Genus") +
-  theme_bw() +
-  theme(legend.text = element_text(face = "italic"))
+  theme_classic() +
+  theme(legend.text = element_text(face = "italic"),
+        strip.text = element_text(margin = margin(t = 5, b = -2, l = 0, r = 0)),
+        strip.background = element_blank())
+figs7
 
 ggsave(filename = "figures/FigS7.png", width = 180, height = 150, units = "mm")
 
