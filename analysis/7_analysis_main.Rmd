@@ -359,34 +359,39 @@ year_labs <- setNames(
 )
 
 # Plot surveys vs. DHW
-(surveys.by.dhw <- all0 %>%
+surveys.by.dhw <- all0 %>%
   distinct(year, Site, Date, Subregion, dhw) %>%
   ggplot(aes(x = dhw, fill = Subregion)) +
   geom_histogram(breaks = seq(0,22,1)) +
   facet_grid(year ~ ., scales = "free", labeller = labeller(year = year_labs)) +
-  theme_classic() +
-  theme(legend.position = c(0.8, 0.77),
-        legend.text = element_text(size = 8),
+  theme_classic(base_size = 9) +
+  theme(legend.position = c(0.82, 0.73),
+        legend.text = element_text(size = 6),
+        legend.title.align = 1,
         legend.key.size = unit(10, "pt"),
-        legend.box.background = element_rect(color = "black")) +
-  labs(x = "Degree Heating Weeks", y = "Number of sites surveyed"))
+        legend.box.background = element_rect(color = NA, fill = "transparent"),
+        legend.background     = element_rect(fill = "transparent", color = NA)) +
+  labs(x = "Degree Heating Weeks", y = "Number of sites surveyed") +
+  guides(fill = guide_legend(
+    label.position = "left",
+    label.hjust = 1         
+  ))
 
 
-(surveys.by.date <- all1 %>%
+surveys.by.date <- all1 %>%
   distinct(year, Site, MonthDay, Date, Subregion, dhw) %>%
   ggplot(aes(x = MonthDay, fill = Subregion)) +
   geom_histogram(binwidth = 7) +
   facet_grid(year~., scales = "free", labeller = labeller(year = year_labs)) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none") +
-  labs(x = "Date", y = "Number of sites surveyed"))
+  labs(x = "Date", y = "Number of sites surveyed")
 
-surveys.by.date
 
-(surveyplot <- cowplot::plot_grid(surveys.by.dhw, surveys.by.date, ncol = 1, labels = "auto"))
+(surveyplot <- cowplot::plot_grid(surveys.by.dhw, surveys.by.date, ncol = 1, labels = "AUTO", label_size = 10))
 
 ggsave(filename = "figures/FigS1.png", plot = surveyplot,
-       width = 180, height = 250, units = "mm")
+       width = 120, height = 180, units = "mm")
 ```
 
 # Bleaching severity 2023

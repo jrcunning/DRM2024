@@ -404,7 +404,8 @@ make_peak_map <- function(r, yy, reef_hull_v) {
       limits = c(0, maxdhw),
       na.value = NA,
       name = "Peak\nDHW "
-    )
+    ) +
+    theme(legend.position = c(0.12, 0.55))
 }
 
 dhwmap_calc14 <- make_peak_map(peak_calc[["2014"]], "2014", reef_hull_v)
@@ -422,7 +423,7 @@ cowplot::plot_grid(
 
 ggsave(
   filename = "figures/FigS2.png",
-  width = 200, height = 185, units = "mm"
+  width = 183, height = 168, units = "mm"
 )
 
 ```
