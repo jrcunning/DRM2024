@@ -141,7 +141,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   # Add year text labels
   geom_text(data = dhw_ranges,
            aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.28), label = year, color = year),
-           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,-0.3), size = 3) +
+           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,-0.3), size = 3.2) +
   # Add line segments at ED50s
   geom_segment(data = slice(ed50conf, 1:4),
               aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = c(1,1,1,2), lwd = 0.1) +
@@ -158,7 +158,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   scale_x_continuous(limits = c(-1, 20.45), breaks = seq(0, 20, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1), 
                      labels = scales::label_percent()) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none") +
   labs(x = "Degree Heating Weeks (DHW; °C-weeks)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
@@ -173,9 +173,9 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
     size = 1
   ) +
   geom_text(data = ed50conf %>% slice(2:4),
-            aes(x = ed50, y = c(0.03, 0.01, -0.01), color = year,
+            aes(x = ed50, y = c(0.04, 0.02, 0.0), color = year,
                 label = paste0(" + ", round(ed50 - 2.44, 1), " DHW")),
-            hjust = 0, size = 3, fontface = "italic")
+            hjust = 0, size = 2.5, fontface = "italic")
 
 dhw.bleach.plot
 ```
@@ -633,7 +633,7 @@ dhw.shift.bleach.plot <- ggplot(as.tibble(dhw.shift.res2), aes(x = dhw, y = prob
   scale_x_continuous(limits = c(-1, 20.4), breaks = seq(0, 20, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1),
                      labels = scales::label_percent()) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   labs(x = "Recomputed DHW with increased thresholds\n(shifted using average ∆°C per ∆DHW)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
   geom_errorbar(
@@ -841,7 +841,7 @@ dhw.shift2.bleach.plot <- ggplot(as.tibble(dhw.shift2.res2), aes(x = dhw, y = pr
   scale_x_continuous(limits = c(-1, 20.4), breaks = seq(0, 20, 4), expand = c(0, 0)) +
   scale_y_continuous(limits = c(-0.025, 1), expand = expansion(mult = c(0, 0)), breaks = seq(0, 1, 0.1),
                      labels = scales::label_percent()) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   labs(x = "Recomputed DHW with increased thresholds\n(shifted using year-specific ∆°C per ∆DHW)", 
        y = "Bleaching prevalence") +
   coord_cartesian(clip = "off") +
@@ -875,20 +875,20 @@ p1 <- dhw.bleach.plot
 # Validation 1 (across-years slope for shifted DHWs)
 p2 <- dhw.shift.bleach.plot +
   theme(legend.position = "none") +
-  cowplot::draw_plot(overall_inset, x = 8, y = 0, width = 12, height = 0.6)
+  cowplot::draw_plot(overall_inset, x = 8, y = 0, width = 12, height = 0.7)
 p2
 # Validation 2 (year-specific slope for shifted DHWs)
 p3 <- dhw.shift2.bleach.plot +
   theme(legend.position = "none") +
-  cowplot::draw_plot(years_inset, x = 8, y = 0, width = 12, height = 0.6)
+  cowplot::draw_plot(years_inset, x = 8, y = 0, width = 12, height = 0.7)
 p3
 
 cowplot::plot_grid(
   p1, p2, p3,
-  nrow = 1, align = "hv", labels = "AUTO"
+  nrow = 3, align = "hv", labels = "AUTO"
 )
 
-ggsave(filename = "figures/FigS5.png", width = 300, height = 100, units = "mm")
+ggsave(filename = "figures/FigS5.png", width = 90, height = 220, units = "mm")
 ```
 
 

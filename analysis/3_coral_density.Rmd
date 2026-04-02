@@ -552,10 +552,10 @@ mod_blued <- mgcv::bam(
 )
 
 # Prediction grid (same years for nice smooth curve)
-year_gridd <- seq(min(res_year2$year_num, na.rm = TRUE), max(res_year2d$year_num, na.rm = TRUE), by = 1)
+year_gridd <- seq(min(res_year2d$year_num, na.rm = TRUE), max(res_year2d$year_num, na.rm = TRUE), by = 1)
 
 pred_blued <- tidyr::expand_grid(
-  Species  = levels(res_year2$Species),
+  Species  = levels(res_year2d$Species),
   year_num = year_grid
 )
 
@@ -650,7 +650,7 @@ pd <- ggplot2::ggplot() +
     y = expression("Density (colonies / 10 m"^2*")")#,
     #title = "Population-average density trajectories\nBlack points: discrete-year GLMM fitted means   Blue curve: response-scale smooth of those means\nBlack text: GLMM %Δ (2014→2023)   Blue text: smoothed %Δ (2014→2023)"
   ) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = c(0.8, 0.06),
         legend.direction = "vertical",
         legend.key.height = grid::unit(0.35, "lines"),
@@ -665,7 +665,7 @@ pd <- ggplot2::ggplot() +
         axis.text.x = element_text(angle = 45, hjust = 1))
 
 pd
-ggsave(filename = "figures/FigS6.png", width = 185, height = 120, units = "mm")
+ggsave(filename = "figures/FigS6.png", width = 183, height = 120, units = "mm")
 
 # 1) Discrete 2014 vs 2023 from GLMM fitted means (rate)
 disc_14_23d <- res_year2d %>%

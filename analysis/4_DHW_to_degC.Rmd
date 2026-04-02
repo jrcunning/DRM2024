@@ -696,14 +696,15 @@ figs4 <- ggplot(line_df, aes(x = add, y = diff, color = factor(year), group = ye
   ) +
   
   # Theme
-  theme_classic() +
+  theme_classic(base_size = 9) +
+  theme(legend.key.spacing.y = unit(-1, "mm")) +
   guides(
     color = guide_legend(ncol = 2, order = 1),
     linetype = guide_legend(order = 2)
   )
 
 figs4
-ggsave(filename = "figures/FigS4.png", plot = figs4, width = 160, height = 120, units = "mm")
+ggsave(filename = "figures/FigS4.png", plot = figs4, width = 120, height = 80, units = "mm")
 
 
 overall_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
@@ -723,7 +724,7 @@ overall_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
     y = expression(Delta * DHW),
     color = "Year"
   ) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none")
 saveRDS(overall_inset, "data/processed/overall_inset.rds")
 
@@ -751,7 +752,7 @@ years_inset <- ggplot(line_df, aes(x = add, y = diff, group = year)) +
     y = expression(Delta * DHW),
     color = "Year"
   ) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none")
 saveRDS(years_inset, "data/processed/years_inset.rds")
 

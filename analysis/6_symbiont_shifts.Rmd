@@ -4,6 +4,78 @@ author: "R. Cunning"
 date: "2026-02-26"
 output: html_document
 ---
+```{r}
+# Create species labeller
+species_names <- c(
+  AAGA = "Agaricia agaricites",
+  AFRA = "Agaricia fragilis",
+  AGAR = "Agaricia sp.",
+  AGRA = "Agaricia grahamae",
+  AHUM = "Agaricia humilis",
+  ALAM = "Agaricia lamarcki",
+  ACER = "Acropora cervicornis",
+  AGAR = "Agaricia sp.",
+  APAL = "Acropora palmata",
+  APRO = "Acropora prolifera",
+  CNAT = "Colpophyllia natans",
+  DCYL = "Dendrogyra cylindrus",
+  DLAB = "Diploria labyrinthiformis",
+  DSTO = "Dichocoenia stokesii",
+  EFAS = "Eusmilia fastigiata",
+  FFRA = "Favia fragum",
+  HCUC = "Helioseris cucullata",
+  ISIN = "Isophyllia sinuosa",
+  IRIG = "Isophyllia rigida",
+  ISOP = "Isophyllia sp.",
+  MADR = "Madracis sp.",
+  MANG = "Mussa angulosa",
+  MARE = "Manicina areolata",
+  MAUR = "Madriacis auretenra",
+  MCAV = "Montastraea cavernosa",
+  MDEC = "Madracis decactis",
+  MFER = "Mycetophyllia ferox",
+  MALI = "Mycetophyllia aliciae",
+  MLAM = "Mycetophyllia lamarckiana",
+  MFOR = "Madracis formosa",
+  MJAC = "Meandrina jacksoni",
+  MMEA = "Meandrina meandrites",
+  MSEN = "Madracis senaria",
+  MYCE = "Mycetophyllia sp.",
+  OANN = "Orbicella annularis",
+  OCUL = "Oculina sp.",
+  ODIF = "Oculina diffusa",
+  OFAV = "Orbicella faveolata",
+  OFRA = "Orbicella franksi",
+  ORBI = "Orbicella sp.",
+  PAST = "Porites astreoides",
+  PBRA = "Porites branneri",
+  PBRC = "Porites (branching)",
+  PCLI = "Pseudodiploria clivosa",
+  PDIV = "Porites divaricata",
+  PFUR = "Porites furcata",
+  PORI = "Porites sp.",
+  PPOR = "Porites porites",
+  PSTR = "Pseudodiploria strigosa",
+  SBOU = "Solenastrea bournoni",
+  SCOL = "Scolymia sp.",
+  SHYA = "Solenastrea hyades",
+  SIDE = "Siderastrea sp.",
+  SINT = "Stephanocoenia intersepta",
+  SOLE = "Solenastrea sp.",
+  SRAD = "Siderastrea radians",
+  SSID = "Siderastrea siderea",
+  UNKN = "Unknown"
+)
+
+species_names_2l <- gsub(" ", "\n", species_names)
+abbrev_names <- as_tibble(species_names) %>%
+  separate(value, into = c("genus", "species"), sep = " ") %>%
+  mutate(genus = case_when(species == "sp." ~ genus,
+                           species != "sp." ~ gsub("[a-z]+", ".", genus))) %>%
+  unite(genus, species, col = "name", sep = " ")
+abbrev_names <- c(abbrev_names$name)
+names(abbrev_names) <- names(species_names)
+```
 
 # Process ITS2 data
 ```{r}
@@ -510,18 +582,17 @@ figs7 <- comp_std %>% left_join(ress) %>%
          hel = paste("H =", round(med, 2))) %>%
   ggplot(aes(x = era, y = p, fill = genus)) +
   geom_col(width = 0.85) +
-  facet_wrap(~ Species + hel, ncol = 3, labeller = labeller(
-    Species = as_labeller(species_names_it, label_parsed))) +
+  facet_wrap(~ Species + hel, ncol = 3, labeller = labeller(Species = abbrev_names)) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   scale_fill_manual(values = c("#b3cde3", "#ccebc5", "#fbb4ae", "#decbe4")) +
-  labs(x = NULL, y = "Depth-standardized mean clade composition", fill = "Genus") +
-  theme_classic() +
+  labs(x = NULL, y = "Depth-standardized symbiont composition", fill = "Genus") +
+  theme_classic(base_size = 9) +
   theme(legend.text = element_text(face = "italic"),
-        strip.text = element_text(margin = margin(t = 5, b = -2, l = 0, r = 0)),
+        strip.text = element_text(margin = margin(t = 5, b = 0, l = 0, r = 0), face = "italic"),
         strip.background = element_blank())
 figs7
 
-ggsave(filename = "figures/FigS7.png", width = 180, height = 150, units = "mm")
+ggsave(filename = "figures/FigS7n.png", width = 120, height = 100, units = "mm")
 
 ```
 
@@ -585,7 +656,7 @@ p1 <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
   coord_cartesian(xlim = c(1, 4.2), ylim = c(0, 0.6)) +
   # annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod_u_pval, 5)), 
   #          hjust = -0.1, vjust = 1.1) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   labs(x = "Number of symbiont genera", 
        y = "Change in symbiont genus composition\n(Hellinger distance)")
 ```
@@ -661,7 +732,7 @@ p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
   labs(x = "Change in symbiont genus composition\n(Hellinger distance)", 
        y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
-  theme_classic()
+  theme_classic(base_size = 9)
 p2
 ```
 
@@ -723,14 +794,14 @@ p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
   labs(x = "Number of symbiont genera", 
        y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
-  theme_classic()
+  theme_classic(base_size = 9)
 ```
 
 ## Final figure for proxy validation
 ```{r}
 # FINAL FIGURE for proxy validation
-cowplot::plot_grid(p1, p2, p3, nrow = 1, align = "h", labels = "AUTO")
+cowplot::plot_grid(p1, p2, p3, nrow = 3, align = "h", labels = "AUTO")
 
-ggsave(filename = "figures/FigS8.png", width = 300, height = 105, units = "mm")
+ggsave(filename = "figures/FigS8n.png", width = 90, height = 240, units = "mm")
 ```
 

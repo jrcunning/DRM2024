@@ -507,13 +507,15 @@ basemap <- ggplot() +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
   scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
                        midpoint = 0.5, limits = c(0, 1), na.value = NA,
-                       labels = scales::label_percent(), name = "Corals\nbleached") +
-  theme(text = element_text(size = 10),
+                       labels = scales::label_percent(), name = "Peak\nbleaching\nprevalence") +
+  theme(text = element_text(size = 9),
+        axis.text = element_text(size = 7),
+        legend.title = element_text(size = 9),
         axis.title = element_blank(),
         panel.background = element_rect(fill = "lightsteelblue1"),
         panel.border = element_rect(colour = "black", fill=NA),
         panel.grid = element_blank(),
-        legend.position = c(0.2, 0.5),
+        legend.position = c(0.15, 0.55),
         legend.background = element_blank())
 
 # Map with interpolated raster
@@ -523,8 +525,17 @@ rasterplot <- basemap +
   coord_sf(xlim = c(-83.2, -79.8), ylim = c(24.3, 27.3), expand = FALSE) +
   annotate("point", x = -80.1918, y = 25.7617, size = 0.5) +
   annotate("text", x = -80.25, y = 25.7617, 
-           label = "Miami", hjust = 1, vjust = 0, size = 2, fontface = "italic")
+           label = "Miami", hjust = 1, vjust = 0, size = 2.5, fontface = "italic") +
+    scale_x_continuous(
+    breaks = seq(-83, -80, by = 1),
+    labels = function(x) paste0(abs(x), "°W")
+  ) +
+  scale_y_continuous(
+    breaks = seq(24, 27, by = 1),
+    labels = function(y) paste0(y, "°N")
+  )
 rasterplot
+
 ggsave(filename = "figures/Fig1.png", plot = rasterplot, width = 90, height = 90, units = "mm")
 ```
 
@@ -624,9 +635,9 @@ drc.res.ridges <- drc.res %>%
                linewidth = 0.2) +
   scale_x_continuous(expand = c(0, 0)) +
   coord_cartesian(xlim = c(0, 21)) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none",
-        axis.text.y = element_text(face = "italic", vjust = 0),
+        axis.text.y = element_text(face = "italic", vjust = 0, size = 9),
         plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = -10)) +
   labs(x = "DHW (°C-weeks)", y = "")
 
@@ -761,29 +772,32 @@ anno <- tibble(
       ", p = ", format.pval(p, digits = 2, eps = .001)))
 
 # Plot
-pos <- position_jitter(width = 0.1, seed = 20) # Make jitter position for plotting
 eds <- eds %>% mutate(D = grepl("D", domsyms), A = grepl("A", domsyms))
-figs3 <- ggplot(eds, aes(x = ngen, y = Diff_trunc)) +
-  geom_line(data = pred_df, aes(y = fit_lm), color = "blue") +
-  geom_line(data = pred_df, aes(y = fit_cens), linetype = "dashed") +
+set.seed(9)
+set.seed(13)
+eds <- eds %>% mutate(ngen_jit = ngen + runif(n(), -0.1, 0.1))
+figs3 <- ggplot(eds, aes(x = ngen_jit, y = Diff_trunc)) +
+  geom_line(data = pred_df, aes(x = ngen, y = fit_lm), color = "blue") +
+  geom_line(data = pred_df, aes(x = ngen, y = fit_cens), linetype = "dashed") +
   geom_point(data = eds %>% filter(D), aes(shape = reach), 
-             position = pos, size = 2, stroke = 0.5, color = "black", fill = "gray") +
+             size = 2, stroke = 0.5, color = "black", fill = "gray") +
   geom_point(data = eds %>% filter(!D), aes(shape = reach), 
-             position = pos, size = 2.4, stroke = 0.2, color = "black", fill = "gray") +
+             size = 2.4, stroke = 0.2, color = "black", fill = "gray") +
   #geom_point(aes(shape = reach), position = pos, alpha = 0.6, size = 3, stroke = 1) +
   scale_shape_manual(values = c(24, 21)) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]), position = pos,
-                           fontface = "italic", size = 2.5, segment.size = 0.25, seed = 8,
+  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
+                           fontface = "italic", size = 2.5, segment.size = 0.25, seed = 6,
                            min.segment.length = 0.3) +
+  #geom_point(color = "red", size = 1) +
   geom_text(data = anno, x = 0.9, y = 21:22, aes(label = label), color = c("blue", "black"),
             hjust = 0, size = 2.5) +
   labs(x = "Number of Symbiodiniaceae genera", 
        y = "Intraspecific bleaching tolerance breadth\n(ED90–ED10; DHW)") +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none")
 figs3
 
-ggsave(filename = "figures/FigS3.png", plot = figs3, width = 100, height = 100, units = "mm")
+ggsave(filename = "figures/FigS3.png", plot = figs3, width = 90, height = 90, units = "mm")
 
 
 
@@ -1819,7 +1833,7 @@ p_uni_est <- ggplot(dat, aes(x = estimate, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in population density\n(log ratio)", y = "Change in\nbleaching threshold (°C)") +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 
 set.seed(3)
@@ -1846,7 +1860,7 @@ p_uni_ngen <- ggplot(dat, aes(x = ngen, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Number of symbiont genera", y = "Change in\nbleaching threshold (°C)") +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
   geom_point(alpha = 0.8) +
@@ -1872,7 +1886,7 @@ p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Initial population density\n(log [colonies / 10 m2])", 
        y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
   geom_point(alpha = 0.8) +
@@ -1897,7 +1911,7 @@ p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in colony size\n(log ratio)", y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
   geom_boxplot() +
@@ -1911,7 +1925,7 @@ p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "SCTLD susceptibility", y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 
 
@@ -2035,7 +2049,7 @@ p_part_est <- ggplot() +
     x = "Change in population density\n(log ratio)",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 set.seed(3)
 p_part_ngen <- ggplot() +
@@ -2066,7 +2080,7 @@ p_part_ngen <- ggplot() +
     x = "Number of symbiont genera",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 p_part_logd <- ggplot() +
   geom_point(
@@ -2094,7 +2108,7 @@ p_part_logd <- ggplot() +
   coord_cartesian(ylim = ylims) +
   labs(x = "Initial population density\n(log [colonies / 10 m2])", 
        y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 p_part_size <- ggplot() +
   geom_point(
@@ -2124,7 +2138,7 @@ p_part_size <- ggplot() +
     x = "Change in colony size\n(log ratio)",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 # ============================================================
 # 5) Plot ordered categorical predictor from visreg data
@@ -2154,7 +2168,8 @@ p_part_sus <- ggplot() +
     x = "SCTLD susceptibility",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic()
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 8.5))
 
 # ============================================================
 # 6) FINAL FIGURE
@@ -2162,12 +2177,12 @@ p_part_sus <- ggplot() +
 
 top_row <- plot_grid(
   p_uni_est, p_uni_ngen, p_uni_logd, p_uni_size, p_uni_sus,
-  nrow = 1, align = "hv"
+  nrow = 5, align = "hv", labels = c("A", "B", "C", "D", "E")
 )
 
 bottom_row <- plot_grid(
   p_part_est, p_part_ngen, p_part_logd, p_part_size, p_part_sus,
-  nrow = 1, align = "hv"
+  nrow = 5, align = "hv", labels = c("F", "G", "H", "I", "J")
 )
 
 
@@ -2197,13 +2212,13 @@ bottom_with_title <- plot_grid(
 )
 
 final_plot <- plot_grid(
-  top_with_title,
-  bottom_with_title,
-  ncol = 1
+  top_row,
+  bottom_row,
+  ncol = 2
 )
 
 final_plot
-ggsave(filename = "figures/FigS9.png", width = 330, height = 140, units = "mm", bg = "white")
+ggsave(filename = "figures/FigS9n.png", width = 130, height = 240, units = "mm", bg = "white")
 
 
 
