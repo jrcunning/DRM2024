@@ -1444,7 +1444,7 @@ net_clean$ngen_centered <- net_clean$ngen - 1
 #  Weight observations using the standard error of the degC response
 ols_model_adjusted_int <- lm(degC_w ~ estimate * ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted_int)
-visreg(ols_model_adjusted_int, xvar = "estimate", by = "ngen_centered")
+visreg::visreg(ols_model_adjusted_int, xvar = "estimate", by = "ngen_centered")
 
 ols_model_adjusted <- lm(degC_w ~ estimate + ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted)
@@ -1538,6 +1538,8 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   labs(x = "", y = "Change in bleaching threshold     \n2014–23 (°C)     ") +
   guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
          shape = guide_legend(order = 1, label.theme = element_text(size = 7)))
+
+cowplot::plot_grid(decomp + coord_flip(), p1, p2, ncol = 1, rel_heights = c(0.75,0.5,0.5))
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 
