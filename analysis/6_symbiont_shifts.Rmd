@@ -592,7 +592,7 @@ figs7 <- comp_std %>% left_join(ress) %>%
         strip.background = element_blank())
 figs7
 
-ggsave(filename = "figures/FigS7n.png", width = 120, height = 100, units = "mm")
+ggsave(filename = "figures/FigS7.png", width = 120, height = 100, units = "mm")
 
 ```
 
@@ -657,6 +657,7 @@ p1 <- ggplot(sym_shifts, aes(x = ngen, y = med)) +
   # annotate(geom = "text", x = -Inf, y = Inf, label = paste("p = ", round(mod_u_pval, 5)), 
   #          hjust = -0.1, vjust = 1.1) +
   theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 20)) +
   labs(x = "Number of symbiont genera", 
        y = "Change in symbiont genus composition\n(Hellinger distance)")
 ```
@@ -732,7 +733,8 @@ p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
   labs(x = "Change in symbiont genus composition\n(Hellinger distance)", 
        y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 20))
 p2
 ```
 
@@ -794,14 +796,15 @@ p3 <- ggplot(sym_shifts, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
   labs(x = "Number of symbiont genera", 
        y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 20))
 ```
 
 ## Final figure for proxy validation
 ```{r}
 # FINAL FIGURE for proxy validation
-cowplot::plot_grid(p1, p2, p3, nrow = 3, align = "h", labels = "AUTO")
+cowplot::plot_grid(p1, p2, p3, nrow = 3, align = "v", labels = "AUTO")
 
-ggsave(filename = "figures/FigS8n.png", width = 90, height = 240, units = "mm")
+ggsave(filename = "figures/FigS8.png", width = 90, height = 200, units = "mm")
 ```
 

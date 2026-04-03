@@ -94,6 +94,22 @@ abbrev_names <- as_tibble(species_names) %>%
   unite(genus, species, col = "name", sep = " ")
 abbrev_names <- c(abbrev_names$name)
 names(abbrev_names) <- names(species_names)
+abbrev_names2 <- as_tibble(species_names) %>%
+  separate(value, into = c("genus", "species"), sep = " ") %>%
+  mutate(
+    genus = case_when(
+      species == "sp." ~ paste0(substr(genus, 1, 3), "."),
+      TRUE ~ gsub("[a-z]+", ".", genus)
+    ),
+    species = case_when(
+      species == "sp." ~ species,
+      TRUE ~ paste0(substr(species, 1, 3), ".")
+    )
+  ) %>%
+  unite(genus, species, col = "name", sep = " ")
+abbrev_names2 <- c(abbrev_names2$name)
+names(abbrev_names2) <- names(species_names)
+
 
 # P-value labelling helper
 label_p_expr <- function(p, accuracy = 1e-4, digits = 4) {
@@ -925,19 +941,21 @@ ggplot(allg, aes(x = dhw, y = BL/(BL+NB))) +
 # depth by year by species
 ggplot(allf, aes(Depth, color = year)) +
   geom_density(bw = 7) +
-  facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 4) +
-  scale_color_manual(values = c("2014"="#F9C74F","2015"="#F6E84A","2023"="#F9844A","2024"="#90BE6D"), name = NULL) +
+  facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 5) +
+  scale_color_manual(values = c("2014"="#F9C74F","2015"="#F6E84A",
+                                "2023"="#F9844A","2024"="#90BE6D"), name = NULL) +
   labs(y = "Density", x = "Depth (ft)") +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(
-    legend.position = c(0.875, 0.06), legend.direction = "vertical", legend.key.height = grid::unit(0.35, "lines"),
+    legend.position = c(0.875, 0.06), legend.direction = "vertical", 
+    legend.key.height = grid::unit(0.35, "lines"),
     legend.text = element_text(size = 7),
     strip.background = element_blank(),
-    strip.text = element_text(size = 6, face = "italic", margin = margin(0,0,0,0)),
+    strip.text = element_text(size = 9, face = "italic", margin = margin(0,0,0,0)),
     axis.line = element_line(linewidth = 0.3), axis.ticks = element_line(linewidth = 0.3),
     legend.margin = margin(0,0,0,0)
   )
-ggsave(filename = "figures/FigS10.png", width = 120, height = 120, units = "mm")
+ggsave(filename = "figures/FigS10.png", width = 183, height = 120, units = "mm")
 
 # Changes in depth across years?
 # depth_summary <- allf %>%
@@ -1081,7 +1099,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   # Add year text labels
   geom_text(data = dhw_ranges,
            aes(x = maxdhw, y = c(0.80, 0.62, 0.96, 0.25), label = year),
-           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,0.2), size = 3) +
+           hjust = c(0,0,1,0), nudge_y = c(0,0,0,0), nudge_x = c(0,0,0,0.2), size = 3.2) +
   # Add line segments at ED50s
   geom_segment(data = slice(ed50conf, 1:4),
               aes(x = ed50, xend = ed50, y = 0.492, yend = -0.025), lty = c(1,1,1,2), lwd = 0.1) +
@@ -1098,7 +1116,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
                      labels = scales::label_percent()) +
   scale_color_gradient2(low = "forestgreen", mid = "yellow", high = "firebrick1", 
                         limits = c(0, 1), midpoint = 0.5) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none") +
   labs(x = "Degree Heating Weeks (°C-weeks)", y = "Bleaching prevalence") +
   coord_cartesian(clip = "off")
@@ -1160,10 +1178,10 @@ finaldegC24 <- degC %>%
 
 # Annotate bleaching response curves plot // Fig3a
 fig3a <- dhw.bleach.plot +
-  annotate("text", x = 11.5, y = 0.04, hjust = 0, size = 2, 
+  annotate("text", x = 11.5, y = 0.05, hjust = 0, size = 2.12, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
                           "= +", signif(finaldegC23$degC, 2), " °C")) +
-  annotate("text", x = 15.7, y = 0.04, hjust = 0, size = 2, fontface = "italic",
+  annotate("text", x = 15.7, y = 0.05, hjust = 0, size = 2.12, fontface = "italic",
            label = paste0("+", signif(ed50conf$ed50[[7]], 3), " DHW\n", 
                           "= +", signif(finaldegC24$degC, 2), " °C"))
 fig3a
@@ -1202,7 +1220,7 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
   geom_hline(aes(yintercept = 0.5), lty = 1, lwd = 0.1) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0), breaks = seq(0, 1, 0.25),
                      labels = scales::label_percent()) +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = c(0.8, 0.06),
         legend.direction = "vertical",
         legend.key.height = grid::unit(0.35, "lines"),
@@ -1216,8 +1234,8 @@ dhw.sp.res.24.2 <- subset(dhw.sp.res.24,
 
 spfig <- dhw.sp.bleach.plot.24 +
   scale_x_continuous(breaks = seq(0, 20, 4), labels = c(0, "", 8, "", 16, ""))+#, labels = rep("", 6)) +
-  scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, "", 1))+#, labels = rep("", 3)) +
-  facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 4) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), labels = c("0%", "", "100%"))+#, labels = rep("", 3)) +
+  facet_wrap(~Species, labeller = labeller(Species = abbrev_names), ncol = 5) +
   labs(color = "") +
   scale_color_manual(values = c(
   "2014" = "#F9C74F",  # golden yellow-orange
@@ -1225,18 +1243,21 @@ spfig <- dhw.sp.bleach.plot.24 +
   "2023" = "#F9844A",  # strong orange
   "2024" = "#90BE6D"   # muted green (coolest year)
 )) +
-  theme(legend.position = c(0.9, 0.06),
+  theme(legend.position = c(0.80, 0.075),
         legend.margin = margin(t = 0, b = 0, l = 0, r = 0),
+        legend.box.background = element_blank(),
+        legend.box = element_blank(),
         #axis.text = element_blank(),
         #axis.title = element_blank(),
         legend.title = element_text(size = 7, margin = margin(t = 0, b = 0, l = 0, r = 0)),
-        legend.text = element_text(size = 7),
+        legend.text = element_text(size = 6),
         strip.text = element_text(size = 6, margin = margin(t = 0, b = 0, l = 0, r = 0)),
         axis.line  = element_line(linewidth = 0.3),
         axis.ticks = element_line(linewidth = 0.3))
 
-fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.55, 0.45), align = "hv", labels = "AUTO")
-ggsave(filename = "figures/Fig3.png", width = 200, height = 100, units = "mm")
+fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.5, 0.5), align = "hv", labels = "AUTO")
+fig3
+ggsave(filename = "figures/Fig3.png", width = 183, height = 85, units = "mm")
 
 
 # Function to get ED50s (DHW's that cause 50% bleaching for each year for each species) AND
@@ -1495,29 +1516,28 @@ label_decomp <- sprintf(
 
 decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   geom_col(position = "stack", alpha = 1) +
-  geom_point(aes(y = degC_w, shape = "Observed change (±SE)"), size = 2) +
-  geom_errorbar(aes(ymin = degC_w - degC_w.se, ymax = degC_w + degC_w.se), width = 0) +
+  geom_point(aes(y = degC_w, shape = "Observed change (±SE)"), size = 1) +
+  geom_errorbar(aes(ymin = degC_w - degC_w.se, ymax = degC_w + degC_w.se), width = 0, linewidth = 0.2) +
   scale_x_discrete(labels = abbrev_names[as.character(out$Species)]) +
-  scale_y_continuous(limits = c(-0.73, 1.7), breaks = seq(-0.5, 1.5, 0.5), labels = c("", 0, "", 1, "")) +
+  scale_y_continuous(limits = c(-0.5, 1.6), breaks = seq(-0.5, 1.5, 0.5)) +
   scale_fill_manual(name = "Model-estimated drivers", 
                       labels = c("unexplained", "∆ pop. density", "# sym. genera"),
                       values = c( "#C0C0C0","#67a9cf", "#ef8a62")) +
   scale_shape_manual(name = "", values = 16) +
-  annotate("text", x = Inf, y = -Inf, hjust = 1, vjust = -0.4, label = label_decomp, size = 2.47) +
-  theme_classic() +
-  theme(plot.margin = margin(5.5, 5.5, -10, 5.5),
-        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 10),
-        axis.title.y = element_text(size = 12),
-        legend.text = element_text(size = 7),  # Decrease legend text size
-        legend.title = element_text(size = 8),  # Decrease legend title size
+  annotate("text", x = Inf, y = -Inf, hjust = 1, vjust = -0.4, label = label_decomp, size = 2.12) +
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, -12, 3.5),
+        axis.text.x = element_text(face = "italic", angle = 45, hjust = 1, size = 7),
         legend.key.size = unit(0.3, "cm"),  # Reduce legend key size
         legend.spacing.y = unit(-0.2, "cm")) +  # Reduce vertical space between legend items +
-  theme(legend.position = c(0.17, 0.9),
+  theme(legend.position = c(0.17, 0.85),
         legend.background = element_blank(),  # Transparent legend panel
-        legend.key = element_blank()) +
-  labs(x = "", y = "Change in bleaching threshold\n2014–23 (°C)") +
+        legend.key = element_blank(),
+        legend.title = element_text(size = 7),
+        legend.text = element_text(size = 6)) +
+  labs(x = "", y = "Change in bleaching threshold     \n2014–23 (°C)     ") +
   guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
-         shape = guide_legend(order = 1, label.theme = element_text(size = 8)))
+         shape = guide_legend(order = 1, label.theme = element_text(size = 7)))
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 
@@ -1571,19 +1591,19 @@ p1 <- ggplot(net_clean, aes(x = estimate, y = Adj_degC_Estimate)) +
             color = "#67a9cf", linewidth = 1.5, alpha = 1) +
   geom_ribbon(data = regression_line_estimate, aes(ymin = lo, ymax = hi, y = fit),
               alpha = 0.1) +
-  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_point(size = 2, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
   #geom_errorbar(aes(ymin = Adj_degC_Estimate - degC.se, ymax = Adj_degC_Estimate + degC.se), 
   #              width = 0, alpha = 0.7, lwd = 0.3) +
   #geom_errorbar(aes(xmin = estimate - SE, xmax = estimate + SE), width = 0, alpha = 0.7, lwd = 0.3) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 2.47, seed = 8) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names2[as.character(Species)]), max.overlaps = Inf,
+                           fontface = "italic", size = 2.1, seed = 8, segment.size = 0.1) +
   scale_x_continuous(labels = ~ paste0(round(100 * (exp(.x) - 1), 0), "%"), 
                      breaks = myticks2, limits = mylim, expand = c(0.01,0.01)) +
-  annotate("text", x = Inf, y = Inf, hjust = 1.2, vjust = 2,
+  annotate("text", x = Inf, y = Inf, hjust = 1.2, vjust = 2, size = 2.5,
            label = label_p_expr(estimate_pval), parse = TRUE) +
-  labs(x = "Change in population density (2014-2023)", 
-       y = "Modeled change in bleaching threshold\n(°C; adjusted for symbiont genera = 1)") +
-  theme_classic()
+  labs(x = "Change in population density", 
+       y = "Change in bleaching threshold     \n(°C; adj. for symbiont genera = 1)     ") +
+  theme_classic(base_size = 9)
 
 # Plot Effect of Ngen on Adjusted degC (Holding estimate = 0, with residuals)
 p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
@@ -1591,17 +1611,17 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
             color = "#ef8a62", linewidth = 1.5, alpha = 1) +
   geom_ribbon(data = regression_line_ngen, aes(ymin = lo, ymax = hi, y = fit, x = ngen),
               alpha = 0.1) +
-  geom_point(size = 3, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
+  geom_point(size = 2, alpha = 0.7, color = "#7F7F7F", stroke = 0) +
   #geom_errorbar(aes(ymin = Adj_degC_Ngen - degC.se, ymax = Adj_degC_Ngen + degC.se), 
   #              width = 0, alpha = 0.7, lwd = 0.3) +
-  ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
-                           fontface = "italic", size = 2.47, seed = 10) +
+  ggrepel::geom_text_repel(aes(label = abbrev_names2[as.character(Species)]), max.overlaps = Inf,
+                           fontface = "italic", size = 2.1, seed = 10, segment.size = 0.1, force = 0.1) +
   annotate("text", x = -Inf, y = Inf, hjust = -0.2, vjust = 2,
-           label = label_p_expr(ngen_pval), parse = TRUE) +
+           label = label_p_expr(ngen_pval), parse = TRUE, size = 2.5) +
   labs(x = "Number of symbiont genera", 
-       y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
+       y = "Change in bleaching threshold     \n(°C; adj. for density change = 0)     ") +
   scale_size_continuous(range = c(2, 5)) +
-  theme_classic()
+  theme_classic(base_size = 9)
 
 
 # ps <- cowplot::plot_grid(p1, p2, nrow = 1, labels = c("B", "C"))
@@ -1611,8 +1631,13 @@ p2 <- ggplot(net_clean, aes(x = Jittered_Ngen, y = Adj_degC_Ngen)) +
 # ggsave(filename = "figures/FigS5.png", plot = s5, width = 190, height = 200, units = "mm")
 
 
-cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
-ggsave(filename = "figures/Fig4.png", width = 300, height = 95, units = "mm")
+# cowplot::plot_grid(decomp, p1, p2, nrow = 1, rel_widths = c(1.5,1,1), labels = "AUTO")
+# ggsave(filename = "figures/Fig4n.png", width = 183, height = 60, units = "mm")
+
+cowplot::plot_grid(decomp, cowplot::plot_grid(p1, p2, labels = c("B","C"), label_size = 10), 
+                   rel_heights = c(0.5, 0.45), 
+                   nrow = 2, labels = "A", label_size = 10)
+ggsave(filename = "figures/Fig4.png", width = 125, height = 120, units = "mm")
 ```
 
 ### Sensitivity checks
@@ -1833,7 +1858,8 @@ p_uni_est <- ggplot(dat, aes(x = estimate, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in population density\n(log ratio)", y = "Change in\nbleaching threshold (°C)") +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 
 set.seed(3)
@@ -1860,7 +1886,8 @@ p_uni_ngen <- ggplot(dat, aes(x = ngen, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Number of symbiont genera", y = "Change in\nbleaching threshold (°C)") +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
   geom_point(alpha = 0.8) +
@@ -1886,7 +1913,8 @@ p_uni_logd <- ggplot(dat, aes(x = logdens2014, y = degC_w)) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Initial population density\n(log [colonies / 10 m2])", 
        y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
   geom_point(alpha = 0.8) +
@@ -1911,7 +1939,8 @@ p_uni_size <- ggplot(dat, aes(x = sizechange, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Change in colony size\n(log ratio)", y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
   geom_boxplot() +
@@ -1925,7 +1954,8 @@ p_uni_sus <- ggplot(dat, aes(x = sus_group, y = degC_w)) +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "SCTLD susceptibility", y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 
 
@@ -2049,7 +2079,8 @@ p_part_est <- ggplot() +
     x = "Change in population density\n(log ratio)",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 set.seed(3)
 p_part_ngen <- ggplot() +
@@ -2080,7 +2111,8 @@ p_part_ngen <- ggplot() +
     x = "Number of symbiont genera",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 p_part_logd <- ggplot() +
   geom_point(
@@ -2107,8 +2139,9 @@ p_part_logd <- ggplot() +
   ) +
   coord_cartesian(ylim = ylims) +
   labs(x = "Initial population density\n(log [colonies / 10 m2])", 
-       y = "Change in\nbleaching threshold (°C)" ) +
-  theme_classic(base_size = 9)
+       y = "Modeled change in\nbleaching threshold (°C)" ) +
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 p_part_size <- ggplot() +
   geom_point(
@@ -2138,7 +2171,8 @@ p_part_size <- ggplot() +
     x = "Change in colony size\n(log ratio)",
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
-  theme_classic(base_size = 9)
+  theme_classic(base_size = 9) +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 # ============================================================
 # 5) Plot ordered categorical predictor from visreg data
@@ -2169,7 +2203,7 @@ p_part_sus <- ggplot() +
     y = "Modeled change in\nbleaching threshold (°C)"
   ) +
   theme_classic(base_size = 9) +
-  theme(plot.margin = margin(5.5, 5.5, 5.5, 8.5))
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 10))
 
 # ============================================================
 # 6) FINAL FIGURE
@@ -2185,32 +2219,6 @@ bottom_row <- plot_grid(
   nrow = 5, align = "hv", labels = c("F", "G", "H", "I", "J")
 )
 
-
-
-title_grob <- function(text) {
-  ggdraw() +
-    draw_label(
-      text,
-      x = 0, y = 0.5,
-      hjust = 0, vjust = 0.5,
-      fontface = "bold"
-    )
-}
-
-top_with_title <- plot_grid(
-  title_grob("A.  Univariate relationships"),
-  top_row,
-  ncol = 1,
-  rel_heights = c(0.15, 1)
-)
-
-bottom_with_title <- plot_grid(
-  title_grob("B.  Partial effects from full model (all predictors included)"),
-  bottom_row,
-  ncol = 1,
-  rel_heights = c(0.15, 1)
-)
-
 final_plot <- plot_grid(
   top_row,
   bottom_row,
@@ -2218,7 +2226,7 @@ final_plot <- plot_grid(
 )
 
 final_plot
-ggsave(filename = "figures/FigS9n.png", width = 130, height = 240, units = "mm", bg = "white")
+ggsave(filename = "figures/FigS9.png", width = 110, height = 240, units = "mm", bg = "white")
 
 
 
@@ -2306,13 +2314,14 @@ RR <- p90andsmall %>%
   geom_ribbon(aes(ymin = asymp.LCL.x, ymax = asymp.UCL), alpha = 0.1, lwd = 0) +
   ylim(0, 1) +
   labs(x = "Colony width (cm)", y = "Probability of bleaching at 15 DHWs") +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = "none",
-        strip.text = element_text(face = "italic", hjust = 0),
+        strip.text = element_text(face = "italic", size = 9),
         strip.background = element_blank()))
+sizeplot
 
-ggsave(filename = "figures/FigS10.png", plot = sizeplot,
-       width = 120, height = 100, units = "mm")
+ggsave(filename = "figures/FigS11.png", plot = sizeplot,
+       width = 120, height = 120, units = "mm")
 
 
 # Sanity checks for size effects
@@ -2338,16 +2347,16 @@ allw <- allf %>%
 
 sizefreq <- ggplot(allw, aes(x = log(Width2), fill = factor(year), color = factor(year))) + 
   #geom_histogram(aes(y = ..density..), alpha = 0.4, position = "identity") +
-  geom_density(alpha = 0.4) + 
+  geom_density(alpha = 0.3) + 
   facet_wrap(~Species, scales = "free",  labeller = labeller(Species = abbrev_names)) + 
   scale_fill_brewer(palette = "Set1") +
   scale_color_brewer(palette = "Set1") +
   scale_x_continuous(breaks = log(c(4, 16, 64, 256)), expand = expansion(mult = c(0.05, 0.1)),
                      labels = c(4, 16, 64, 256)) +
   labs(x = "Log Colony Width (cm)", y = "Density", fill = "Year", color = "Year") +
-  theme_classic() +
+  theme_classic(base_size = 9) +
   theme(legend.position = c(0.8, 0.06),
-        strip.text = element_text(face = "italic", hjust = 0),
+        strip.text = element_text(face = "italic", size = 9),
         strip.background = element_blank())
 
 # Fit model
@@ -2384,7 +2393,9 @@ sizefreq <- sizefreq +
             aes(x = Inf, y = Inf, label = label), 
             parse = TRUE, vjust = 4, hjust = 1, size = 3, color = "#00BA38") 
 
-ggsave("figures/FigS11.png", plot = sizefreq, width = 220, height = 220, units = "mm")
+sizefreq
+
+ggsave("figures/FigS12.png", plot = sizefreq, width = 183, height = 183, units = "mm")
 ```
 
 
