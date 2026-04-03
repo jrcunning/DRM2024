@@ -1255,7 +1255,8 @@ spfig <- dhw.sp.bleach.plot.24 +
         axis.line  = element_line(linewidth = 0.3),
         axis.ticks = element_line(linewidth = 0.3))
 
-fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.5, 0.5), align = "hv", labels = "AUTO")
+fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.5, 0.5), 
+                           align = "hv", labels = "AUTO", label_size = 10)
 fig3
 ggsave(filename = "figures/Fig3.png", width = 183, height = 85, units = "mm")
 
