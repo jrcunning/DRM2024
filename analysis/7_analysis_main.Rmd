@@ -1411,8 +1411,8 @@ sp.degC.w <- sp.ed50s %>%
          degC_w.se = sqrt((se/ed50)^2 + (mean_slope_se/mean_slope)^2) * abs(degC_w))
 # PDIV and PFUR get NaN for SE because ∆ED50 is zero. assign these SE values to lowest defined SE value.
 sp.degC.w %>% arrange(degC_w.se)
-sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0444 # lowest value non PDIV/PFUR
-sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0444 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0447 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0447 # lowest value non PDIV/PFUR
 
 write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 ```
@@ -1540,7 +1540,7 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
          shape = guide_legend(order = 1, label.theme = element_text(size = 7)))
 
-cowplot::plot_grid(decomp + coord_flip(), p1, p2, ncol = 1, rel_heights = c(0.75,0.5,0.5))
+#cowplot::plot_grid(decomp + coord_flip(), p1, p2, ncol = 1, rel_heights = c(0.75,0.5,0.5))
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 
