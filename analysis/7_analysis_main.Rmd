@@ -833,7 +833,7 @@ mod1 <- lm(Diff_trunc ~ depthR + ngen,
            data = depth_range_sp)
 summary(mod1)
 hist(cooks.distance(mod1))
-visreg(mod1, xvar = "depthR")  
+visreg::visreg(mod1, xvar = "depthR")  
 # depthRange is not significant. has slight trend, but appears to be driven by ACER
 
 # Retest on the rest of the data, without ACER
@@ -841,7 +841,7 @@ depth_range_sp_noACER <- filter(depth_range_sp, Species != "ACER")
 mod2 <- lm(Diff_trunc ~ depthR + ngen,
            data = depth_range_sp_noACER )
 summary(mod2)
-visreg(mod2, xvar = "depthR")
+visreg::visreg(mod2, xvar = "depthR")
 # depthRange has no effect at all
 ```
 
@@ -869,7 +869,7 @@ spp_counts <- all1 %>%
 # Which species are included and what are their counts
 spp_to_include <- spp_counts %>%
   group_by(Species) %>%
-  dplyr::filter(min(n) >= 10)  # 20 is a good cutoff
+  dplyr::filter(min(n) >= 25)  # 20 is a good cutoff
 
 spp_to_include %>%
   ggplot(aes(x = year, y = n)) +
@@ -1046,9 +1046,9 @@ bleach50
 
 # Get bootstrap confidence intervals for ED50s and ∆ED50s across years
 # set.seed(1)
-# boot.outnull <- bootMer(dhw.mod24.depth, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
-#                     seed = 123, parallel = "multicore", ncpus = 20)
-# saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
+boot.outnull <- bootMer(dhw.mod24.depth, FUN = ed50s.fun_fast, nsim = 100, re.form = NULL,
+                    seed = 123, parallel = "multicore", ncpus = 20)
+saveRDS(boot.outnull, file = "data/processed/boot.outnull.rds")
 boot.outnull <- readRDS(file = "data/processed/boot.outnull.rds")
 ## Get confidence intervals from Bootstrap
 lower <- apply(boot.outnull$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -1255,7 +1255,8 @@ spfig <- dhw.sp.bleach.plot.24 +
         axis.line  = element_line(linewidth = 0.3),
         axis.ticks = element_line(linewidth = 0.3))
 
-fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.5, 0.5), align = "hv", labels = "AUTO")
+fig3 <- cowplot::plot_grid(fig3a, spfig, nrow = 1, rel_widths = c(0.5, 0.5), 
+                           align = "hv", labels = "AUTO", label_size = 10)
 fig3
 ggsave(filename = "figures/Fig3.png", width = 183, height = 85, units = "mm")
 
@@ -1344,9 +1345,9 @@ sp.bleach50.24 <- ed50s.fun_fast_sp(dhw.sp.mod.24.depth)
 # Bootstrap ED50s for SE/confidence intervals
 ## re.form = NA: does not account for random effects (conf interval), re.form = NULL: does (prediction interval)
 # https://stackoverflow.com/questions/67098467/on-the-predict-mermod-function-arguments
-# sp.boot.out.24 <- bootMer(dhw.sp.mod.24.depth, FUN = ed50s.fun_fast_sp, nsim = 80, seed = 123, re.form = NULL,
-#                           parallel = "multicore", ncpus = 8)
-# saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
+sp.boot.out.24 <- bootMer(dhw.sp.mod.24.depth, FUN = ed50s.fun_fast_sp, nsim = 100, seed = 123, re.form = NULL,
+                          parallel = "multicore", ncpus = 20)
+saveRDS(sp.boot.out.24, file = "data/processed/sp.boot.out.24.rds")
 sp.boot.out.24 <- readRDS(file = "data/processed/sp.boot.out.24.rds")
 ## Get confidence intervals from Bootstrap
 sp.lower.24 <- apply(sp.boot.out.24$t, 2, function(x) as.numeric(quantile(x, probs=.025, na.rm=TRUE)))
@@ -1410,8 +1411,8 @@ sp.degC.w <- sp.ed50s %>%
          degC_w.se = sqrt((se/ed50)^2 + (mean_slope_se/mean_slope)^2) * abs(degC_w))
 # PDIV and PFUR get NaN for SE because ∆ED50 is zero. assign these SE values to lowest defined SE value.
 sp.degC.w %>% arrange(degC_w.se)
-sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0444 # lowest value non PDIV/PFUR
-sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0444 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0447 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0447 # lowest value non PDIV/PFUR
 
 write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 ```
@@ -1444,7 +1445,7 @@ net_clean$ngen_centered <- net_clean$ngen - 1
 #  Weight observations using the standard error of the degC response
 ols_model_adjusted_int <- lm(degC_w ~ estimate * ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted_int)
-visreg(ols_model_adjusted_int, xvar = "estimate", by = "ngen_centered")
+visreg::visreg(ols_model_adjusted_int, xvar = "estimate", by = "ngen_centered")
 
 ols_model_adjusted <- lm(degC_w ~ estimate + ngen_centered, data = net_clean, weights = 1/degC_w.se^2)
 summary(ols_model_adjusted)
@@ -1538,6 +1539,8 @@ decomp <- ggplot(out, aes(x = Species, y = value, fill = name)) +
   labs(x = "", y = "Change in bleaching threshold     \n2014–23 (°C)     ") +
   guides(fill = guide_legend(ncol = 1, override.aes = list(shape = NA)),
          shape = guide_legend(order = 1, label.theme = element_text(size = 7)))
+
+#cowplot::plot_grid(decomp + coord_flip(), p1, p2, ncol = 1, rel_heights = c(0.75,0.5,0.5))
 
 # Create partial residual effect plots showing density changes and symbiont diversity effects while controlling for the other predictor
 
