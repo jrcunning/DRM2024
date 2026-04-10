@@ -680,16 +680,16 @@ hist(cooks.distance(mod1))    #some highly influential observations, expected du
 
 # Robust regression with Hellinger dist (med) + density change (estimate) 
 ## Robust to outliers for small sample size (n=9)
-mod_rob <- MASS::rlm(
+mod1_rob <- MASS::rlm(
   degC_w ~ estimate + med,
   data = sym_shifts,
   weights = 1 / degC_w.se^2,
   psi = psi.huber,  # default; can also try psi.bisquare
   maxit = 100
 )
-summary(mod_rob)
-mod_rob_ftest <- sfsmisc::f.robftest(mod_rob, var = "med")
-mod_rob_pval <- mod_rob_ftest$p.value
+summary(mod1_rob)
+mod1_rob_ftest <- sfsmisc::f.robftest(mod1_rob, var = "med")
+mod1_rob_pval <- mod1_rob_ftest$p.value
 
 # adjusted response on the response scale
 sym_shifts <- sym_shifts %>%
@@ -706,7 +706,7 @@ regression_line_med <- tibble(
 )
 
 # # approximate SE/ribbon for visualization
-V <- vcov(mod_rob)
+V <- vcov(mod1_rob)
 X <- cbind(1, med_seq)
 colnames(X) <- c("(Intercept)", "med")
 V_sub <- V[c("(Intercept)", "med"), c("(Intercept)", "med")]
@@ -752,6 +752,11 @@ sym_shifts$ngen_centered <- sym_shifts$ngen - 1
 mod2 <- lm(degC_w ~ estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
 summary(mod2)
 mod2_pval <- broom::tidy(mod2)[3,5]
+
+mod2_rob <- rlm(degC_w ~ estimate + ngen_centered, data = sym_shifts, weights = 1/degC_w.se^2)
+summary(mod2_rob)
+mod2_rob_ftest <- sfsmisc::f.robftest(mod2_rob, var = "ngen_centered")
+mod2_rob_pval <- mod2_rob_ftest$p.value
 
 # Partition variance
 
