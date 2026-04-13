@@ -1180,10 +1180,10 @@ finaldegC24 <- degC %>%
 fig3a <- dhw.bleach.plot +
   annotate("text", x = 11.6, y = 0.05, hjust = 0, size = 2.12, 
            label = paste0("+", signif(ed50conf$ed50[[6]], 2), " DHW\n", 
-                          "= +", signif(finaldegC23$degC, 2), " °C")) +
+                          "= +", signif(finaldegC23$degC, 1), " °C")) +
   annotate("text", x = 15.5, y = 0.05, hjust = 0, size = 2.12, fontface = "italic",
            label = paste0("+", signif(ed50conf$ed50[[7]], 3), " DHW\n", 
-                          "= +", signif(finaldegC24$degC, 3), " °C"))
+                          "= +", signif(finaldegC24$degC, 2), " °C"))
 fig3a
 #ggsave(filename = "figures/Fig3.png", width = 100, height = 90, units = "mm")
 
