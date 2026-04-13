@@ -5,6 +5,12 @@ date: "2026-02-26"
 output: html_document
 ---
 ```{r}
+library(tidyverse)
+library(janitor)
+library(phyloseq)
+library(stringr)
+library(readxl)
+
 # Create species labeller
 species_names <- c(
   AAGA = "Agaricia agaricites",
@@ -79,11 +85,7 @@ names(abbrev_names) <- names(species_names)
 
 # Process ITS2 data
 ```{r}
-library(tidyverse)
-library(janitor)
-library(phyloseq)
-library(stringr)
-library(readxl)
+
 
 ## ============================================================
 ## 1) Read + prep metadata
@@ -684,7 +686,7 @@ mod1_rob <- MASS::rlm(
   degC_w ~ estimate + med,
   data = sym_shifts,
   weights = 1 / degC_w.se^2,
-  psi = psi.huber,  # default; can also try psi.bisquare
+  psi = MASS::psi.huber,  # default; can also try psi.bisquare
   maxit = 100
 )
 summary(mod1_rob)
@@ -694,7 +696,7 @@ mod1_rob_pval <- mod1_rob_ftest$p.value
 # adjusted response on the response scale
 sym_shifts <- sym_shifts %>%
   mutate(
-    Adj_degC_med = degC_w - coef(mod_rob)[["estimate"]] * estimate
+    Adj_degC_med = degC_w - coef(mod1_rob)[["estimate"]] * estimate
   )
 
 # fitted line holding estimate = 0
@@ -702,7 +704,7 @@ med_seq <- seq(0, max(sym_shifts$med, na.rm = TRUE), length.out = 100)
 # 
 regression_line_med <- tibble(
   med = med_seq,
-  fit = coef(mod_rob)[["(Intercept)"]] + coef(mod_rob)[["med"]] * med_seq
+  fit = coef(mod1_rob)[["(Intercept)"]] + coef(mod1_rob)[["med"]] * med_seq
 )
 
 # # approximate SE/ribbon for visualization
@@ -730,7 +732,7 @@ p2 <- ggplot(sym_shifts, aes(x = med, y = Adj_degC_med)) +
   #          hjust = -0.1, vjust = 1.1) +
   ggrepel::geom_text_repel(aes(label = abbrev_names[as.character(Species)]),
                            fontface = "italic", size = 3, seed = 8) +
-  labs(x = "Change in symbiont genus composition\n(Hellinger distance)", 
+  labs(x = "Change in symbiont genus composition", 
        y = "Modeled change in bleaching threshold\n(°C; adjusted for density change = 0)") +
   scale_size_continuous(range = c(2, 5)) +
   theme_classic(base_size = 9) +
