@@ -204,7 +204,7 @@ sst_all <- sst_all[[which(keep)]]
 
 # Crop & mask to reef hull 
 # Clip interpolated raster to just area of hull/polygon surrounding the reef tract
-reef_hull <- readRDS("data/spatial/reef_hull.rds")
+reef_hull <- readRDS("data/processed/reef_hull.rds")
 
 sst_all <- crop(sst_all, vect(reef_hull))
 sst_all <- mask(sst_all, vect(reef_hull))
@@ -219,7 +219,7 @@ reef_cells <- which(!is.na(values(sst_all[[1]])))
 # coords of the SST cells you are modeling
 xy_sst <- terra::xyFromCell(sst_all, reef_cells)
 # load pixel grid raster (any DHW product used in analysis)
-reef_pixel_grid <- rast("data/spatial/reef_pixel_grid.tif")
+reef_pixel_grid <- rast("data/processed/reef_pixel_grid.tif")
 # corresponding cell ids on reef_pixel_grid
 reefgrid_cell <- terra::cellFromXY(reef_pixel_grid, xy_sst)
 
@@ -230,7 +230,7 @@ clim_file <- "data/coraltemp/ct5km_climatology_v3.1.nc"
 mmm_full <- rast(clim_file, subds = "sst_clim_mmm")
 
 # crop/mask MMM to the same reef-hull region as SST
-reef_hull <- readRDS("data/spatial/reef_hull.rds")
+reef_hull <- readRDS("data/processed/reef_hull.rds")
 mmm_crop <- crop(mmm_full, vect(reef_hull))
 mmm_crop <- mask(mmm_crop, vect(reef_hull))
 

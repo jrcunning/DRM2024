@@ -43,7 +43,7 @@ all_survey_pts <- sf::st_as_sf(x = all_survey_pts0, coords = c('Longitude', 'Lat
 reef_hull <- sf::st_concave_hull(sf::st_union(all_survey_pts), ratio = 0.09)
 reef_hull <- sf::st_buffer(reef_hull, dist = 0.015)
 reef_hull <- reef_hull %>% sf::st_set_crs(4326)
-saveRDS(reef_hull, "data/spatial/reef_hull.rds")
+saveRDS(reef_hull, "data/processed/reef_hull.rds")
 all_survey_pts <- all_survey_pts %>% sf::st_set_crs(4326)
 
 

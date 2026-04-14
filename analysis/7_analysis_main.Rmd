@@ -507,7 +507,7 @@ idw.spp <- raster::interpolate(samplegrid, idw.model)
 # my_hull <- st_concave_hull(st_union(pts1), ratio = 0.09)
 # my_hull <- st_buffer(my_hull, dist = 0.015)
 # my_hull <- my_hull %>% st_set_crs(4326)
-reef_hull <- readRDS("data/spatial/reef_hull.rds")
+reef_hull <- readRDS("data/processed/reef_hull.rds")
 idw.spp.reef <- raster::mask(idw.spp, (as_Spatial(reef_hull)))
 #saveRDS(my_hull, "data/spatial/my_hull.rds")
 

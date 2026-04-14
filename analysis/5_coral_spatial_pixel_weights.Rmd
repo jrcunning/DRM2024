@@ -39,6 +39,7 @@ df23f <- df23 %>%
   ungroup()
 
 # must contain lat, lon, Species, and count
+reef_pixel_grid <- rast("data/processed/reef_pixel_grid.tif")
 pts23 <- vect(df23f, geom = c("Longitude", "Latitude"), crs = crs(reef_pixel_grid))
 
 # extract pixel ID for each observed coral
