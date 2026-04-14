@@ -174,7 +174,7 @@ dhw.bleach.plot <- ggplot(as.tibble(dhw.res2), aes(x = dhw, y = prob, group = ye
   ) +
   geom_text(data = ed50conf %>% slice(2:4),
             aes(x = ed50, y = c(0.04, 0.02, 0.0), color = year,
-                label = paste0(" + ", round(ed50 - 2.44, 1), " DHW")),
+                label = paste0(" + ", round(ed50 - 2.60, 1), " DHW")),
             hjust = 0, size = 2.5, fontface = "italic")
 
 dhw.bleach.plot
