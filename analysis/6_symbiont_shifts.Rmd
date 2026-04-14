@@ -101,7 +101,7 @@ md <- read_csv("data/sym_composition/sym_metadata.csv") %>%
   )
 
 ## ============================================================
-## 2) Read ITS2 VARIANTS (your original method, with minimal QC)
+## 2) Read ITS2 VARIANTS
 ##    - builds phyloseq with DIV x sample counts + clade taxonomy
 ## ============================================================
 

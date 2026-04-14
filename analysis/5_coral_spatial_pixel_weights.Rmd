@@ -130,7 +130,7 @@ site_pix_all <- site_sp_full %>%
   group_by(Site, pixel) %>%
   summarise(dens_m2_all = sum(dens_m2), .groups = "drop")
 
-# 5) aggregate to pixel (same logic as your species weights: mean across sites)
+# 5) aggregate to pixel (mean across sites)
 pixel_all <- site_pix_all %>%
   group_by(pixel) %>%
   summarise(dens_m2_all = mean(dens_m2_all), .groups = "drop")

@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Coral population density analysis from DRM survey data"
 output: html_document
 date: "2024-05-23"
 ---
@@ -148,8 +148,6 @@ spp_to_include <- df %>%
 ##   - BLACK text: discrete GLMM (2014 vs 2023 only)
 ##   - BLUE  text: population-average GAM smooth (2014 vs 2023)
 ##
-## Uses packages you already have loaded/available: dplyr, tidyr, lme4, emmeans, ggplot2
-##
 ## Requires:
 ##   df         = raw data with year, Species, Site, Transect, Subregion
 ##   dens2_gam  = data used to fit mod_smooth, with year_num, Species (factor), sp_sub (factor)
@@ -231,14 +229,10 @@ res_year2d <- res_year2d %>%
   )
 
 # Fit a GAM on the RESPONSE SCALE to the black points:
-# - family = gaussian() because we're smoothing estimated means, not raw counts
 # - species-specific smooths: s(year_num, Species, bs="fs")
-# - weights: inverse-variance weighting from emmeans SEs
-k_blue <- 6  # tweak if you want more/less wiggle; this is usually plenty for annual series
+k_blue <- 6  # tweak for more/less wiggle
 
 mod_blued <- mgcv::bam(
-  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2), #originalsmooth
-  #rate ~ s(year_num, Species, bs = "fs", k = 7, m = 2)    #smooth2
   rate ~ s(year_num, Species, bs = "fs", k = 10, m = 1),   #smooth3
   data    = res_year2d,
   family  = "gaussian",
@@ -246,7 +240,7 @@ mod_blued <- mgcv::bam(
   method  = "fREML"
 )
 
-# Prediction grid (same years for nice smooth curve)
+# Prediction grid 
 year_gridd <- seq(min(res_year2d$year_num, na.rm = TRUE), max(res_year2d$year_num, na.rm = TRUE), by = 1)
 
 pred_blued <- tidyr::expand_grid(
@@ -264,10 +258,7 @@ pct_blue2d <- pred_blued %>%
   dplyr::mutate(pct_smooth = 100 * (y2023 / y2014 - 1)) %>%
   dplyr::select(Species, pct_smooth)
 
-# BLACK %Δ remains from your discrete-year GLMM (res_2014_2023 / pct_black)
-# We'll assume you already computed:
-#   res_2014_2023: Species, pct_2yr
-# If not, re-create quickly from res_year2:
+# BLACK %Δ remains from discrete-year GLMM (res_2014_2023 / pct_black)
 res_2014_2023d <- res_year2d %>%
   dplyr::filter(year_chr %in% c("2014","2023")) %>%
   dplyr::select(Species, year_chr, rate) %>%
@@ -405,48 +396,4 @@ write.csv(densdiffs_smothd, "data/processed/densdiffs_smooth.csv", row.names = F
 
 
 
-
-
-
-# Look at 2023 densities
-```{r}
-mydf <- filter(dens, year == "2023", Species %in% c("PSTR", "SSID", "MCAV", "CNAT", "PAST", "SINT", "DLAB"),
-               Subregion %in% c("Upper Keys", "Middle Keys", "Lower Keys", "Tortugas", "Marquesas")) %>%
-  mutate(Subregion = factor(Subregion, levels = c("Tortugas", "Marquesas", "Lower Keys", "Middle Keys", "Upper Keys")))
-mod23 <- glm(n ~ Species * Subregion, family = "poisson", data = mydf)
-
-res <- emmeans(mod23, specs = c("Species", "Subregion"), type = "response")
-
-as_tibble(res) %>%
-  filter(!(Species == "DLAB" & Subregion == "Marquesas")) %>%
-  ggplot(aes(x = Subregion, y = rate/10)) +
-  geom_point(pch = 1) +
-  geom_errorbar(aes(ymin = asymp.LCL/10, ymax = asymp.UCL/10), width = 0.05) +
-  facet_grid(Species~., scales = "free") +
-  expand_limits(y = 0) +
-  labs(y = "Colonies per m2") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-
-mod24 <- glmer(n ~ Species + (1|Species:Subregion), family = "poisson", data = mydf)
-overall <- emmeans(mod24, specs = "Species", type = "response")
-
-write_csv(as_tibble(overall), "test.csv")
-resoverall <- as_tibble(overall) %>%
-  mutate(rate_site = rate * 4,
-         rate_site_upper = asymp.UCL * 4,
-         rate_site_lower = asymp.LCL * 4,
-         rate_30 = 30/rate_site,
-         lower_30 = 30/rate_site_lower,
-         upper_30 = 30/rate_site_upper)
-
-write_csv(resoverall, "overall_densities.csv")
-
-ressubregional <- as_tibble(res) %>%
-    mutate(perm2 = rate/10,
-         pertransect = rate, 
-         perdrmsite = rate * 4,
-         nsites_for160 = 160/perdrmsite)
-write_csv(ressubregional, "subregional_densities.csv")
-```
 

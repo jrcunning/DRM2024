@@ -164,7 +164,7 @@ dhw_daily <- dhw_daily %>%
   mutate(
     date  = as.Date(date),
     week  = isoweek(date),
-    Week2 = cut(week, breaks = seq(1, 53, by = 2)),   # matches your definition
+    Week2 = cut(week, breaks = seq(1, 53, by = 2)), 
     dhw_used = coalesce(mean_dhw_smooth, mean_dhw),
     t_num = as.numeric(date)
   ) %>%
@@ -605,7 +605,7 @@ fits <- df23f %>%
 sp_levels <- levels(df23f$Species)
 names(fits) <- sp_levels
 
-# AIC per species (optional; mirrors your AIC(m3) call but per-species)
+# AIC per species 
 aic_tbl <- tibble(
   Species = sp_levels,
   AIC = map_dbl(fits, AIC)
@@ -719,13 +719,13 @@ eds <- imap_dfr(
     # censoring indicator: did we reach 90% bleaching (ED10_NB) by 21 DHW?
     reach = ED10_raw <= maxdhw,
 
-    # keep your truncated ED10 for plotting if you want
+    # keep truncated ED10 for plotting
     Estimate_ED10_trunc = pmin(ED10_raw, maxdhw),
     
     # Raw uncensored range
     Range_raw = Estimate_ED10 - Estimate_ED90,
 
-    # your plotted "Diff" (bounded proxy) if you still want it
+    # plotted "Diff" (bounded proxy)
     Diff_trunc = Estimate_ED10_trunc - Estimate_ED90,
 
     # censored response for proper model:
