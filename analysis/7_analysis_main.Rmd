@@ -1411,8 +1411,8 @@ sp.degC.w <- sp.ed50s %>%
          degC_w.se = sqrt((se/ed50)^2 + (mean_slope_se/mean_slope)^2) * abs(degC_w))
 # PDIV and PFUR get NaN for SE because ∆ED50 is zero. assign these SE values to lowest defined SE value.
 sp.degC.w %>% arrange(degC_w.se)
-sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0447 # lowest value non PDIV/PFUR
-sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0447 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PDIV"), "degC_w.se"] <- 0.0434 # lowest value non PDIV/PFUR
+sp.degC.w[which(sp.degC.w$Species == "PFUR"), "degC_w.se"] <- 0.0434 # lowest value non PDIV/PFUR
 
 write_csv(sp.degC.w, file = "data/processed/sp.degC.w.csv")
 ```

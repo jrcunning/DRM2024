@@ -201,7 +201,7 @@ outnew <- variants %>%
 
 ## 
 
-write_csv(outnew, file = "data/processed/symbiont_composition.csv")
+#write_csv(outnew, file = "data/processed/symbiont_composition.csv")
 
 ```
 
@@ -328,7 +328,7 @@ keepers <- dat %>%
   pull(Species)
 
 dat_keep <- dat %>% filter(Species %in% keepers)
-write_csv(dat_keep, "data/processed/sym_metadata_processed.csv")
+#write_csv(dat_keep, "data/processed/sym_metadata_processed.csv")
 dat_keep %>% count(era)
 dat_keep %>% count(Species, era)
 
